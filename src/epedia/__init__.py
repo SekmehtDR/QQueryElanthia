@@ -1,3 +1,5 @@
-"""epedia: a local Elanthipedia Q&A assistant for DragonRealms."""
+"""QQueryElanthia (package `epedia`): Fennick, a local storyteller's guide to DragonRealms."""
 
-__version__ = "0.1.0"
+# The single source of truth for the version: pyproject.toml reads it from here, and so do the CLI, the web page
+# and the User-Agent the wiki sees.
+__version__ = "1.0.0"

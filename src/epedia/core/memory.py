@@ -9,7 +9,7 @@ import uuid
 
 from ..util import utcnow_iso
 
-_CITATION = re.compile(r"\s*\[\d+\](?:\[\d+\])*")
+_CITATION = re.compile(r"\s*\[\d+\*?\](?:\[\d+\*?\])*")  # "[2]" cited by the model, "[2*]" matched automatically
 MAX_HISTORY_CHARS = 1500
 
 

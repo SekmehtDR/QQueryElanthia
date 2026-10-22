@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qqueryelanthia"
-version = "0.1.0"
+dynamic = ["version"]  # read from epedia.__version__ (see [tool.setuptools.dynamic])
 description = "QQueryElanthia: Fennick, a local storyteller's guide to DragonRealms, answering from Elanthipedia (RAG, Ollama-backed)"
 requires-python = ">=3.14"
 dependencies = [
@@ -21,17 +21,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "pillow>=10"]  # pillow only for tools/make_fennick.py
 
 [project.scripts]
 qqueryelanthia = "epedia.cli:app"
 epedia = "epedia.cli:app"  # short alias; the Python package keeps its internal name
 
+[tool.setuptools.dynamic]
+version = { attr = "epedia.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-epedia = ["**/*.yaml", "**/*.html"]
+epedia = ["**/*.yaml", "**/*.html", "**/*.png", "**/*.js"]
 
 [tool.ruff]
 line-length = 110

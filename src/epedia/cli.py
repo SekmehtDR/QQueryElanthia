@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from typing import Optional
 
 import typer
@@ -59,7 +60,21 @@ def main(
 
 @app.command()
 def version() -> None:
-    console.print(f"epedia {__version__}")
+    """Print the version, source commit, models and index size."""
+    from .buildinfo import build_info
+
+    s = settings()
+    # Printing a version must not create a database as a side effect: with no database yet, use an empty one.
+    conn = db.connect(s, readonly=True) if s.db_path.exists() else sqlite3.connect(":memory:")
+    try:
+        info = build_info(s, conn)
+    finally:
+        conn.close()
+    name = s.persona.name if s.persona.enabled else "QQueryElanthia"
+    commit = f" ({info['commit']})" if info["commit"] else ""
+    console.print(f"{name} v{__version__}{commit}  [QQueryElanthia]", highlight=False)
+    console.print(f"chat model {info['chat_model']}, embeddings {info['embed_model']}, source {info['source']}")
+    console.print(f"{info['pages']:,} pages indexed, last updated {info['last_sync'] or 'never'}")
 
 
 @app.command()

@@ -111,7 +111,14 @@ SHAPE_HINTS: dict[str, str] = {
     for kind, hint in _SHAPE_HINTS_PLAIN.items()
 }
 
-ANSWER_TAIL = """Passages:
+CITE_REMINDER = (
+    "Reminder: end EVERY sentence, list item and table row that states a fact with its [n], not just the first one. "
+    "The reader hovers each [n] to see exactly where that line came from."
+)
+
+ANSWER_TAIL = CITE_REMINDER + """
+
+Passages:
 {passages}"""
 
 # Closing line appended by the program (not written by the model, which cannot be trusted to keep to the list of
@@ -157,6 +164,8 @@ How to answer:
 - Cite sources as passage numbers in square brackets at the end of the line or sentence they support, e.g. [2] or [1][3]. Use at most two numbers per citation. Only cite numbers that appear below.
 - Keep game terms, item names, skill names, numbers and commands exactly as written. Forum posts may be out of date; if passages disagree, say so.
 - Earlier turns of the conversation are context for what the user means, not a source of facts: every fact in your answer must come from the numbered passages, with the citation of the passage that states it.
+
+Reminder: end EVERY sentence, list item and table row that states a fact with its [n], not just the first one.
 
 Passages:
 {passages}"""

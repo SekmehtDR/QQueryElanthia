@@ -13,7 +13,7 @@ source = "original"
 # Citation links in answers always point at the canonical site, whichever source was crawled.
 base_url = "https://elanthipedia.play.net/"
 # Please put a contact (email or wiki user page) in the User-Agent so the wiki admins can reach you.
-user_agent = "QQueryElanthia/0.1 (personal Elanthipedia Q&A indexer; contact: CHANGE-ME) python-httpx"
+user_agent = "QQueryElanthia/{version} (personal Elanthipedia Q&A indexer; contact: CHANGE-ME) python-httpx"
 # Crawl priority order. 0 Main, 208 Concept (races, creature lists), 114 Weapon, 110 Armor, 112 Shield,
 # 118 Item, 116 Title, 120 Post, 14 Category
 namespaces = [0, 208, 114, 110, 112, 118, 116, 120, 14, 4, 12]

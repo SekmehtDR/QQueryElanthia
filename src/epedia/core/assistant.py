@@ -16,6 +16,7 @@ from ..llm.ollama import Ollama, OllamaError
 from ..retrieval.search import Hit, search
 from ..util import page_url
 from . import memory
+from .attribution import attribute
 
 log = logging.getLogger("epedia.assistant")
 
@@ -29,6 +30,29 @@ class Source:
     section: str
     url: str
     chunk_id: int | None = None
+    snippet: str = ""  # opening of the passage, shown when hovering a citation
+
+
+def _snippet(text: str, limit: int = 260) -> str:
+    flat = re.sub(r"\s+", " ", prompts.clean_passage_text(text)).strip()
+    flat = re.sub(r"^\((?:Marked|marked)[^)]*\)\s*", "", flat)  # the maintenance note is not the passage's content
+    return flat if len(flat) <= limit else flat[:limit].rsplit(" ", 1)[0] + "…"
+
+
+PARTIAL_NOTE = "I couldn't find every part of that in the chronicle."
+
+
+def soften_refusal(answer: str) -> str:
+    """Replace a 'nothing on that' line that was tacked onto an answer that has real content.
+
+    That line is meant to be the whole reply when no passage is relevant (the program emits it itself in that case).
+    A small model sometimes appends it after a good answer, which contradicts everything above it; or it may have
+    meant "one detail is missing". Deleting it could make a partial answer look complete, so it becomes an honest
+    caveat that is true in both cases."""
+    for line in (prompts.NO_PASSAGES_ANSWER, "The wiki doesn't seem to cover that."):
+        if line in answer and len(answer.replace(line, "").strip()) >= 80:
+            return answer.replace(line, PARTIAL_NOTE)
+    return answer
 
 
 @dataclass
@@ -282,7 +306,8 @@ class Assistant:
         passages = passages[:used]
         related = self._related_pages(plan.kind, passages, extras)
         sources = [
-            Source(i + 1, p["title"], p.get("section", ""), p["url"], p.get("chunk_id")) for i, p in enumerate(passages)
+            Source(i + 1, p["title"], p.get("section", ""), p["url"], p.get("chunk_id"), _snippet(p["text"]))
+            for i, p in enumerate(passages)
         ]
         yield Retrieval(sources, plan.standalone_question, plan.mode, plan.kind, related)
 
@@ -301,13 +326,16 @@ class Assistant:
         async for tok in self.ollama.chat_stream(messages, temperature=self.s.chat.temperature):
             chunks.append(tok)
             yield Token(tok)
-        answer = "".join(chunks).strip()
+        answer = soften_refusal("".join(chunks).strip())
+        # Lines the model left uncited get a "[n*]" tag where one passage clearly matches (see core/attribution.py).
+        # The streamed text is the raw draft; the final text, with these tags, is what Done carries and what is saved.
+        answer = attribute(answer, [p["text"] for p in passages]).text
         offer = prompts.offer_line(related) if self.s.persona.enabled else ""
         if offer and not answer.endswith("?"):
             tail = "\n\n" + offer
             yield Token(tail)
             answer += tail
-        cited = sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer) if 1 <= int(n) <= len(sources)})
+        cited = sorted({int(n) for n in re.findall(r"\[(\d+)\*?\]", answer) if 1 <= int(n) <= len(sources)})
         self._persist(session_id, user_message, answer, plan, sources)
         yield Done(answer, cited, sources, related)
 

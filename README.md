@@ -81,7 +81,13 @@ epedia serve                         # web chat at http://127.0.0.1:8765
 ```
 
 The web page greets you as Fennick, offers starter questions, shows what kind of question it detected, and
-suggests related pages to pull on after each answer.
+suggests related pages to pull on after each answer. Answers are formatted as they arrive and carry numbered
+badges showing which page each line came from (solid: cited by the model; dashed: matched automatically). Use
+**Desktop / Mobile** in the header to switch layouts.
+
+The **Index** button opens the index panel: when the wiki was last checked, how many pages are waiting, and
+buttons for a **Delta update** (only what changed), a **Full refresh** (re-compares every page; slow, asks first)
+and **Stop**. These only work from the computer running the server.
 
 Debugging helpers:
 

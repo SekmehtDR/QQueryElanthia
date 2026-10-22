@@ -37,10 +37,22 @@ class WikiCfg(BaseModel):
     sources: dict[str, SourceCfg] = Field(default_factory=_default_sources)
     # Canonical site used for citation links, whichever source the content was read from.
     base_url: str = "https://elanthipedia.play.net/"
-    user_agent: str = "QQueryElanthia/0.1 (personal Elanthipedia Q&A indexer; contact: CHANGE-ME) python-httpx"
+    # "{version}" is replaced with the running version, so the wiki always sees which release is calling.
+    # validate_default: pydantic skips validators on defaults, and the {version} fill-in must run on this one too.
+    user_agent: str = Field(
+        default="QQueryElanthia/{version} (personal Elanthipedia Q&A indexer; contact: CHANGE-ME) python-httpx",
+        validate_default=True,
+    )
     namespaces: list[int] = Field(default_factory=lambda: [0, 208, 114, 110, 112, 118, 116, 120, 14])
     item_namespaces: list[int] = Field(default_factory=lambda: [110, 112, 114, 116])
     category_min_bytes: int = 200
+
+    @field_validator("user_agent")
+    @classmethod
+    def _fill_version(cls, value: str) -> str:
+        from . import __version__
+
+        return value.replace("{version}", __version__)
 
     @property
     def active(self) -> SourceCfg:
@@ -139,6 +151,7 @@ class Settings(BaseModel):
     persona: PersonaCfg = Field(default_factory=PersonaCfg)
     web: WebCfg = Field(default_factory=WebCfg)
     root: Path = Field(default_factory=Path.cwd)
+    config_path: Path | None = None  # the epedia.toml these settings came from (child processes reuse it)
 
     @property
     def db_path(self) -> Path:
@@ -220,5 +233,6 @@ def load_settings(path: str | None = None) -> Settings:
     _apply_env(data)
     settings = Settings.model_validate(data)
     settings.root = root
+    settings.config_path = cfg_path.resolve() if cfg_path and cfg_path.exists() else None
     _apply_env_to_sources(settings)
     return settings

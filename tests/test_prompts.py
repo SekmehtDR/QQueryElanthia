@@ -57,6 +57,17 @@ def test_persona_prompt_has_name_once_hint_and_passages_last():
     assert "Do not end with an offer" in out  # the closing line is added by the program, not the model
 
 
+def test_every_answer_prompt_reminds_the_model_to_cite_each_factual_line():
+    assert "end EVERY sentence" in build_answer_system("item", "[1] X\nbody", "Fennick")
+    assert "end EVERY sentence" in build_answer_system("item", "[1] X\nbody", "Fennick", persona=False)
+
+
+def test_history_strips_both_kinds_of_citation_tag():
+    from epedia.core.memory import _CITATION
+
+    assert _CITATION.sub("", "Weighs 35 stones [1][2*] and costs 287 [3].") == "Weighs 35 stones and costs 287."
+
+
 def test_general_kind_has_no_shape_hint():
     assert "Shape for" not in build_answer_system("general", "[1] X\nbody", "Fennick")
 
