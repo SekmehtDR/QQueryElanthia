@@ -32,3 +32,12 @@ def test_snippet_is_one_clean_line_without_the_maintenance_note():
     s = _snippet(text, limit=80)
     assert "\n" not in s and not s.startswith("(Marked") and s.startswith("Musk Hog") and s.endswith("…")
     assert len(s) <= 81
+
+
+def test_meta_cues_separate_small_talk_from_questions_about_people():
+    from epedia.core.assistant import META_CUES
+
+    for text in ("Hello! Who are you?", "What is Elanthipedia?", "thanks!", "Can you help me?"):
+        assert META_CUES.search(text)
+    for text in ("Who is Bobba Bandicoot?", "Who is Hodierna?", "What is a lich?"):
+        assert not META_CUES.search(text)

@@ -127,6 +127,18 @@
   .idx-log { margin:6px var(--gutter) 8px; padding:8px 10px; background:var(--bg); border:1px solid var(--line); border-radius:8px; max-height:9.5em; overflow:auto;
     font:.75rem/1.45 ui-monospace, Consolas, monospace; color:var(--muted); white-space:pre-wrap; word-break:break-word; }
   .idx-log[hidden] { display:none; }
+  .idx-link { border:0; background:none; padding:0; margin-left:4px; font:inherit; color:var(--accent); cursor:pointer; text-decoration:underline; }
+  .idx-changes { margin:6px var(--gutter) 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
+  .idx-changes[hidden] { display:none; }
+  .idx-changes header { display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--line); }
+  .idx-changes header b { flex:1 1 auto; }
+  .idx-changes header button { border:1px solid var(--line); background:none; color:var(--ink); border-radius:6px; padding:2px 10px; font:inherit; cursor:pointer; }
+  .idx-changes ul { list-style:none; margin:0; padding:4px 10px 8px; max-height:16em; overflow:auto; }
+  .idx-changes li { display:flex; gap:10px; padding:2px 0; align-items:baseline; }
+  .idx-changes .act { flex:0 0 5.8em; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .idx-changes .act.new { color:#3a9d5d; } .idx-changes .act.deleted { color:#d24a3a; }
+  .idx-changes a { color:var(--accent); text-decoration:none; } .idx-changes a:hover { text-decoration:underline; }
+  .idx-changes .note { padding:8px 10px; color:var(--muted); }
   html[data-view="mobile"] .idx-info { grid-template-columns:1fr; gap:0; }
   html[data-view="mobile"] .idx-info dt { margin-top:6px; }
   html[data-view="mobile"] .idx-actions button { flex:1 1 auto; min-height:42px; }
@@ -239,6 +251,7 @@
     <dl class="idx-info" id="idxinfo"></dl>
   </div>
   <pre class="idx-log" id="idxlog" hidden></pre>
+  <div class="idx-changes" id="idxchanges" hidden></div>
   <div class="bar" id="statusbar" title="Click for per-namespace details"><span id="stext">Loading index status…</span><div class="track"><div class="fill" id="sfill"></div></div></div>
   <div class="detail" id="sdetail"></div>
 </div>
@@ -576,8 +589,35 @@ function runLine(r) {
   const bits = [when(r.at), `${(r.changed || 0).toLocaleString()} changed`, `${(r.deleted || 0).toLocaleString()} removed`];
   if (r.seconds != null) bits.push('took ' + (r.seconds >= 90 ? Math.round(r.seconds / 60) + ' min' : Math.round(r.seconds) + ' s'));
   if (r.errors) bits.push(`<span class="bad">${r.errors} errors</span>`);
-  return bits.join(' · ');
+  let out = bits.join(' · ');
+  if (r.id && ((r.changed || 0) + (r.deleted || 0)) > 0) out += ` <button type="button" class="idx-link" data-run="${r.id}">View details</button>`;
+  return out;
 }
+let openRun = null;
+async function showChanges(id) {
+  const box = document.getElementById('idxchanges');
+  if (openRun === id && !box.hidden) { box.hidden = true; openRun = null; return; }  // second click folds it
+  openRun = id; box.hidden = false; box.innerHTML = '<div class="note">Loading…</div>';
+  try {
+    const r = await fetch('/api/index/changes/' + id);
+    if (!r.ok) throw new Error(r.status);
+    const c = await r.json();
+    const title = `${c.kind === 'full' ? 'Full refresh' : 'Delta update'} · ${when(c.at)}`;
+    let body;
+    if (!c.recorded) body = '<div class="note">This run was before page lists were kept, so only the counts are known. Later runs list every page.</div>';
+    else {
+      const all = Math.max(c.total, c.expected || 0);
+      const shown = c.pages.length < all ? `<div class="note">Showing ${c.pages.length.toLocaleString()} of ${all.toLocaleString()} pages.</div>` : '';
+      body = '<ul>' + c.pages.map(p => `<li><span class="act ${esc(p.action)}">${esc(p.action)}</span><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></li>`).join('') + '</ul>' + shown;
+    }
+    box.innerHTML = `<header><b>${title}: ${c.total.toLocaleString()} page${c.total === 1 ? '' : 's'}</b><button type="button" id="idxchangesclose">Close</button></header>${body}`;
+    document.getElementById('idxchangesclose').addEventListener('click', () => { box.hidden = true; openRun = null; });
+  } catch (e) { box.innerHTML = '<div class="note">Could not load the page list.</div>'; }
+}
+document.getElementById('idxinfo').addEventListener('click', e => {  // the list is redrawn every few seconds, so listen on the container
+  const b = e.target.closest('[data-run]');
+  if (b) showChanges(Number(b.dataset.run));
+});
 function mmss(s) { return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
 let jobTimer = null, lastJobRunning = false;
 function renderIndex(j) {

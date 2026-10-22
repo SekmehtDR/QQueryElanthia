@@ -154,6 +154,14 @@ CREATE TABLE IF NOT EXISTS sync_log (
   errors  INTEGER,
   seconds REAL
 );
+
+-- which pages each sync run touched, for the "View details" list in the web page
+CREATE TABLE IF NOT EXISTS sync_pages (
+  sync_id INTEGER NOT NULL REFERENCES sync_log(id) ON DELETE CASCADE,
+  title   TEXT NOT NULL,
+  action  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sync_pages ON sync_pages(sync_id);
 """
 
 

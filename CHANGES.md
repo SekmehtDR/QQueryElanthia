@@ -24,6 +24,9 @@ The first full release: the whole of Elanthipedia, answered by a persona.
   time and a log tail, plus last delta, last full refresh, newest wiki edit seen, source and pending work. The
   panel is opened on demand and polls only while open or while a job runs. Jobs run as a child
   `qqueryelanthia sync` process, one at a time, and are stopped when the server shuts down.
+- **"View details" on each sync line** lists the pages that run touched (new, edited, deleted, re-rendered by a
+  template edit) with links to the wiki. Kept per run in the new `sync_pages` table (up to 5,000 pages per run);
+  runs from before this feature show only their counts.
 - **Desktop and Mobile layouts.** A full-window desktop layout (default) and a phone-width one, switched from
   the header and remembered; phones choose mobile automatically.
 - **Live formatting** of the answer while it streams (headings, lists, tables, bold, code) and **source badges**:
@@ -67,6 +70,8 @@ The first full release: the whole of Elanthipedia, answered by a persona.
   after a period with their sentence.
 - `qqueryelanthia version` no longer creates a database or leaks a connection on a fresh checkout; the version
   badge only reports a git commit for this project's own checkout.
+- "This article is <b>incomplete</b>" banners (markup inside the phrase) were skipped by the stripper and left in
+  about 1,400 chunks; "Who is <name>?" could be filed as small talk and answered with "nothing on that".
 - The page handles failed requests, malformed stream events and dropped connections instead of freezing.
 - Index controls are local-only: they need the `X-QQE` header, a Host of this machine (blocks DNS rebinding), a
   matching Origin, and a loopback client if the server is bound beyond loopback. Two clicks cannot start two jobs,
@@ -80,7 +85,7 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 - Change detection uses `allrevisions` and `logevents` rather than recent changes.
 - Maintenance banners are stripped at index time and noted in one line; "Redirect to:" stubs are dropped;
   creature infoboxes and one-column tables come out as `Key: value` lines.
-- 133 tests; lint clean.
+- 137 tests; lint clean.
 
 ## 0.1.0: first commit (2026-10-22)
 

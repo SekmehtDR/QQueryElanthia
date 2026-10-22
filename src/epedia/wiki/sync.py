@@ -87,7 +87,18 @@ async def expand_templates(client: WikiClient, settings: Settings, templates: se
     return out, False
 
 
-def mark_stale(conn: sqlite3.Connection, titles: set[str]) -> int:
+MAX_DETAIL_ROWS = 5000  # a full scan after a long gap can touch tens of thousands of pages; the list is a courtesy
+
+
+def record_pages(conn: sqlite3.Connection, sync_id: int, details: list[tuple[str, str]]) -> None:
+    """Remember which pages a run touched (new, edited, deleted, re-rendered by a template)."""
+    conn.executemany(
+        "INSERT INTO sync_pages(sync_id, title, action) VALUES (?, ?, ?)",
+        [(sync_id, t, a) for t, a in details[:MAX_DETAIL_ROWS]],
+    )
+
+
+def mark_stale(conn: sqlite3.Connection, titles: set[str], touched: list[str] | None = None) -> int:
     """Force re-fetch + re-index even though the page's own revision id has not changed."""
     n = 0
     for t in titles:
@@ -96,11 +107,14 @@ def mark_stale(conn: sqlite3.Connection, titles: set[str]) -> int:
             (t,),
         )
         n += cur.rowcount
+        if cur.rowcount and touched is not None:
+            touched.append(t)
     return n
 
 
 async def reconcile(
-    conn: sqlite3.Connection, client: WikiClient, settings: Settings, ch: Changes, stats: dict[str, int]
+    conn: sqlite3.Connection, client: WikiClient, settings: Settings, ch: Changes, stats: dict[str, int],
+    details: list[tuple[str, str]] | None = None,
 ) -> None:
     """Bring the pages table in line with the source for every title the change feed mentioned."""
     content_ns = set(settings.wiki.namespaces)
@@ -122,6 +136,8 @@ async def reconcile(
             if row:
                 delete_page(conn, row[0])
                 stats["deleted"] += 1
+                if details is not None:
+                    details.append((t, "deleted"))
             conn.execute("DELETE FROM redirects WHERE from_title=?", (t,))
         for info in infos:
             if info.get("ns") not in content_ns:
@@ -131,10 +147,15 @@ async def reconcile(
                 if row:
                     delete_page(conn, row[0])
                     stats["deleted"] += 1
+                    if details is not None:
+                        details.append((info["title"], "deleted"))
                 redirect_titles.append(info["title"])
                 continue
+            existed = conn.execute("SELECT 1 FROM pages WHERE title=?", (info["title"],)).fetchone()
             upsert_page_info(conn, info)
             stats["changed"] += 1
+            if details is not None:
+                details.append((info["title"], "edited" if existed else "new"))
     # Newly created redirects (e.g. the old name after a move) so title lookups keep resolving.
     for i in range(0, len(redirect_titles), 50):
         data = await client.get(
@@ -179,26 +200,31 @@ async def sync(
             log.info("templates would re-render %d pages%s", len(embedded), " (truncated)" if truncated else "")
         return {**stats, "pages_to_check": len(ch.titles), "pages_rerendered_by_templates": len(embedded)}
 
+    details: list[tuple[str, str]] = []
     if ch.template_titles:
         embedded, truncated = await expand_templates(client, settings, ch.template_titles)
+        rerendered: list[str] = []
         with transaction(conn):
-            stats["stale"] = mark_stale(conn, embedded)
+            stats["stale"] = mark_stale(conn, embedded, rerendered)
+        details.extend((t, "re-rendered") for t in sorted(rerendered))
         if truncated:
             set_state(conn, "fullscan.needed", "1")
             log.warning("template edits touch >%d pages; a full scan is scheduled", EMBEDDED_CAP)
-    await reconcile(conn, client, settings, ch, stats)
+    await reconcile(conn, client, settings, ch, stats, details)
     await run_pipeline_for_changes(settings, conn, client, ollama)
 
     # allrevisions' start is inclusive, so the boundary revision is re-read next time; that is harmless.
     new_cursor = ch.newest or since
     set_state(conn, "sync.cursor", new_cursor)
     set_state(conn, "sync.last_run", utcnow_iso())
-    conn.execute(
-        "INSERT INTO sync_log(run_at, kind, rc_from, rc_to, changed, deleted, moved, errors, seconds) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (utcnow_iso(), f"rev:{settings.wiki.source}", since, new_cursor, stats["changed"] + stats["stale"],
-         stats["deleted"], stats["moved"], stats["errors"], round(time.time() - t0, 1)),
-    )
+    with transaction(conn):
+        cur = conn.execute(
+            "INSERT INTO sync_log(run_at, kind, rc_from, rc_to, changed, deleted, moved, errors, seconds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (utcnow_iso(), f"rev:{settings.wiki.source}", since, new_cursor, stats["changed"] + stats["stale"],
+             stats["deleted"], stats["moved"], stats["errors"], round(time.time() - t0, 1)),
+        )
+        record_pages(conn, cur.lastrowid, details)
     return stats
 
 
@@ -213,6 +239,7 @@ async def full_scan(
     check_primary_source(conn, settings.wiki)
     t0 = time.time()
     stats = {"new": 0, "stale": 0, "removed": 0}
+    details: list[tuple[str, str]] = []
     for ns in settings.wiki.namespaces:
         seen: set[str] = set()
         async for data in client.paginate({
@@ -230,10 +257,12 @@ async def full_scan(
                     ).fetchone()
                     if old is None:
                         stats["new"] += 1
+                        details.append((info["title"], "new"))
                         if not dry_run:
                             upsert_page_info(conn, info)
                     elif old["touched"] != info.get("touched") or old["latest_revid"] != info.get("lastrevid"):
                         stats["stale"] += 1
+                        details.append((info["title"], "edited"))
                         if not dry_run:
                             upsert_page_info(conn, info)
                             conn.execute(
@@ -243,6 +272,7 @@ async def full_scan(
         local = [(r[0], r[1]) for r in conn.execute("SELECT page_id, title FROM pages WHERE ns=? AND is_redirect=0", (ns,))]
         gone = [pid for pid, title in local if title not in seen]
         stats["removed"] += len(gone)
+        details.extend((title, "deleted") for _, title in local if title not in seen)
         if gone and not dry_run:
             with transaction(conn):
                 for pid in gone:
@@ -253,10 +283,13 @@ async def full_scan(
     await run_pipeline_for_changes(settings, conn, client, ollama)
     set_state(conn, "fullscan.last_run", utcnow_iso())
     set_state(conn, "fullscan.needed", None)
-    conn.execute(
-        "INSERT INTO sync_log(run_at, kind, changed, deleted, moved, errors, seconds) VALUES (?, 'full', ?, ?, 0, 0, ?)",
-        (utcnow_iso(), stats["new"] + stats["stale"], stats["removed"], round(time.time() - t0, 1)),
-    )
+    with transaction(conn):
+        cur = conn.execute(
+            "INSERT INTO sync_log(run_at, kind, changed, deleted, moved, errors, seconds) "
+            "VALUES (?, 'full', ?, ?, 0, 0, ?)",
+            (utcnow_iso(), stats["new"] + stats["stale"], stats["removed"], round(time.time() - t0, 1)),
+        )
+        record_pages(conn, cur.lastrowid, details)
     return stats
 
 

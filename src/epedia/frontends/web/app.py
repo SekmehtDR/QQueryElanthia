@@ -18,7 +18,7 @@ from ...config import Settings
 from ...core import memory
 from ...core.assistant import Assistant, Done, Retrieval, Token
 from ...db import connect
-from ...jobs import JobBusy, JobManager, index_info
+from ...jobs import JobBusy, JobManager, index_changes, index_info
 from ...llm.ollama import Ollama
 from ...progress import snapshot
 
@@ -101,6 +101,13 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/index/info")
     async def index_state() -> dict:
         return {**index_info(state["conn"], settings), "job": jobs.snapshot()}
+
+    @app.get("/api/index/changes/{sync_id}")
+    async def index_run_changes(sync_id: int) -> dict:
+        found = index_changes(state["conn"], settings, sync_id)
+        if found is None:
+            raise HTTPException(404, "no such run")
+        return found
 
     @app.post("/api/index/start")
     async def index_start(request: Request, body: StartRequest) -> dict:

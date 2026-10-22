@@ -87,7 +87,7 @@ badges showing which page each line came from (solid: cited by the model; dashed
 
 The **Index** button opens the index panel: when the wiki was last checked, how many pages are waiting, and
 buttons for a **Delta update** (only what changed), a **Full refresh** (re-compares every page; slow, asks first)
-and **Stop**. These only work from the computer running the server.
+and **Stop**. Each run has a **View details** link listing the pages it changed. These only work from the computer running the server.
 
 Debugging helpers:
 

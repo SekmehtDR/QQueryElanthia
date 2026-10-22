@@ -19,6 +19,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 from .config import Settings
 
@@ -204,7 +205,7 @@ def index_info(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
     def run(row: sqlite3.Row | None) -> dict[str, Any] | None:
         if row is None:
             return None
-        return {"at": row["run_at"], "changed": row["changed"], "deleted": row["deleted"],
+        return {"id": row["id"], "at": row["run_at"], "changed": row["changed"], "deleted": row["deleted"],
                 "errors": row["errors"], "seconds": row["seconds"]}
 
     delta = one("SELECT * FROM sync_log WHERE kind LIKE 'rev:%' OR kind='rc' ORDER BY id DESC LIMIT 1")
@@ -227,4 +228,34 @@ def index_info(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
         "primary_source": state.get("primary_source"),
         "pending_crawl": (pending["crawl"] or 0) if pending else 0,
         "pending_index": (pending["idx"] or 0) if pending else 0,
+    }
+
+
+URL_SAFE = ":/(),!*'"
+
+
+def index_changes(conn: sqlite3.Connection, settings: Settings, sync_id: int, limit: int = 2000) -> dict[str, Any] | None:
+    """The pages one sync run touched, for the "View details" list. None if there is no such run."""
+    try:
+        run = conn.execute("SELECT * FROM sync_log WHERE id=?", (sync_id,)).fetchone()
+        if run is None:
+            return None
+        rows = conn.execute(
+            "SELECT title, action FROM sync_pages WHERE sync_id=? ORDER BY action, title LIMIT ?", (sync_id, limit)
+        ).fetchall()
+        total = conn.execute("SELECT count(*) FROM sync_pages WHERE sync_id=?", (sync_id,)).fetchone()[0]
+    except sqlite3.OperationalError:
+        return None
+    base = settings.wiki.base_url.rstrip("/")
+    return {
+        "id": sync_id,
+        "kind": "full" if run["kind"] == "full" else "delta",
+        "at": run["run_at"],
+        "changed": run["changed"],
+        "deleted": run["deleted"],
+        "recorded": total > 0,  # runs from before this feature kept only counts
+        "total": total,
+        "expected": (run["changed"] or 0) + (run["deleted"] or 0),  # more than total when the list was capped
+        "pages": [{"title": r["title"], "action": r["action"],
+                   "url": f"{base}/{quote(r['title'].replace(' ', '_'), safe=URL_SAFE)}"} for r in rows],
     }

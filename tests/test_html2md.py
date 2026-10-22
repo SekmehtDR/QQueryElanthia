@@ -1,4 +1,4 @@
-from epedia.text.html2md import html_to_blocks
+from epedia.text.html2md import html_to_blocks, html_to_page
 
 
 def test_stat_block_becomes_key_value_lines(parse_fixture):
@@ -108,6 +108,15 @@ def test_real_banner_removed_but_content_container_kept():
     page = html_to_page(html)
     assert page.notices == ["stub"]
     assert "Real content." in page.blocks[0].text
+
+
+def test_banner_with_markup_inside_the_phrase_is_still_stripped():
+    html = ('<div class="mw-parser-output"><center><div><div><b>Incomplete Article</b></div><div>'
+            '<ul><li>This article is <b>incomplete</b>, which means it lacks data.</li></ul></div></div></center>'
+            "<p>Allum is a guild town.</p></div>")
+    page = html_to_page(html)
+    assert page.notices == ["incomplete"]
+    assert all("incomplete" not in b.text.lower() for b in page.blocks) and any("Allum" in b.text for b in page.blocks)
 
 
 def test_single_column_table_becomes_lines_not_a_col_1_grid():

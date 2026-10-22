@@ -52,7 +52,9 @@ BANNER_MAX_CHARS = 900  # a banner is short; never remove a container that holds
 DROP_HEADINGS = {"related forum posts"}
 
 
-_BANNER_HINTS = ("is incomplete", "is a stub", "is obsolete", "consistency with DR", "DR3", "Incomplete Creature")
+# Cheap pre-check. Markup can sit inside the phrase ("This article is <b>incomplete</b>"), so "This article is"
+# and the banner's own title are hints too.
+_BANNER_HINTS = ("This article is", "Incomplete Article", "consistency with DR", "DR3", "Incomplete Creature")
 
 
 def _strip_banners(root: Tag, html: str) -> list[str]:

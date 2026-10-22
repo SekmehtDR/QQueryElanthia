@@ -39,6 +39,11 @@ def _snippet(text: str, limit: int = 260) -> str:
     return flat if len(flat) <= limit else flat[:limit].rsplit(" ", 1)[0] + "…"
 
 
+# A message really is small talk or about the assistant only if it greets, thanks, or mentions you / the wiki.
+META_CUES = re.compile(
+    r"\b(hi|hello|hey|howdy|greetings|thanks?|thank you|bye|you|your|yourself|elanthipedia|wiki|assistant|bot|fennick)\b",
+    re.I,
+)
 PARTIAL_NOTE = "I couldn't find every part of that in the chronicle."
 
 
@@ -120,6 +125,8 @@ class Assistant:
             kind = data.get("kind") if data.get("kind") in QUESTION_KINDS else "general"
             if mode == "items":
                 kind = "item"
+            if kind == "meta" and not META_CUES.search(message):
+                kind = "general"  # the 8B planner sometimes files "Who is <name>?" as small talk; that needs a search
             follow_up = bool(hist) and bool(data.get("follow_up")) and kind != "meta"
             return Plan(q, mode, iq, follow_up=follow_up, kind=kind)
         except (OllamaError, KeyError, ValueError) as exc:

@@ -180,7 +180,7 @@ One SQLite file (WAL mode), `data/wiki.db`:
 
  redirects (from_title → to_page_id)   titles_fts (page + redirect titles)   smw_properties (catalog)
  sessions ──< messages (role, content, standalone_q, mode, kind, sources JSON)
- state (key/value: cursors, primary_source, schema_version)   sync_log
+ state (key/value: cursors, primary_source, schema_version)   sync_log · sync_pages
 ```
 
 ## Wiki sources
@@ -266,6 +266,10 @@ Everything on the page lives in one `#app` container, so the header, chat and in
  browser ◀── GET /api/index/info (1.5 s while running) ◀─┤ _pump(): reads stdout, strips colour codes, keeps last 40 lines
  browser ──POST /api/index/stop────────────────────────▶ _kill_tree()  (taskkill /T /F on Windows, killpg elsewhere)
 ```
+
+Every sync run also records which pages it touched (`sync_pages`: title and action, written in the same
+transaction as its `sync_log` row); `GET /api/index/changes/{run id}` serves that list for the panel's
+"View details".
 
 The job is the same CLI a person would run, so the web page and the command line cannot drift apart; it uses the
 server's own config file and wiki source. `guard()` protects start and stop (they cause real traffic to the

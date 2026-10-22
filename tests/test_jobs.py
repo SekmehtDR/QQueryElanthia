@@ -187,7 +187,7 @@ def test_index_info_reports_last_delta_last_full_and_pending_work():
                   [(0, 1, 1, 1), (0, None, 7, None), (0, 2, 2, None), (1, None, None, None)])
     info = index_info(c, Settings())
     assert info["last_delta"]["at"] == "2026-10-21T10:00:00Z" and info["last_delta"]["changed"] == 12
-    assert info["last_full"] == {"at": "2026-10-19T04:00:00Z", "changed": 300, "deleted": 7, "errors": 0, "seconds": 610.0}
+    assert info["last_full"] == {"id": 3, "at": "2026-10-19T04:00:00Z", "changed": 300, "deleted": 7, "errors": 0, "seconds": 610.0}
     assert info["newest_edit_seen"] == "2026-10-21T09:59:00Z" and info["primary_source"] == "original"
     assert info["pending_crawl"] == 1 and info["pending_index"] == 1  # redirects are not counted
 
@@ -273,3 +273,47 @@ def test_closing_the_server_stops_a_running_job(tmp_path):
         assert app.state.jobs.running
     time.sleep(0.3)
     assert not app.state.jobs.running  # shutting the server down never leaves a job running unwatched
+
+
+def test_a_runs_page_list_is_kept_and_served_with_wiki_links(tmp_path):
+    from epedia.db import connect
+    from epedia.jobs import index_changes
+    from epedia.wiki.sync import MAX_DETAIL_ROWS, record_pages
+
+    s = Settings()
+    s.db.path = str(tmp_path / "t.db")
+    conn = connect(s)
+    cur = conn.execute("INSERT INTO sync_log(run_at, kind, changed, deleted) VALUES ('2026-10-22T08:00:00Z', 'rev:original', 2, 1)")
+    record_pages(conn, cur.lastrowid, [("Broadsword (1)", "edited"), ("New page", "new"), ("Old page", "deleted")])
+    old = conn.execute("INSERT INTO sync_log(run_at, kind, changed, deleted) VALUES ('2026-10-01T08:00:00Z', 'rev:original', 5, 0)")
+
+    got = index_changes(conn, s, cur.lastrowid)
+    assert got["recorded"] and got["total"] == 3 and got["kind"] == "delta"
+    by_title = {p["title"]: p for p in got["pages"]}
+    assert by_title["Broadsword (1)"]["url"] == "https://elanthipedia.play.net/Broadsword_(1)"
+    assert by_title["New page"]["action"] == "new" and by_title["Old page"]["action"] == "deleted"
+    assert index_changes(conn, s, old.lastrowid)["recorded"] is False  # a run from before page lists were kept
+    assert index_changes(conn, s, 99999) is None
+
+    record_pages(conn, old.lastrowid, [(f"P{i}", "new") for i in range(MAX_DETAIL_ROWS + 50)])
+    capped = index_changes(conn, s, old.lastrowid)
+    assert capped["total"] == MAX_DETAIL_ROWS and capped["expected"] == 5  # capped; the UI says "N of expected"
+    conn.close()
+
+
+def test_changes_endpoint_and_run_ids_in_info(tmp_path):
+    from epedia.db import connect
+    from epedia.wiki.sync import record_pages
+
+    s = Settings()
+    s.db.path = str(tmp_path / "t.db")
+    conn = connect(s)
+    cur = conn.execute("INSERT INTO sync_log(run_at, kind, changed, deleted) VALUES ('2026-10-22T08:00:00Z', 'rev:original', 1, 0)")
+    record_pages(conn, cur.lastrowid, [("Hodierna", "edited")])
+    conn.close()
+    with TestClient(create_app(s)) as c:
+        info = c.get("/api/index/info").json()
+        assert info["last_delta"]["id"] == cur.lastrowid
+        ok = c.get(f"/api/index/changes/{cur.lastrowid}").json()
+        assert [p["title"] for p in ok["pages"]] == ["Hodierna"]
+        assert c.get("/api/index/changes/424242").status_code == 404
