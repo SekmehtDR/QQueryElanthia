@@ -1,0 +1,91 @@
+# epedia configuration. Any key can be overridden with an environment variable
+# named EPEDIA_<SECTION>__<KEY>, e.g. EPEDIA_WIKI__RPS=2 or EPEDIA_OLLAMA__CHAT_MODEL=llama3.1:8b
+
+[db]
+path = "data/wiki.db"
+
+[wiki]
+# Where crawl/sync/smw read from: "mirror" or "original". Switch for one command with
+#   epedia --source mirror crawl
+# The original is primary for ongoing sync (always current, only a few requests an hour). The mirror is
+# faster for a full rebuild but lags the original by many hours; see README.
+source = "original"
+# Citation links in answers always point at the canonical site, whichever source was crawled.
+base_url = "https://elanthipedia.play.net/"
+# Please put a contact (email or wiki user page) in the User-Agent so the wiki admins can reach you.
+user_agent = "QQueryElanthia/0.1 (personal Elanthipedia Q&A indexer; contact: CHANGE-ME) python-httpx"
+# Crawl priority order. 0 Main, 208 Concept (races, creature lists), 114 Weapon, 110 Armor, 112 Shield,
+# 118 Item, 116 Title, 120 Post, 14 Category
+namespaces = [0, 208, 114, 110, 112, 118, 116, 120, 14, 4, 12]
+# Namespaces whose Semantic MediaWiki item stats are extracted by `smw` / `sync`. The generic Item namespace
+# (118, ~66k pages) is left out on purpose: it is one request per page. Run `epedia smw --ns 118` to add it.
+item_namespaces = [110, 112, 114, 116]
+category_min_bytes = 200
+
+# Another MediaWiki copy of Elanthipedia can be added as a second source, for example in a git-ignored
+# epedia.local.toml next to this file (it is merged over this one):
+#
+#   [wiki.sources.mirror]
+#   api_url = "https://example.org/api.php"
+#   rps = 3.0
+#   concurrency = 3
+#
+# then `epedia --source mirror crawl`. Mirrors lag the original and may not cache API requests: ask the owner
+# before raising rps.
+
+[wiki.sources.original]
+api_url = "https://elanthipedia.play.net/api.php"
+rps = 2.5
+concurrency = 3
+maxlag = 5
+
+[ollama]
+base_url = "http://localhost:11434"
+embed_model = "nomic-embed-text"
+embed_dim = 768
+chat_model = "qwen3:8b"
+num_ctx = 16384
+keep_alive = "30m"
+
+[chunking]
+target_tokens = 450
+max_tokens = 700
+overlap_tokens = 60
+min_section_tokens = 80
+
+[retrieval]
+k_fts = 40
+k_vec = 40
+rrf_k = 60
+k_final = 8
+per_page_cap = 3
+title_exact_boost = 0.05
+title_partial_boost = 0.02
+disambig_weight = 0.8
+log_weight = 0.5          # role-play logs under character pages
+obsolete_weight = 0.75    # pages the wiki marks obsolete
+offer_related = true      # end an answer with one related thread to pull on
+related_k = 3
+
+[retrieval.ns_weights]
+"120" = 0.8   # Post (forum / Discord)
+"14" = 0.7    # Category
+"4" = 0.9     # the wiki's own project pages
+"12" = 0.9    # Help
+
+# Optional per-kind tuning, merged over the built-in matrix in src/epedia/kinds.py, e.g.
+# [retrieval.kind_weights.crafting]
+# guide = 1.3
+
+[chat]
+history_turns = 4
+context_token_budget = 6000
+temperature = 0.2
+
+[persona]
+name = "Fennick"   # a Halfling Bard who keeps a satchel of notes copied from Elanthipedia
+enabled = true     # false restores the plain, neutral answer style
+
+[web]
+host = "127.0.0.1"
+port = 8765

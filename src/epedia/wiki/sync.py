@@ -1,0 +1,276 @@
+"""Keep the index current: change detection, weekly full scan, and trickle refresh.
+
+Change detection uses `allrevisions` (edits/creations) and `logevents` (deletes/moves/restores) rather than
+recentchanges: it works on any MediaWiki, including a mirror whose recentchanges table never saw the edits.
+Pages are identified by title, so sync works against either configured source.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+from ..config import Settings
+from ..db import delete_page, get_state, set_state, transaction
+from ..llm.ollama import Ollama
+from ..util import utcnow_iso
+from .client import WikiClient
+from .crawl import crawl
+from .discover import check_primary_source, discover, upsert_page_info, upsert_redirect
+
+log = logging.getLogger("epedia.sync")
+
+TEMPLATE_NS = (10, 828)
+EMBEDDED_CAP = 5000
+
+
+@dataclass
+class Changes:
+    titles: set[str] = field(default_factory=set)  # content pages to re-check (edited, created, moved, deleted)
+    template_titles: set[str] = field(default_factory=set)
+    newest: str | None = None
+    revisions: int = 0
+    moved: int = 0
+    deleted_logs: int = 0
+
+
+async def collect_changes(client: WikiClient, settings: Settings, since: str) -> Changes:
+    ch = Changes()
+    content_ns = set(settings.wiki.namespaces)
+    nslist = "|".join(str(n) for n in sorted(content_ns | set(TEMPLATE_NS)))
+
+    async for data in client.paginate({
+        "action": "query", "list": "allrevisions", "arvstart": since, "arvdir": "newer", "arvlimit": 500,
+        "arvprop": "ids|timestamp", "arvnamespace": nslist,
+    }):
+        for page in data.get("query", {}).get("allrevisions", []):
+            for rev in page.get("revisions", []):
+                ch.revisions += 1
+                ch.newest = max(ch.newest or "", rev["timestamp"])
+                if page["ns"] in TEMPLATE_NS:
+                    ch.template_titles.add(page["title"])
+                elif page["ns"] in content_ns:
+                    ch.titles.add(page["title"])
+
+    for logtype in ("delete", "move"):
+        async for data in client.paginate({
+            "action": "query", "list": "logevents", "letype": logtype, "lestart": since, "ledir": "newer",
+            "lelimit": 500, "leprop": "title|timestamp|details",
+        }):
+            for ev in data.get("query", {}).get("logevents", []):
+                ch.newest = max(ch.newest or "", ev["timestamp"])
+                ch.titles.add(ev["title"])
+                if logtype == "move":
+                    ch.moved += 1
+                    target = (ev.get("params") or {}).get("target_title")
+                    if target:
+                        ch.titles.add(target)
+                else:
+                    ch.deleted_logs += 1
+    return ch
+
+
+async def expand_templates(client: WikiClient, settings: Settings, templates: set[str]) -> tuple[set[str], bool]:
+    """Pages that transclude any edited template. Returns (titles, truncated)."""
+    out: set[str] = set()
+    ns = "|".join(str(n) for n in settings.wiki.namespaces)
+    for t in sorted(templates):
+        async for data in client.paginate(
+            {"action": "query", "list": "embeddedin", "eititle": t, "einamespace": ns, "eilimit": 500}
+        ):
+            out.update(p["title"] for p in data.get("query", {}).get("embeddedin", []))
+            if len(out) > EMBEDDED_CAP:
+                return out, True
+    return out, False
+
+
+def mark_stale(conn: sqlite3.Connection, titles: set[str]) -> int:
+    """Force re-fetch + re-index even though the page's own revision id has not changed."""
+    n = 0
+    for t in titles:
+        cur = conn.execute(
+            "UPDATE pages SET fetched_revid=NULL, indexed_revid=NULL, smw_revid=NULL WHERE title=? AND is_redirect=0",
+            (t,),
+        )
+        n += cur.rowcount
+    return n
+
+
+async def reconcile(
+    conn: sqlite3.Connection, client: WikiClient, settings: Settings, ch: Changes, stats: dict[str, int]
+) -> None:
+    """Bring the pages table in line with the source for every title the change feed mentioned."""
+    content_ns = set(settings.wiki.namespaces)
+    infos: list[dict[str, Any]] = []
+    missing_titles: list[str] = []
+    titles = sorted(ch.titles)
+    for i in range(0, len(titles), 50):
+        data = await client.get({"action": "query", "prop": "info", "titles": "|".join(titles[i:i + 50])})
+        for p in data.get("query", {}).get("pages", []):
+            if p.get("missing") or p.get("invalid"):
+                missing_titles.append(p["title"])
+            else:
+                infos.append(p)
+
+    redirect_titles: list[str] = []
+    with transaction(conn):
+        for t in missing_titles:
+            row = conn.execute("SELECT page_id FROM pages WHERE title=?", (t,)).fetchone()
+            if row:
+                delete_page(conn, row[0])
+                stats["deleted"] += 1
+            conn.execute("DELETE FROM redirects WHERE from_title=?", (t,))
+        for info in infos:
+            if info.get("ns") not in content_ns:
+                continue
+            if info.get("redirect"):
+                row = conn.execute("SELECT page_id FROM pages WHERE title=?", (info["title"],)).fetchone()
+                if row:
+                    delete_page(conn, row[0])
+                    stats["deleted"] += 1
+                redirect_titles.append(info["title"])
+                continue
+            upsert_page_info(conn, info)
+            stats["changed"] += 1
+    # Newly created redirects (e.g. the old name after a move) so title lookups keep resolving.
+    for i in range(0, len(redirect_titles), 50):
+        data = await client.get(
+            {"action": "query", "titles": "|".join(redirect_titles[i:i + 50]), "redirects": 1, "prop": "info"}
+        )
+        with transaction(conn):
+            for r in data.get("query", {}).get("redirects", []):
+                upsert_redirect(conn, r["from"], r["to"], r.get("tofragment"))
+
+
+async def run_pipeline_for_changes(settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama) -> None:
+    from ..index.classify import classify_all
+    from ..index.indexer import index_pages, rebuild_titles
+    from .smw import smw_pages
+
+    await crawl(conn, client, settings.wiki, show_progress=False)
+    classify_all(conn, show_progress=False)
+    await smw_pages(settings, conn, client, ollama)
+    await index_pages(settings, conn, ollama, show_progress=False)
+    rebuild_titles(conn)
+
+
+async def sync(
+    settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama, *, dry_run: bool = False
+) -> dict[str, Any]:
+    t0 = time.time()
+    since = get_state(conn, "sync.cursor") or get_state(conn, "discover.started_at")
+    if not since:
+        raise RuntimeError("nothing to sync from: run `epedia discover` first")
+    stats: dict[str, Any] = {"source": settings.wiki.source, "changed": 0, "deleted": 0, "moved": 0,
+                             "templates": 0, "stale": 0, "errors": 0}
+    ch = await collect_changes(client, settings, since)
+    stats["templates"] = len(ch.template_titles)
+    stats["moved"] = ch.moved
+    log.info("changes on %s since %s: %d revisions -> %d pages, %d moves, %d deletions, %d templates",
+             settings.wiki.source, since, ch.revisions, len(ch.titles), ch.moved, ch.deleted_logs,
+             len(ch.template_titles))
+    if dry_run:
+        embedded: set[str] = set()
+        if ch.template_titles:
+            embedded, truncated = await expand_templates(client, settings, ch.template_titles)
+            log.info("templates would re-render %d pages%s", len(embedded), " (truncated)" if truncated else "")
+        return {**stats, "pages_to_check": len(ch.titles), "pages_rerendered_by_templates": len(embedded)}
+
+    if ch.template_titles:
+        embedded, truncated = await expand_templates(client, settings, ch.template_titles)
+        with transaction(conn):
+            stats["stale"] = mark_stale(conn, embedded)
+        if truncated:
+            set_state(conn, "fullscan.needed", "1")
+            log.warning("template edits touch >%d pages; a full scan is scheduled", EMBEDDED_CAP)
+    await reconcile(conn, client, settings, ch, stats)
+    await run_pipeline_for_changes(settings, conn, client, ollama)
+
+    # allrevisions' start is inclusive, so the boundary revision is re-read next time; that is harmless.
+    new_cursor = ch.newest or since
+    set_state(conn, "sync.cursor", new_cursor)
+    set_state(conn, "sync.last_run", utcnow_iso())
+    conn.execute(
+        "INSERT INTO sync_log(run_at, kind, rc_from, rc_to, changed, deleted, moved, errors, seconds) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (utcnow_iso(), f"rev:{settings.wiki.source}", since, new_cursor, stats["changed"] + stats["stale"],
+         stats["deleted"], stats["moved"], stats["errors"], round(time.time() - t0, 1)),
+    )
+    return stats
+
+
+async def full_scan(
+    settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama, *, dry_run: bool = False
+) -> dict[str, int]:
+    """Re-walk allpages+info and compare with the database: finds new, removed and silently re-rendered pages.
+
+    Compares revision ids and touch times, which are only meaningful within one wiki, so it must run against
+    the primary source (see check_primary_source).
+    """
+    check_primary_source(conn, settings.wiki)
+    t0 = time.time()
+    stats = {"new": 0, "stale": 0, "removed": 0}
+    for ns in settings.wiki.namespaces:
+        seen: set[str] = set()
+        async for data in client.paginate({
+            "action": "query", "generator": "allpages", "gapnamespace": ns, "gaplimit": 500,
+            "gapfilterredir": "nonredirects", "prop": "info",
+        }):
+            infos = [p for p in data.get("query", {}).get("pages", []) if not p.get("missing")]
+            with transaction(conn):
+                for info in infos:
+                    if ns == 14 and (info.get("length") or 0) < settings.wiki.category_min_bytes:
+                        continue
+                    seen.add(info["title"])
+                    old = conn.execute(
+                        "SELECT touched, latest_revid FROM pages WHERE title=?", (info["title"],)
+                    ).fetchone()
+                    if old is None:
+                        stats["new"] += 1
+                        if not dry_run:
+                            upsert_page_info(conn, info)
+                    elif old["touched"] != info.get("touched") or old["latest_revid"] != info.get("lastrevid"):
+                        stats["stale"] += 1
+                        if not dry_run:
+                            upsert_page_info(conn, info)
+                            conn.execute(
+                                "UPDATE pages SET fetched_revid=NULL, indexed_revid=NULL, smw_revid=NULL WHERE title=?",
+                                (info["title"],),
+                            )
+        local = [(r[0], r[1]) for r in conn.execute("SELECT page_id, title FROM pages WHERE ns=? AND is_redirect=0", (ns,))]
+        gone = [pid for pid, title in local if title not in seen]
+        stats["removed"] += len(gone)
+        if gone and not dry_run:
+            with transaction(conn):
+                for pid in gone:
+                    delete_page(conn, pid)
+    if dry_run:
+        return stats
+    await discover(conn, client, settings.wiki, force=False)  # fills redirects for any new namespaces only
+    await run_pipeline_for_changes(settings, conn, client, ollama)
+    set_state(conn, "fullscan.last_run", utcnow_iso())
+    set_state(conn, "fullscan.needed", None)
+    conn.execute(
+        "INSERT INTO sync_log(run_at, kind, changed, deleted, moved, errors, seconds) VALUES (?, 'full', ?, ?, 0, 0, ?)",
+        (utcnow_iso(), stats["new"] + stats["stale"], stats["removed"], round(time.time() - t0, 1)),
+    )
+    return stats
+
+
+async def refresh_oldest(
+    settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama, *, older_than_days: int, limit: int
+) -> int:
+    """Re-parse the oldest fetched pages: catches output of DPL/SMW lists that changes with no edit at all."""
+    rows = conn.execute(
+        "SELECT p.title FROM pages p JOIN page_html h ON h.page_id=p.page_id "
+        "WHERE h.fetched_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?) ORDER BY h.fetched_at LIMIT ?",
+        (f"-{older_than_days} days", limit),
+    ).fetchall()
+    with transaction(conn):
+        n = mark_stale(conn, {r[0] for r in rows})
+    if n:
+        await run_pipeline_for_changes(settings, conn, client, ollama)
+    return n

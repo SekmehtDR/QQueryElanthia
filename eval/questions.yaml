@@ -1,0 +1,127 @@
+# Retrieval/answer regression set. Page titles were verified against the index on 2026-10-22.
+#   q:            the question as a user would type it
+#   kind:         the question kind the planner should detect (item, crafting, place, character, lore,
+#                 creature, mechanics, event_news, meta, general)
+#   expect_pages: hit if ANY of these pages is in the top-k retrieved (exact page title)
+#   history:      earlier user turns in the same conversation (tests follow-up rewriting)
+#   mode:         expected planner mode when it is not plain "search"
+- q: "What abilities do Barbarians get?"
+  kind: mechanics
+  expect_pages: ["Barbarian"]
+- q: "What are Berserks?"
+  kind: mechanics
+  expect_pages: ["Barbarian", "Category:Berserks"]
+- q: "What do the Barbarian roars do?"
+  kind: mechanics
+  expect_pages: ["Barbarian", "Roars"]
+- q: "Which skillsets does an Empath have?"
+  kind: mechanics
+  expect_pages: ["Empath"]
+- q: "How does the Stealth skill work?"
+  kind: mechanics
+  expect_pages: ["Stealth skill"]
+- q: "What is the Appraisal skill used for?"
+  kind: mechanics
+  expect_pages: ["Appraisal skill"]
+- q: "What does the Tactics skill do?"
+  kind: mechanics
+  expect_pages: ["Tactics skill"]
+- q: "What is Athletics used for?"
+  kind: mechanics
+  expect_pages: ["Athletics skill"]
+- q: "How do I forge weapons?"
+  kind: crafting
+  expect_pages: ["Forging skill", "Forging guide"]
+- q: "What does the Outfitting skill make?"
+  kind: crafting
+  expect_pages: ["Outfitting skill"]
+- q: "Tell me about the Gor'Tog race"
+  kind: lore
+  expect_pages: ["Concept:Gor'Togs"]
+- q: "What are the characteristics of Elves?"
+  kind: lore
+  expect_pages: ["Concept:Elves"]
+- q: "What happens when my character dies?"
+  kind: mechanics
+  expect_pages: ["Death"]
+- q: "How does resurrection work?"
+  kind: mechanics
+  expect_pages: ["Resurrection"]
+- q: "What currencies are used in Elanthia?"
+  kind: mechanics
+  expect_pages: ["Currency"]
+- q: "What is a lich?"
+  kind: mechanics
+  expect_pages: ["Lich"]
+- q: "What is the Expertise skill?"
+  kind: mechanics
+  expect_pages: ["Expertise skill"]
+- q: "What is Inner Fire?"
+  kind: mechanics
+  expect_pages: ["Inner fire", "Barbarian"]
+- q: "What is the heaviest heavy edged weapon?"
+  kind: item
+  mode: items
+  expect_pages: []
+- q: "Which light edged weapons weigh the least?"
+  kind: item
+  mode: items
+  expect_pages: []
+# Follow-ups: the second question only makes sense with the first.
+- q: "What weapons can they use?"
+  kind: mechanics
+  history: ["Tell me about the Barbarian guild"]
+  expect_pages: ["Barbarian"]
+- q: "And what about the Empath?"
+  kind: mechanics
+  history: ["Which skillsets does a Barbarian have?"]
+  expect_pages: ["Empath"]
+# Persona set: one or two questions per kind, including greetings and questions about the assistant itself.
+- q: "How do I start forging?"
+  kind: crafting
+  expect_pages: ["Forging guide", "Forging skill"]
+- q: "What does Bobba's Arms and Armor sell?"
+  kind: place
+  expect_pages: ["Bobba's Arms and Armor"]
+- q: "Tell me about Riverhaven"
+  kind: place
+  expect_pages: ["Riverhaven"]
+- q: "What currency does the Crossing use?"
+  kind: place
+  expect_pages: ["Crossing", "Currency"]
+- q: "Who is Bobba Bandicoot?"
+  kind: character
+  expect_pages: ["Bobba"]
+- q: "Who is Rawb Stryker?"
+  kind: character
+  expect_pages: ["Rawb"]
+- q: "Who is the GM Armifer?"
+  kind: character
+  expect_pages: ["Armifer"]
+- q: "Who is Hodierna?"
+  kind: lore
+  expect_pages: ["Hodierna"]
+- q: "Who was Lanival?"
+  kind: lore
+  expect_pages: ["Lanival"]
+- q: "What are Halflings like?"
+  kind: lore
+  expect_pages: ["Concept:Halflings"]
+- q: "How tough is a musk hog and where do I find one?"
+  kind: creature
+  expect_pages: ["Musk hog"]
+- q: "What happened at Hollow Eve Festival 450?"
+  kind: event_news
+  expect_pages: ["Hollow Eve Festival 450"]
+- q: "What was in the first DragonRealms news?"
+  kind: event_news
+  expect_pages: ["News 1 1 - Welcome to Dragonrealms"]
+- q: "What does the APPRAISE command do?"
+  kind: mechanics
+  expect_pages: ["Appraise command"]
+- q: "Hello! Who are you?"
+  kind: meta
+  expect_pages: []
+- q: "What is Elanthipedia?"
+  kind: meta
+  expect_pages: []

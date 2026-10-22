@@ -1,0 +1,14 @@
+.venv/
+data/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+# machine-local config and tooling
+epedia.local.toml
+.claude/
+*.db
+*.db-*

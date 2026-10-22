@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qqueryelanthia"
+version = "0.1.0"
+description = "QQueryElanthia: Fennick, a local storyteller's guide to DragonRealms, answering from Elanthipedia (RAG, Ollama-backed)"
+requires-python = ">=3.14"
+dependencies = [
+    "httpx>=0.28",
+    "beautifulsoup4>=4.14",
+    "lxml>=5",
+    "sqlite-vec>=0.1.9",
+    "typer>=0.15",
+    "rich>=13",
+    "pydantic>=2.13",
+    "pyyaml>=6",
+    "fastapi>=0.136",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+qqueryelanthia = "epedia.cli:app"
+epedia = "epedia.cli:app"  # short alias; the Python package keeps its internal name
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+epedia = ["**/*.yaml", "**/*.html"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
