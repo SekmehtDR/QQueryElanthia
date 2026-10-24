@@ -220,8 +220,14 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "pages", "is_log", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "pages", "classified_revid", "INTEGER")
     _ensure_column(conn, "messages", "kind", "TEXT")
+    # conversation tracking: when a chat was last used, what it is about, and where the model's memory of it starts
+    _ensure_column(conn, "sessions", "updated_at", "TEXT")
+    _ensure_column(conn, "sessions", "topic", "TEXT")
+    _ensure_column(conn, "sessions", "context_from", "INTEGER")
+    _ensure_column(conn, "messages", "related", "TEXT")
     conn.executescript(
         """
+        CREATE INDEX IF NOT EXISTS ix_sessions_updated ON sessions(updated_at);
         CREATE INDEX IF NOT EXISTS ix_pages_kind ON pages(page_kind);
         CREATE INDEX IF NOT EXISTS ix_pages_classify ON pages(page_id)
           WHERE is_redirect=0 AND classified_revid IS NOT fetched_revid;

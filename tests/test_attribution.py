@@ -36,7 +36,7 @@ def test_list_items_and_table_rows_are_tagged_without_breaking_markup():
 
 
 def test_framing_and_unsupported_lines_are_not_tagged():
-    r = attribute("Here is what the chronicle holds. The weather in Shard is always lovely and mild.", PASSAGES)
+    r = attribute("Here is what I found. The weather in Shard is always lovely and mild.", PASSAGES)
     assert "*]" not in r.text and r.added == 0
     assert r.uncited >= 1
 

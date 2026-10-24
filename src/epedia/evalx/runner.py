@@ -85,3 +85,36 @@ async def run_eval(
     if labelled:
         metrics["kind_accuracy"] = sum(1 for r in labelled if r.kind == r.expected_kind) / len(labelled)
     return results, metrics
+
+
+async def run_conversations(settings: Settings, conn: sqlite3.Connection, ollama: Ollama, path: Path) -> list[dict]:
+    """Scripted multi-turn dialogues, planner only: does each turn follow the thread, name its subject, ask when unclear?
+
+    Each turn may expect `follow_up` (bool), `standalone_has` (words the rewritten question must contain) and
+    `clarify` (bool). Canned answers (`a:`) stand in for the model's, so a run takes seconds and is repeatable."""
+    from ..core import memory
+
+    scripts = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assistant = Assistant(settings, conn, ollama)
+    rows: list[dict] = []
+    for script in scripts:
+        sid = memory.new_session(conn, "eval", f"eval-{uuid.uuid4().hex[:8]}")
+        try:
+            for i, turn in enumerate(script["turns"], 1):
+                hist = memory.history(conn, sid, settings.chat.history_turns)
+                plan = await assistant.plan(hist, turn["q"], sid)
+                problems: list[str] = []
+                if "follow_up" in turn and plan.follow_up != turn["follow_up"]:
+                    problems.append(f"follow_up={plan.follow_up}, wanted {turn['follow_up']}")
+                for word in turn.get("standalone_has", []):
+                    if word.lower() not in plan.standalone_question.lower():
+                        problems.append(f"standalone lacks '{word}'")
+                if "clarify" in turn and bool(plan.clarify) != turn["clarify"]:
+                    problems.append(f"clarify={bool(plan.clarify)}, wanted {turn['clarify']}")
+                rows.append({"script": script["name"], "turn": i, "q": turn["q"], "standalone": plan.standalone_question,
+                             "problems": problems})
+                memory.add_message(conn, sid, "user", turn["q"], standalone_q=plan.standalone_question)
+                memory.add_message(conn, sid, "assistant", turn.get("a", "(answered)"), standalone_q=plan.standalone_question)
+        finally:
+            memory.delete_session(conn, sid)
+    return rows

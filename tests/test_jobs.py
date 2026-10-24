@@ -47,7 +47,8 @@ def test_modes_map_to_the_commands_a_person_would_type():
     assert m.command("delta")[:3] == [sys.executable, "-m", "epedia.cli"]
     with pytest.raises(ValueError):
         m.command("everything")
-    assert set(MODES) == {"delta", "full"}
+    assert set(MODES) == {"delta", "full", "reindex"}
+    assert JobManager(Settings()).command("reindex")[-2:] == ["index", "--reembed-all"]
 
 
 def test_the_child_uses_the_servers_own_config_file_and_wiki_source(tmp_path):
@@ -317,3 +318,88 @@ def test_changes_endpoint_and_run_ids_in_info(tmp_path):
         ok = c.get(f"/api/index/changes/{cur.lastrowid}").json()
         assert [p["title"] for p in ok["pages"]] == ["Hodierna"]
         assert c.get("/api/index/changes/424242").status_code == 404
+
+
+def test_reindex_progress_is_read_from_the_state_table_and_stale_runs_are_called_interrupted():
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    from epedia.jobs import reindex_status
+
+    def put(c, **kw):
+        c.execute("INSERT OR REPLACE INTO state VALUES ('reindex.progress', ?)", (json.dumps(kw),))
+
+    now = datetime.now(timezone.utc)
+    iso = lambda dt: dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    c = make_conn()
+    assert reindex_status(c) is None
+    put(c, total=200, done=50, started_at=iso(now), updated_at=iso(now), finished_at=None)
+    assert reindex_status(c) == {"state": "running", "done": 50, "total": 200, "pct": 25.0, "started_at": iso(now),
+                                 "updated_at": iso(now), "finished_at": None}
+    put(c, total=200, done=50, started_at=iso(now), updated_at=iso(now - timedelta(minutes=30)), finished_at=None)
+    assert reindex_status(c)["state"] == "interrupted"  # nothing reported for half an hour: it died
+    put(c, total=200, done=200, started_at=iso(now), updated_at=iso(now), finished_at=iso(now))
+    assert reindex_status(c)["state"] == "finished"
+    c.execute("INSERT OR REPLACE INTO state VALUES ('reindex.progress', 'not json')")
+    assert reindex_status(c) is None  # garbage is ignored, never a crash
+
+
+def test_a_reembed_run_leaves_a_finished_heartbeat(tmp_path):
+    from epedia.db import connect
+    from epedia.index.indexer import index_pages
+    from epedia.jobs import reindex_status
+
+    s = Settings()
+    s.db.path = str(tmp_path / "t.db")
+    conn = connect(s)
+    asyncio.run(index_pages(s, conn, None, reembed_all=True, show_progress=False))  # an empty index: nothing to do
+    got = reindex_status(conn)
+    assert got["state"] == "finished" and got["total"] == 0 and got["pct"] == 100.0
+    conn.close()
+
+
+def test_the_page_refuses_to_start_a_job_while_a_re_index_runs_outside_it(tmp_path):
+    import json
+    from datetime import datetime, timezone
+
+    from epedia.db import connect
+
+    s = Settings()
+    s.db.path = str(tmp_path / "t.db")
+    conn = connect(s)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("INSERT OR REPLACE INTO state VALUES ('reindex.progress', ?)",
+                 (json.dumps({"total": 10, "done": 1, "started_at": now, "updated_at": now, "finished_at": None}),))
+    conn.close()
+    app = create_app(s)
+    app.state.jobs.command = lambda mode: QUICK
+    with TestClient(app) as c:
+        assert c.get("/api/index/info").json()["reindex"]["state"] == "running"
+        assert c.post("/api/index/start", json={"mode": "delta"}, headers=LOCAL).status_code == 409
+
+
+def test_a_re_index_started_outside_the_page_can_be_stopped_from_it(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime, timezone
+
+    from epedia.db import connect
+    from epedia.frontends.web import app as webapp
+
+    s = Settings()
+    s.db.path = str(tmp_path / "t.db")
+    conn = connect(s)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("INSERT OR REPLACE INTO state VALUES ('reindex.progress', ?)",
+                 (json.dumps({"total": 10, "done": 4, "started_at": now, "updated_at": now, "finished_at": None}),))
+    conn.close()
+    killed = []
+    monkeypatch.setattr(webapp, "find_reindex_pids", lambda: [4242])
+    monkeypatch.setattr(webapp, "kill_pid_tree", killed.append)
+    with TestClient(create_app(s)) as c:
+        assert c.get("/api/index/info").json()["reindex"]["state"] == "running"
+        assert c.post("/api/index/stop", headers={"Host": "localhost:8765"}).status_code == 403  # still guarded
+        r = c.post("/api/index/stop", headers=LOCAL).json()
+        assert r["external_stopped"] == 1 and killed == [4242]
+        assert c.get("/api/index/info").json()["reindex"]["state"] == "interrupted"  # shown as stopped at once
+        # nothing left running: another stop does nothing
+        assert "external_stopped" not in c.post("/api/index/stop", headers=LOCAL).json()

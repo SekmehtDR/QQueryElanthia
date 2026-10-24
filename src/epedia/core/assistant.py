@@ -6,7 +6,9 @@ import json
 import logging
 import re
 import sqlite3
+import struct
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, AsyncIterator
 
 from ..config import Settings
@@ -14,12 +16,17 @@ from ..kinds import OFFER_EXCLUDED_PAGE_KINDS, OFFER_MIN_WEIGHT, QUESTION_KINDS
 from ..llm import prompts
 from ..llm.ollama import Ollama, OllamaError
 from ..retrieval.search import Hit, search
-from ..util import page_url
+from ..util import now_text, page_url
 from . import memory
 from .attribution import attribute
+from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
+from .userinput import split_message
 
 log = logging.getLogger("epedia.assistant")
 
+OFFER_CHUNKS_PER_PAGE = 6  # only a page's opening chunks are compared: enough to tell what it is about, and fast
+OFFER_CLOSE_MARGIN = 0.06  # an offer must be about as close to the question as the closest candidate...
+OFFER_MAX_DISTANCE = 0.45  # ...and close in absolute terms (cosine distance); otherwise nothing is offered
 MIN_OFFER_INLINKS = 8  # a page must be linked from at least this many pages to be offered as a thread to pull on
 
 
@@ -39,12 +46,88 @@ def _snippet(text: str, limit: int = 260) -> str:
     return flat if len(flat) <= limit else flat[:limit].rsplit(" ", 1)[0] + "…"
 
 
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
 # A message really is small talk or about the assistant only if it greets, thanks, or mentions you / the wiki.
 META_CUES = re.compile(
     r"\b(hi|hello|hey|howdy|greetings|thanks?|thank you|bye|you|your|yourself|elanthipedia|wiki|assistant|bot|fennick)\b",
     re.I,
 )
-PARTIAL_NOTE = "I couldn't find every part of that in the chronicle."
+PARTIAL_NOTE = "I couldn't find every part of that."
+
+
+SHORT_MESSAGE_WORDS = 9  # a long question that happens to contain "that" or "it" is usually self-contained
+
+# "What time is it?", "what's today's date?": answered from the computer's clock, not from the wiki.
+CLOCK_QUESTION = re.compile(
+    r"^\W*(?:(?:hey|hi|hello|fennick)\W+)*(?:can you (?:please )?tell me )?(?:what(?:'s| is| are)?|whats)\s+(?:the\s+|today'?s\s+)?"
+    r"(?:current\s+|todays?\s+)?(?:date|time|day(?: of the week)?)(?:\s+(?:and|&)\s+(?:date|time))?(?:\s+is\s+it)?"
+    r"(?:\s+(?:right\s+)?(?:now|today|currently))?\W*$"
+    r"|^\W*what\s+(?:day|time|date)\s+is\s+(?:it|today)(?:\s+(?:right\s+)?now)?\W*$"
+    r"|^\W*(?:do you know\s+)?(?:the\s+)?(?:current\s+)?(?:date\s+and\s+time|time\s+and\s+date)\W*$",
+    re.I,
+)
+
+
+def clock_answer(persona: bool) -> str:
+    when = now_text()
+    if not persona:
+        return f"It is {when}."
+    return (f"By my reckoning it's {when}, on the clock of the computer I'm running on. "
+            "The game keeps its own time, which I can't see: type TIME in DragonRealms for that.")
+
+
+# Words that make "this year" part of the question: only then is the current year worth searching for.
+TIME_WORDS = re.compile(
+    r"\b(upcoming|next|current|currently|latest|recent|recently|newest|now|today|tonight|soon|coming|schedule[sd]?|"
+    r"this (?:year|month|week|season)|right now|these days|new)\b", re.I,
+)
+
+
+def drop_unasked_year(question: str, message: str, year: int | None = None) -> str:
+    """The planner is told to add the current year for questions about what is upcoming or current; it sometimes adds it
+    to others ("... least in 2026?"), which only pulls in unrelated pages. Remove a year the user did not ask about."""
+    year = year or date.today().year
+    ys = str(year)
+    if ys not in question or ys in message or TIME_WORDS.search(message):
+        return question
+    cleaned = re.sub(rf"\s*(?:\b(?:in|for|during|of|on|as of|from|since)\s+)?(?:the year\s+)?\b{ys}\b", "", question)
+    cleaned = re.sub(r"\s+([?.!,])", r"\1", cleaned).strip()
+    return cleaned or question
+
+
+# Words that only make sense given what was just said ("what about them?", "and its price?", "tell me more").
+ANAPHORA = re.compile(
+    r"\b(it|its|they|them|their|those|these|that|this|he|she|him|her|his|hers|the other|the same|the first|"
+    r"the second|the last|more|another|also)\b|^(and|but|so|what about|how about)\b", re.I,
+)
+
+# A follow-up that points back at text pasted earlier ("what I sent you", "that message", "the post above").
+REFERS_TO_PASTE = re.compile(
+    r"\b(?:i|we) (?:sent|pasted|shared|posted|gave|showed|copied)\b|\b(?:that|this|the|my|above|previous) "
+    r"(?:message|post|text|paste|announcement|quote)\b", re.I,
+)
+
+# The model is told not to end with an offer (the program adds one), but sometimes does, which makes two.
+_MODEL_OFFER = re.compile(
+    r"^(If you(?:'re| are|'d| would)? (?:interested|curious|like|want)|Let me know|Would you like|Want me to|"
+    r"I can also (?:tell|explain|go|help)|Feel free to ask)", re.I,
+)
+_OFFERS_SOMETHING = re.compile(r"\b(I can|I could|I'd be|let me|ask me|just ask|tell you|explore|dig into|go into|more about)\b", re.I)
+
+
+def strip_closing_offer(answer: str) -> str:
+    """Drop a closing 'if you're interested, I can also...' paragraph the model wrote on its own."""
+    parts = re.split(r"\n\s*\n", answer.rstrip())
+    while len(parts) > 1:  # there can be more than one
+        last = parts[-1].strip()
+        if not (_MODEL_OFFER.match(last) and _OFFERS_SOMETHING.search(last) and not re.search(r"\[\d+\*?\]", last)
+                and len(last) < 400):
+            break
+        parts.pop()
+    return "\n\n".join(parts) if len(parts) < len(re.split(r"\n\s*\n", answer.rstrip())) else answer
 
 
 def soften_refusal(answer: str) -> str:
@@ -54,7 +137,7 @@ def soften_refusal(answer: str) -> str:
     A small model sometimes appends it after a good answer, which contradicts everything above it; or it may have
     meant "one detail is missing". Deleting it could make a partial answer look complete, so it becomes an honest
     caveat that is true in both cases."""
-    for line in (prompts.NO_PASSAGES_ANSWER, "The wiki doesn't seem to cover that."):
+    for line in (prompts.NO_PASSAGES_ANSWER, prompts.OLD_NO_PASSAGES_ANSWER, "The wiki doesn't seem to cover that."):
         if line in answer and len(answer.replace(line, "").strip()) >= 80:
             return answer.replace(line, PARTIAL_NOTE)
     return answer
@@ -80,6 +163,7 @@ class Done:
     cited: list[int]
     sources: list[Source]
     related: list[str] = field(default_factory=list)
+    topic: str | None = None
 
 
 Event = Retrieval | Token | Done
@@ -92,6 +176,10 @@ class Plan:
     items_query: dict[str, Any] | None = None
     follow_up: bool = False  # depends on earlier turns: bring the previous answer's source passages along
     kind: str = "general"  # what the question is about; steers retrieval weights and the answer's shape
+    topic: str = ""  # what the conversation is about, for the "Talking about" chip
+    clarify: str = ""  # a question to ask instead of answering, when the message has no subject to work with
+    material: str = ""  # text the person pasted with the question (a Discord post, an in-game message)
+    qvec: list[float] | None = None  # the question's embedding, filled in by retrieval
 
 
 class Assistant:
@@ -105,19 +193,30 @@ class Assistant:
         return self.s.persona.name
 
     async def plan(self, hist: list[dict[str, str]], message: str, session_id: str | None = None) -> Plan:
+        message, material = split_message(message)  # what is being asked, apart from any text pasted with it
+        if not material and session_id and REFERS_TO_PASTE.search(message):
+            material = memory.last_pasted(self.conn, session_id)  # "the lore of what I sent you": it means the paste
         catalog = self._property_catalog()
         system = prompts.ROUTER_SYSTEM.replace("{property_catalog}", catalog or "(no item properties indexed yet)")
-        convo = "\n".join(f"{m['role']}: {m['content']}" for m in hist) or "(no earlier messages)"
-        user = f"Conversation so far:\n{convo}\n"
+        earlier = memory.recent_questions(self.conn, session_id, 8)[:-2] if session_id and hist else []
+        convo = "\n".join(f"{m['role']}: {m['content']}" for m in hist[-4:]) or "(no earlier messages)"
+        user = ""
+        if earlier:  # questions older than the last two turns: enough to keep the thread without the answers
+            user += "Earlier questions in this conversation, oldest first:\n" + "\n".join(f"- {t}" for t in earlier) + "\n\n"
+        user += f"Most recent turns:\n{convo}\n"
         last_pages = self._prior_titles(session_id) if hist else []
         if last_pages:
             user += "\nPages used in the last answer:\n" + "\n".join(f"- {t}" for t in last_pages) + "\n"
-        user += f"\nLatest user message: {message}"
+        user += f"\nCurrent year: {date.today().year}\nLatest user message: {message}"
+        if material:
+            user += ("\n\nText the user pasted with that message (it is not from the wiki; use it to understand what "
+                     f"they mean and to name the specific people, places and events in the question):\n---\n{material[:1500]}\n---")
         try:
             data = await self.ollama.chat_json(
                 [{"role": "system", "content": system}, {"role": "user", "content": user}], prompts.ROUTER_SCHEMA
             )
             q = (data.get("standalone_question") or message).strip() or message
+            q = drop_unasked_year(q, message)
             mode = data.get("mode") if data.get("mode") in ("search", "items") else "search"
             iq = data.get("items_query") if mode == "items" else None
             if mode == "items" and not catalog:
@@ -127,11 +226,19 @@ class Assistant:
                 kind = "item"
             if kind == "meta" and not META_CUES.search(message):
                 kind = "general"  # the 8B planner sometimes files "Who is <name>?" as small talk; that needs a search
-            follow_up = bool(hist) and bool(data.get("follow_up")) and kind != "meta"
-            return Plan(q, mode, iq, follow_up=follow_up, kind=kind)
+            # The 8B planner resolves "it" correctly but often forgets to say follow_up: a question it had to rewrite
+            # using the conversation is a follow-up whatever the flag says.
+            rewritten = _norm(q) != _norm(message)
+            leans_on_context = len(message.split()) <= SHORT_MESSAGE_WORDS and bool(ANAPHORA.search(message))
+            follow_up = bool(hist) and (bool(data.get("follow_up")) or rewritten or leans_on_context) and kind != "meta"
+            topic = re.sub(r"\s+", " ", str(data.get("topic") or "")).strip()[:40]
+            clarify = str(data.get("clarify") or "").strip()
+            if hist or kind == "meta" or len(clarify) > 200:
+                clarify = ""  # only trusted when there is no conversation to draw a subject from
+            return Plan(q, mode, iq, follow_up=follow_up, kind=kind, topic=topic, clarify=clarify, material=material)
         except (OllamaError, KeyError, ValueError) as exc:
             log.warning("planner failed (%s); falling back to plain search", exc)
-            return Plan(message)
+            return Plan(message, material=material)
 
     def _property_catalog(self) -> str:
         rows = self.conn.execute(
@@ -207,6 +314,7 @@ class Assistant:
         have = {p["chunk_id"] for p in prior}
         extra_k = self.s.retrieval.related_k if self.s.retrieval.offer_related else 0
         qvec = (await self.ollama.embed(["search_query: " + plan.standalone_question]))[0]
+        plan.qvec = qvec  # reused to pick related pages that are really about this question
         hits: list[Hit] = search(
             self.conn, plan.standalone_question, self.s.retrieval, self.s.wiki.base_url, qvec, k_final=k + extra_k,
             prior_chunk_ids=self._prior_chunk_ids(session_id) if plan.follow_up else None, kind=plan.kind,
@@ -249,7 +357,8 @@ class Assistant:
                             "chunk_id": r["chunk_id"]})
         return out
 
-    def _related_pages(self, kind: str, passages: list[dict], extras: list[dict]) -> list[str]:
+    def _related_pages(self, kind: str, passages: list[dict], extras: list[dict],
+                       seen: set[str] | frozenset[str] = frozenset(), qvec: list[float] | None = None) -> list[str]:
         """Up to related_k titles worth offering as 'a thread to pull on' after the answer.
 
         Candidates: runner-up search hits, then pages linked from the top-ranked passage's page (most linked-to
@@ -260,7 +369,7 @@ class Assistant:
         if not cfg.offer_related or kind == "meta" or not passages:
             return []
         weights = cfg.kind_weights.get(kind, {})
-        used = {p["title"] for p in passages}
+        used = {p["title"] for p in passages} | set(seen)  # pages cited or offered earlier are not offered again
         out: list[str] = []
 
         def consider(title: str, page_kind: str | None) -> None:
@@ -272,8 +381,9 @@ class Assistant:
                 return
             out.append(title)
 
-        # Pages the answer's own page links to, most linked-to first: the community's own idea of "related", and
-        # popular pages make better offers than obscure ones (hence the minimum in-link count).
+        # Candidates: pages the answer's own page links to (the community's idea of "related") and the runner-up
+        # search hits. Popular pages are not better offers: "Crossing" is linked from everywhere and is rarely what
+        # the conversation is about, so candidates are ranked by how close they are to the question itself.
         top = passages[0].get("chunk_id")
         row = self.conn.execute("SELECT page_id FROM chunks WHERE chunk_id=?", (top,)).fetchone() if top else None
         if row:
@@ -285,18 +395,37 @@ class Assistant:
                 (row["page_id"], MIN_OFFER_INLINKS),
             ):
                 consider(r["title"], r["page_kind"])
-                if len(out) >= cfg.related_k:
-                    return out
-        for e in extras:  # runner-up search hits fill any remaining slots, if they are popular enough too
+        for e in extras:
             n = self.conn.execute(
                 "SELECT count(*) FROM page_links l JOIN pages p ON p.page_id=l.to_page_id WHERE p.title=?",
                 (e["title"],),
             ).fetchone()[0]
             if n >= MIN_OFFER_INLINKS:
                 consider(e["title"], e.get("page_kind"))
-            if len(out) >= cfg.related_k:
-                break
+        if qvec is not None and out:
+            out = self._closest_to_question(out, qvec)
         return out[: cfg.related_k]
+
+    def _closest_to_question(self, titles: list[str], qvec: list[float]) -> list[str]:
+        """Order candidate pages by how close their best chunk is to the question; drop the clearly unrelated.
+
+        A page is kept if it is within OFFER_CLOSE_MARGIN of the closest candidate and under OFFER_MAX_DISTANCE, so
+        when nothing fits the question well, nothing is offered."""
+        blob = struct.pack(f"{len(qvec)}f", *qvec)
+        marks = ",".join("?" * len(titles))
+        rows = self.conn.execute(
+            "SELECT p.title, min(vec_distance_cosine(v.embedding, ?)) AS d FROM pages p "
+            "JOIN chunks c ON c.page_id=p.page_id JOIN chunk_vec v ON v.chunk_id=c.chunk_id "
+            f"WHERE p.title IN ({marks}) AND c.ord < {OFFER_CHUNKS_PER_PAGE} GROUP BY p.title",
+            (blob, *titles),
+        ).fetchall()
+        dist = {r["title"]: r["d"] for r in rows if r["d"] is not None}
+        if not dist:
+            return titles
+        best = min(dist.values())
+        keep = [t for t in sorted(dist, key=dist.get)
+                if dist[t] <= best + OFFER_CLOSE_MARGIN and dist[t] <= OFFER_MAX_DISTANCE]
+        return keep
 
     # ------------------------------------------------------------------------------------ answering
 
@@ -308,32 +437,69 @@ class Assistant:
         plan = await self.plan(hist, user_message, session_id)
         if kind_override in QUESTION_KINDS:
             plan.kind = kind_override
+        if CLOCK_QUESTION.search(split_message(user_message)[0]):
+            # What day or time it is needs no wiki: answer from the clock, in code, so it is always exactly right.
+            plan.mode = "clock"
+            answer = clock_answer(self.s.persona.enabled)
+            yield Retrieval([], plan.standalone_question, "clock", "meta", [])
+            yield Token(answer)
+            self._persist(session_id, user_message, answer, plan, [], [])
+            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
+            return
+        if plan.clarify and not memory.last_was_clarification(self.conn, session_id):
+            # Ask rather than guess, but never twice in a row: the second time it is answered as best it can be.
+            yield Retrieval([], plan.standalone_question, "clarify", plan.kind, [])
+            yield Token(plan.clarify)
+            plan.mode = "clarify"
+            self._persist(session_id, user_message, plan.clarify, plan, [], [])
+            yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id))
+            return
         passages, extras = await self.retrieve_with_extras(plan, session_id)
-        text, used = prompts.format_passages(passages, self.s.chat.context_token_budget)
+        over_only = False
+        if plan.kind == "event_news" and (UPCOMING.search(user_message) or UPCOMING.search(plan.standalone_question)):
+            # "What is coming up next?" can only be answered by something still ahead. The small model cannot be trusted
+            # to see that a September date is over in October, so the filtering and the "nothing is scheduled" reply are code.
+            ahead, over, undated = split_by_time(passages, date.today())
+            if ahead:
+                passages = [{**p, "text": keep_ahead_lines(p["text"], date.today())} for p in ahead] + undated
+            elif over:
+                over_only, passages = True, over_answer(over, date.today(), self.s.persona.enabled)[1]
+        text, used = prompts.format_passages(passages, self.s.chat.context_token_budget, date.today())
         passages = passages[:used]
-        related = self._related_pages(plan.kind, passages, extras)
+        related = self._related_pages(plan.kind, passages, extras, memory.seen_titles(self.conn, session_id), plan.qvec)
         sources = [
             Source(i + 1, p["title"], p.get("section", ""), p["url"], p.get("chunk_id"), _snippet(p["text"]))
             for i, p in enumerate(passages)
         ]
-        yield Retrieval(sources, plan.standalone_question, plan.mode, plan.kind, related)
+        yield Retrieval(sources, plan.standalone_question, plan.mode, plan.kind, [] if over_only else related)
+
+        if over_only:
+            answer = over_answer(passages, date.today(), self.s.persona.enabled)[0]
+            yield Token(answer)
+            self._persist(session_id, user_message, answer, plan, sources, [])
+            yield Done(answer, [1], sources, [], memory.get_topic(self.conn, session_id))
+            return
 
         if not passages:
             answer = (prompts.NO_PASSAGES_ANSWER if self.s.persona.enabled
                       else "The wiki doesn't seem to cover that.")
             yield Token(answer)
-            self._persist(session_id, user_message, answer, plan, [])
-            yield Done(answer, [], [], [])
+            self._persist(session_id, user_message, answer, plan, [], [])
+            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
             return
 
-        system = prompts.build_answer_system(plan.kind, text, self.name, persona=self.s.persona.enabled)
+        system = prompts.build_answer_system(plan.kind, text, self.name, persona=self.s.persona.enabled,
+                                             continuing=bool(hist), pasted=plan.material, today=now_text())
+        # Earlier turns always come along, as they would in a conversation with a person: what was just said shapes
+        # how the next question is understood, whether or not the planner flagged it as a follow-up.
         messages = [{"role": "system", "content": system}, *hist,
                     {"role": "user", "content": plan.standalone_question}]
         chunks: list[str] = []
         async for tok in self.ollama.chat_stream(messages, temperature=self.s.chat.temperature):
             chunks.append(tok)
             yield Token(tok)
-        answer = soften_refusal("".join(chunks).strip())
+        raw = re.sub(r"\[n(\d+)\]", r"[\1]", re.sub(r"\s*\[n\]", "", "".join(chunks)))  # "[n]" / "[n4]" copied from the prompt
+        answer = soften_refusal(strip_closing_offer(raw.strip()))
         # Lines the model left uncited get a "[n*]" tag where one passage clearly matches (see core/attribution.py).
         # The streamed text is the raw draft; the final text, with these tags, is what Done carries and what is saved.
         answer = attribute(answer, [p["text"] for p in passages]).text
@@ -343,15 +509,20 @@ class Assistant:
             yield Token(tail)
             answer += tail
         cited = sorted({int(n) for n in re.findall(r"\[(\d+)\*?\]", answer) if 1 <= int(n) <= len(sources)})
-        self._persist(session_id, user_message, answer, plan, sources)
-        yield Done(answer, cited, sources, related)
+        self._persist(session_id, user_message, answer, plan, sources, related)
+        top = (sources[cited[0] - 1] if cited else sources[0]).title if sources else ""
+        topic = plan.topic or re.sub(r"^[A-Za-z]+:(?=\S)", "", top)  # a planner label, else the main page cited
+        if topic and plan.kind != "meta":
+            memory.set_topic(self.conn, session_id, topic)
+        yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id))
 
-    def _persist(self, sid: str, user_message: str, answer: str, plan: Plan, sources: list[Source]) -> None:
+    def _persist(self, sid: str, user_message: str, answer: str, plan: Plan, sources: list[Source],
+                 related: list[str]) -> None:
         memory.add_message(self.conn, sid, "user", user_message, standalone_q=plan.standalone_question,
                            mode=plan.mode, kind=plan.kind)
         memory.add_message(
             self.conn, sid, "assistant", answer, standalone_q=plan.standalone_question, mode=plan.mode,
-            kind=plan.kind, sources=[s.__dict__ for s in sources],
+            kind=plan.kind, sources=[s.__dict__ for s in sources], related=related,
         )
 
     async def ask(self, session_id: str, message: str, *, kind_override: str | None = None) -> Done:

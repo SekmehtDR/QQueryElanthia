@@ -139,3 +139,81 @@ def _retry_after(resp: httpx.Response, default: float) -> float:
         return float(value)
     except ValueError:
         return default
+
+
+FALLBACK_ERRORS = ("transport", "maxlag", "ratelimited")  # the source is unreachable or overloaded
+MISSING_ERRORS = ("missingtitle", "nosuchpageid")  # a lagging copy may simply not have the page yet
+BREAKER_FAILURES = 3
+BREAKER_SECONDS = 300.0
+
+
+class FailoverClient:
+    """A preferred wiki source with a second one behind it, so a crawl keeps going when the first has trouble.
+
+    The preferred source (for example a fast mirror) gets one quick retry only; after a few failures in a row it is
+    skipped for a few minutes so a dead mirror costs seconds, not a two-minute backoff per page. A page the
+    preferred source says is missing is asked of the second source before it is treated as deleted, because a
+    mirror that lags would otherwise make every brand-new page look removed. The second source keeps its own rate
+    limit and full retry ladder."""
+
+    def __init__(self, cfg: WikiCfg, *, rps: float | None = None, concurrency: int | None = None,
+                 retries: int | None = None):
+        if not cfg.fallback_source or cfg.fallback_source == cfg.source:
+            raise ValueError("FailoverClient needs a fallback source different from the active one")
+        self.cfg = cfg
+        self.primary = WikiClient(cfg, rps=rps, concurrency=concurrency, retries=1 if retries is None else retries)
+        self.secondary = WikiClient(cfg.model_copy(update={"source": cfg.fallback_source, "fallback_source": None}),
+                                    retries=retries)
+        self.api_url = self.primary.api_url
+        self._failures = 0
+        self._skip_until = 0.0
+        self.fallbacks = 0
+
+    @property
+    def requests(self) -> int:
+        return self.primary.requests + self.secondary.requests
+
+    async def __aenter__(self) -> "FailoverClient":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        await self.primary.aclose()
+        await self.secondary.aclose()
+
+    async def get(self, params: dict[str, Any]) -> dict[str, Any]:
+        if time.monotonic() >= self._skip_until:
+            try:
+                data = await self.primary.get(params)
+                self._failures = 0
+                return data
+            except WikiError as exc:
+                if exc.code in FALLBACK_ERRORS:
+                    self._failures += 1
+                    if self._failures >= BREAKER_FAILURES:
+                        self._skip_until = time.monotonic() + BREAKER_SECONDS
+                        log.warning("preferred source failed %d times in a row; using the fallback for %.0fs",
+                                    self._failures, BREAKER_SECONDS)
+                elif exc.code not in MISSING_ERRORS:
+                    raise
+        self.fallbacks += 1
+        return await self.secondary.get(params)
+
+    async def paginate(self, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        p = dict(params)
+        while True:
+            data = await self.get(p)
+            yield data
+            cont = data.get("continue")
+            if not cont:
+                return
+            p.update(cont)
+
+
+def open_client(cfg: WikiCfg, **kw: Any) -> "WikiClient | FailoverClient":
+    """The client for the configured source: with a fallback when the settings name one."""
+    if cfg.fallback_source and cfg.fallback_source != cfg.source:
+        return FailoverClient(cfg, **kw)
+    return WikiClient(cfg, **kw)

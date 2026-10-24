@@ -30,3 +30,20 @@ def parse_ns_option(value: str | None, default: list[int]) -> list[int]:
     if not value:
         return list(default)
     return [int(x) for x in value.replace(";", ",").split(",") if x.strip()]
+
+
+def today_text() -> str:
+    """Today's real-world date for the model, from this computer's clock ("Friday, October 23, 2026")."""
+    from datetime import datetime
+
+    now = datetime.now().astimezone()
+    return f"{now:%A, %B} {now.day}, {now.year}"
+
+
+def now_text() -> str:
+    """The date, time and time zone on this computer's clock ("Friday, October 23, 2026, 7:45 PM Pacific Daylight Time")."""
+    from datetime import datetime
+
+    now = datetime.now().astimezone()
+    hour = now.hour % 12 or 12
+    return f"{now:%A, %B} {now.day}, {now.year}, {hour}:{now:%M} {'AM' if now.hour < 12 else 'PM'} {now.tzname()}"

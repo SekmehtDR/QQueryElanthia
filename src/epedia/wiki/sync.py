@@ -19,7 +19,13 @@ from ..llm.ollama import Ollama
 from ..util import utcnow_iso
 from .client import WikiClient
 from .crawl import crawl
-from .discover import check_primary_source, discover, upsert_page_info, upsert_redirect
+from .discover import (
+    check_primary_source,
+    discover,
+    newest_change_timestamp,
+    upsert_page_info,
+    upsert_redirect,
+)
 
 log = logging.getLogger("epedia.sync")
 
@@ -228,15 +234,44 @@ async def sync(
     return stats
 
 
+def _touched_since_fetch(old: sqlite3.Row, info: dict[str, Any], authoritative: bool) -> bool:
+    """Did the source's copy change after we fetched ours? Edit times compare across wikis; revision ids do not."""
+    touched, fetched = info.get("touched"), old["fetched_at"]
+    if fetched and touched:
+        return touched > fetched
+    if authoritative:  # same wiki as before: the exact comparison is still available and catches everything
+        return old["touched"] != touched or old["latest_revid"] != info.get("lastrevid")
+    return not fetched
+
+
+async def rewind_cursor(conn: sqlite3.Connection, client: WikiClient, margin_hours: int = 1) -> str | None:
+    """After reading pages from a source that lags the real wiki, make the next delta start from that source's newest
+    edit (less a margin), so edits made after its snapshot are fetched from the real wiki instead of being skipped."""
+    from datetime import datetime, timedelta, timezone
+
+    newest = await newest_change_timestamp(client)
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    start = (datetime.strptime(newest, fmt).replace(tzinfo=timezone.utc) - timedelta(hours=margin_hours)).strftime(fmt)
+    current = get_state(conn, "sync.cursor")
+    if current is None or start < current:
+        set_state(conn, "sync.cursor", start)
+        log.info("delta cursor wound back to %s (newest edit on the source, less %dh)", start, margin_hours)
+        return start
+    return current
+
+
 async def full_scan(
     settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama, *, dry_run: bool = False
 ) -> dict[str, int]:
     """Re-walk allpages+info and compare with the database: finds new, removed and silently re-rendered pages.
 
-    Compares revision ids and touch times, which are only meaningful within one wiki, so it must run against
-    the primary source (see check_primary_source).
+    A page is stale when the source says it was touched after our copy was fetched; edit times are the same on every
+    copy of a wiki, unlike revision ids. When the source may lag the real wiki (a mirror, with deltas coming from
+    elsewhere) pages missing from it are not deleted, since they may simply not have arrived yet, and the delta
+    cursor is wound back to the source's newest edit so the next delta covers everything the source has not seen.
     """
     check_primary_source(conn, settings.wiki)
+    authoritative = settings.wiki.delta_source in (None, settings.wiki.source)
     t0 = time.time()
     stats = {"new": 0, "stale": 0, "removed": 0}
     details: list[tuple[str, str]] = []
@@ -253,14 +288,15 @@ async def full_scan(
                         continue
                     seen.add(info["title"])
                     old = conn.execute(
-                        "SELECT touched, latest_revid FROM pages WHERE title=?", (info["title"],)
+                        "SELECT p.touched, p.latest_revid, h.fetched_at FROM pages p "
+                        "LEFT JOIN page_html h ON h.page_id=p.page_id WHERE p.title=?", (info["title"],)
                     ).fetchone()
                     if old is None:
                         stats["new"] += 1
                         details.append((info["title"], "new"))
                         if not dry_run:
                             upsert_page_info(conn, info)
-                    elif old["touched"] != info.get("touched") or old["latest_revid"] != info.get("lastrevid"):
+                    elif _touched_since_fetch(old, info, authoritative):
                         stats["stale"] += 1
                         details.append((info["title"], "edited"))
                         if not dry_run:
@@ -270,9 +306,10 @@ async def full_scan(
                                 (info["title"],),
                             )
         local = [(r[0], r[1]) for r in conn.execute("SELECT page_id, title FROM pages WHERE ns=? AND is_redirect=0", (ns,))]
-        gone = [pid for pid, title in local if title not in seen]
+        gone_rows = [(pid, title) for pid, title in local if title not in seen] if authoritative else []
+        gone = [pid for pid, _ in gone_rows]
         stats["removed"] += len(gone)
-        details.extend((title, "deleted") for _, title in local if title not in seen)
+        details.extend((title, "deleted") for _, title in gone_rows)
         if gone and not dry_run:
             with transaction(conn):
                 for pid in gone:
@@ -281,6 +318,8 @@ async def full_scan(
         return stats
     await discover(conn, client, settings.wiki, force=False)  # fills redirects for any new namespaces only
     await run_pipeline_for_changes(settings, conn, client, ollama)
+    if not authoritative:
+        await rewind_cursor(conn, client)
     set_state(conn, "fullscan.last_run", utcnow_iso())
     set_state(conn, "fullscan.needed", None)
     with transaction(conn):

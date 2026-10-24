@@ -139,3 +139,29 @@ def test_malformed_span_attributes_do_not_crash():
 def test_nested_lists_are_indented():
     html = '<div class="mw-parser-output"><ul><li>a<ul><li>b</li></ul></li><li>c</li></ul></div>'
     assert html_to_blocks(html)[0].text.splitlines() == ["- a", "  - b", "- c"]
+
+
+def test_item_banners_are_stripped_even_with_markup_inside_and_noted_once():
+    html = ('<div class="mw-parser-output"><div><div><b>Incomplete Item</b></div><div><ul><li>This item is '
+            '<b>incomplete</b>, which means it lacks data.</li></ul><ul><li>Item Type</li></ul>'
+            '<ul><li><small>Please see <a href="/Category:Incomplete_items">Category:Incomplete items</a></small></li></ul>'
+            "</div></div><p>purple sage blossom</p><p>Weight: 5 stones</p></div>")
+    page = html_to_page(html)
+    text = " ".join(b.text for b in page.blocks)
+    assert page.notices == ["incomplete"] and "Category:" not in text and "Item Type" not in text
+    assert "Weight: 5 stones" in text
+    outdated = html_to_page('<div class="mw-parser-output"><div><b>Outdated Item</b><ul><li>This item is outdated.</li></ul></div>'
+                            "<p>a rusty sword</p></div>")
+    assert outdated.notices == ["obsolete"] and all("outdated" not in b.text.lower() for b in outdated.blocks)
+
+
+def test_a_headerless_two_column_table_is_plain_lines_not_a_col_1_grid():
+    html = ('<div class="mw-parser-output"><table><tr><td></td><td>This is a disambiguation page for the store.</td></tr>'
+            "<tr><td>Location:</td><td>Unknown Mainland</td></tr></table></div>")
+    text = "\n".join(b.text for b in html_to_page(html).blocks)
+    assert "Col 1" not in text and "Location: Unknown Mainland" in text and "disambiguation page" in text
+
+
+def test_category_links_typed_into_a_value_do_not_leak_as_text():
+    html = ('<div class="mw-parser-output"><p>Race: Prydaen[[category:Player Prydaen|Xiantet]]\|Xiantet]]</p></div>')
+    assert "category" not in "\n".join(b.text for b in html_to_page(html).blocks).lower()

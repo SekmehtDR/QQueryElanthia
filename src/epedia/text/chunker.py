@@ -193,6 +193,14 @@ def _table_pieces(table: str, max_chars: int) -> list[str]:
     cur: list[str] = []
     size = len(head_txt)
     for row in body:
+        if len(row) + len(head_txt) > max_chars:  # a single row that holds a whole article: split it like prose
+            if cur:
+                out.append(head_txt + "\n" + "\n".join(cur))
+                cur, size = [], len(head_txt)
+            text = re.sub(r"^\|\s*|\s*\|$", "", row).replace("\\|", "|")
+            pieces = [s for part in re.split(r";\s+", text) for s in _SENTENCE.split(part) if s.strip()]
+            out.extend(_group_lines(pieces, max_chars, sep=" "))
+            continue
         if cur and size + len(row) + 1 > max_chars:
             out.append(head_txt + "\n" + "\n".join(cur))
             cur, size = [], len(head_txt)

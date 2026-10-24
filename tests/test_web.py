@@ -203,7 +203,7 @@ def test_index_panel_has_start_delta_start_full_stop_and_last_run_details(client
     assert "'X-QQE': '1'" in html  # the header the server requires before it starts any work
     assert "confirm('Start a full refresh?" in html  # the slow one asks first; the delta does not
     assert "/api/index/start" in html and "/api/index/stop" in html and "/api/index/info" in html
-    assert "setInterval(loadIndexInfo, 1500)" in html  # live log and clock while a job runs
+    assert "setInterval(loadIndexInfo," in html and "reindexRow" in html  # live log and clock while a job runs, and the re-index row
     assert "if (jobTimer) { clearInterval(jobTimer)" in html  # no polling once the panel is closed
 
 

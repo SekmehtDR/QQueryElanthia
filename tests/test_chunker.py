@@ -69,3 +69,16 @@ def test_pure_overlap_tail_is_not_duplicated_as_its_own_piece():
 
 def test_empty_page_gives_no_chunks():
     assert chunk_page("T", [Block(None, None, None)], CFG) == []
+
+
+def test_a_single_table_row_holding_a_whole_article_is_split_into_chunks_that_fit():
+    from epedia.config import ChunkingCfg
+    from epedia.text.chunker import _split
+
+    article = "; ".join(f"Paragraph {i} says something about metals and cloths. It goes on a little." for i in range(400))
+    table = "| title | id |\n|---|---|\n| " + article + " |"
+    cfg = ChunkingCfg()
+    pieces = _split(table, cfg)
+    assert len(pieces) > 3
+    assert all(len(p) <= (cfg.max_tokens + cfg.overlap_tokens) * 4 + 100 for p in pieces)  # nothing exceeds what the embedder can read
+    assert "Paragraph 399" in " ".join(pieces) and "Paragraph 0" in pieces[0]  # and nothing is lost

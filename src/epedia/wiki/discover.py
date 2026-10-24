@@ -73,6 +73,12 @@ def check_primary_source(conn: sqlite3.Connection, cfg: WikiCfg, *, rebase: bool
     rewrites every page's revision must run against the primary source, or switch it deliberately with --force.
     """
     current = get_state(conn, "primary_source")
+    if (cfg.delta_source and cfg.delta_source != cfg.source) or cfg.fallback_source:
+        # Sources are mixed on purpose: a full scan then compares edit times (the same on every copy of a wiki)
+        # instead of revision ids, so there is no single primary source to protect.
+        if current is None:
+            set_state(conn, "primary_source", cfg.source)
+        return
     if current is None or rebase:
         set_state(conn, "primary_source", cfg.source)
         if rebase and current not in (None, cfg.source):

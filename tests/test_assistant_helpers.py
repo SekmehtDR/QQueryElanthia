@@ -41,3 +41,10 @@ def test_meta_cues_separate_small_talk_from_questions_about_people():
         assert META_CUES.search(text)
     for text in ("Who is Bobba Bandicoot?", "Who is Hodierna?", "What is a lich?"):
         assert not META_CUES.search(text)
+
+
+def test_the_older_formal_refusal_wording_is_softened_too():
+    from epedia.llm.prompts import OLD_NO_PASSAGES_ANSWER
+
+    out = soften_refusal(REAL + "\n\n" + OLD_NO_PASSAGES_ANSWER)
+    assert out == REAL + "\n\n" + PARTIAL_NOTE

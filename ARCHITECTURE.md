@@ -199,6 +199,12 @@ One SQLite file (WAL mode), `data/wiki.db`:
 
 ## Keeping it current
 
+Sources can be mixed on purpose: `wiki.source` is where pages are read (a fast mirror), `wiki.fallback_source`
+catches errors and missing pages (`FailoverClient`), and `wiki.delta_source` answers "what changed?" for the delta
+update (the real wiki). A full scan on a lagging source compares edit times with each page's fetch time, never deletes
+pages the source lacks, and winds `sync.cursor` back to the source's newest edit (`sync.rewind_cursor`) so deltas
+cover the gap.
+
 ```
   every hour (Task Scheduler or `watch`)                     weekly
   ───────────────────────────────────────                    ──────
@@ -267,6 +273,13 @@ Everything on the page lives in one `#app` container, so the header, chat and in
  browser ──POST /api/index/stop────────────────────────▶ _kill_tree()  (taskkill /T /F on Windows, killpg elsewhere)
 ```
 
+`clear-index` / `POST /api/index/clear` (`index/reset.py`) empties chunks, vectors, the keyword and title indexes and
+resets `indexed_revid`; pages, HTML, classification, links, item stats and conversations are kept, so a rebuild is
+local. A re-index (`index --reembed-all`) keeps a heartbeat in the `state` table (`reindex.progress`: total, done,
+started, updated, finished) that `jobs.reindex_status` turns into running / finished / interrupted (no update for
+three minutes); the panel shows it however the re-index was started, and `/api/index/start` refuses to start
+another job while one runs outside the page.
+
 Every sync run also records which pages it touched (`sync_pages`: title and action, written in the same
 transaction as its `sync_log` row); `GET /api/index/changes/{run id}` serves that list for the panel's
 "View details".
@@ -306,7 +319,7 @@ restores plain answers.
  ├─ index/   indexer (chunks, vectors, titles) · classify (kinds, links, soft redirects)
  ├─ retrieval/ search (hybrid, scoring) · titles (normalisation)
  ├─ llm/     ollama (embed, chat, JSON-schema chat) · prompts (planner, persona, shapes, passages)
- ├─ core/    assistant (plan → retrieve → answer) · attribution (tag uncited lines) · memory ·
+ ├─ core/    assistant (plan → retrieve → answer) · attribution (tag uncited lines) · memory · dates (past/upcoming notes on passages) ·
  │           items_tool (SMW ask + local fallback)
  ├─ frontends/web/  app.py (FastAPI) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
  └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, voice checklist)

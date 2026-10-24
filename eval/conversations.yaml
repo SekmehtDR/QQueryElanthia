@@ -1,0 +1,76 @@
+# Scripted conversations for `qqueryelanthia eval --conversations` (planner only; canned answers stand in for the model's).
+# Per turn: q (what the user types), a (the canned reply remembered for later turns), and any of
+#   follow_up: true|false       does the message depend on the earlier turns?
+#   standalone_has: [words]     the rewritten question must name these
+#   clarify: true|false         should it ask what they mean instead of answering?
+- name: pronoun follow-up keeps the subject
+  turns:
+    - q: How do I start forging?
+      a: Visit the Forging Society hall, buy a forging hammer and tongs, and read the beginner's guide.
+      follow_up: false
+    - q: What tools do I need for it?
+      follow_up: true
+      standalone_has: [forging]
+
+- name: what about X stays on the same subject
+  turns:
+    - q: Where is the Barbarian guild?
+      a: The Barbarian guildhall is in Ratha in the Crossing region.
+      follow_up: false
+    - q: What about the Empath guild?
+      follow_up: true
+      standalone_has: [empath, guild]
+
+- name: topic change is not a follow-up
+  turns:
+    - q: Who is Hodierna?
+      a: Hodierna is the goddess of life, morning and light.
+      follow_up: false
+    - q: How tough is a musk hog?
+      follow_up: false
+      standalone_has: [musk hog]
+
+- name: ordinal reference to a list
+  turns:
+    - q: What shops are in Riverhaven?
+      a: Riverhaven has Bobba's Arms and Armor, a general store, and a jeweler.
+      follow_up: false
+    - q: Tell me more about the first one.
+      follow_up: true
+      standalone_has: [bobba]
+
+- name: a subject-less first message asks what is meant
+  turns:
+    - q: How much does it cost?
+      clarify: true
+      follow_up: false
+
+- name: a subject-less message after context does not ask
+  turns:
+    - q: Tell me about the broadsword.
+      a: The broadsword is a heavy edged weapon weighing 35 stones.
+      follow_up: false
+    - q: How much does it cost?
+      clarify: false
+      follow_up: true
+      standalone_has: [broadsword]
+
+- name: a greeting is never a follow-up
+  turns:
+    - q: Who is Bobba Bandicoot?
+      a: Bobba Bandicoot is a Halfling shopowner in Zoluren.
+      follow_up: false
+    - q: Thanks, that helps!
+      follow_up: false
+
+- name: a long thread still resolves a pronoun
+  turns:
+    - q: How do I start forging?
+      a: Visit the Forging Society hall.
+    - q: What tools do I need?
+      a: A forging hammer, tongs and an anvil.
+    - q: Where can I buy those?
+      a: Smiths and the society hall sell them.
+    - q: How much do they cost?
+      follow_up: true
+      standalone_has: [forging]

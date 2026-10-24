@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+import sys
 from typing import Optional
 
 import typer
@@ -21,6 +22,11 @@ app = typer.Typer(
     help="QQueryElanthia: Fennick, a local storyteller's guide to DragonRealms, answering from Elanthipedia.",
     no_args_is_help=True,
 )
+for _stream in (sys.stdout, sys.stderr):  # wiki text has IPA, accents and symbols a Windows cp1252 console cannot print
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass  # a stream that cannot be reconfigured (already replaced, or not a text stream) is used as it is
 console = Console()
 _settings: Settings | None = None
 
@@ -165,7 +171,7 @@ def discover(
     force: bool = typer.Option(False, help="Re-walk even if already discovered; also makes the active source primary"),
 ) -> None:
     """Enumerate pages and redirects per namespace (cheap; ~300 requests for the whole wiki)."""
-    from .wiki.client import WikiClient
+    from .wiki.client import open_client
     from .wiki.discover import discover as _discover
 
     s = settings()
@@ -173,7 +179,7 @@ def discover(
     ns_list = parse_ns_option(ns, s.wiki.namespaces)
 
     async def go() -> None:
-        async with WikiClient(s.wiki) as client:
+        async with open_client(s.wiki) as client:
             totals = await _discover(conn, client, s.wiki, ns_list, force=force)
             console.print(f"discovered pages={totals['pages']} redirects={totals['redirects']} "
                           f"requests={client.requests}")
@@ -184,14 +190,14 @@ def discover(
 @app.command()
 def adopt() -> None:
     """After switching the primary source: keep already-fetched pages that are provably still current."""
-    from .wiki.client import WikiClient
+    from .wiki.client import open_client
     from .wiki.discover import adopt_fetched
 
     s = settings()
     conn = db.connect(s)
 
     async def go() -> None:
-        async with WikiClient(s.wiki) as client:
+        async with open_client(s.wiki) as client:
             stats = await adopt_fetched(conn, client)
             console.print(f"adopt: {stats} requests={client.requests}")
 
@@ -206,7 +212,7 @@ def crawl(
     rps: Optional[float] = typer.Option(None, help="Override requests/second"),
 ) -> None:
     """Fetch rendered HTML for pages that are new or changed (resumable; rerun to continue)."""
-    from .wiki.client import WikiClient
+    from .wiki.client import open_client
     from .wiki.crawl import crawl as _crawl
 
     s = settings()
@@ -214,7 +220,7 @@ def crawl(
     ns_list = parse_ns_option(ns, s.wiki.namespaces) if ns else None
 
     async def go() -> None:
-        async with WikiClient(s.wiki, rps=rps) as client:
+        async with open_client(s.wiki, rps=rps) as client:
             stats = await _crawl(conn, client, s.wiki, ns=ns_list, limit=limit, retry_errors=retry_errors)
             console.print(f"crawl done: {stats} requests={client.requests}")
 
@@ -264,6 +270,30 @@ def index(
     run(go())
 
 
+@app.command("clear-index")
+def clear_index_cmd(
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation"),
+) -> None:
+    """Empty the search index so a new one can be built (keeps the downloaded pages; rebuild with `index --reembed-all`)."""
+    from .index.reset import clear_index, index_size
+    from .jobs import find_reindex_pids, reindex_status
+
+    s = settings()
+    conn = db.connect(s)
+    running = reindex_status(conn)
+    if (running and running["state"] == "running") or find_reindex_pids():
+        console.print("[red]A re-index is running. Stop it first (Stop on the Index page).[/red]")
+        raise typer.Exit(1)
+    size = index_size(conn)
+    console.print(f"This removes {size['chunks']:,} chunks and their vectors for {size['pages']:,} pages. "
+                  "Downloaded pages are kept; rebuild with `index --reembed-all`.")
+    if not yes and input("Type CLEAR to continue: ").strip() != "CLEAR":
+        console.print("Nothing changed.")
+        raise typer.Exit(1)
+    removed = clear_index(conn)
+    console.print(f"Cleared {removed['chunks']:,} chunks. Rebuild: qqueryelanthia index --reembed-all")
+
+
 @app.command()
 def smw(
     ns: Optional[str] = typer.Option(None, help="Comma-separated namespaces (default: item namespaces)"),
@@ -272,7 +302,7 @@ def smw(
 ) -> None:
     """Fetch Semantic MediaWiki item properties and add a 'stats' chunk to each item page."""
     from .llm.ollama import Ollama
-    from .wiki.client import WikiClient
+    from .wiki.client import open_client
     from .wiki.smw import build_catalog, smw_pages
 
     s = settings()
@@ -283,7 +313,7 @@ def smw(
     ns_list = parse_ns_option(ns, s.wiki.item_namespaces) if ns else None
 
     async def go() -> None:
-        async with WikiClient(s.wiki) as client, Ollama(s.ollama) as ol:
+        async with open_client(s.wiki) as client, Ollama(s.ollama) as ol:
             stats = await smw_pages(s, conn, client, ol, ns=ns_list, limit=limit)
             console.print(f"smw: {stats} requests={client.requests}")
         console.print(f"catalog: {build_catalog(conn)} properties")
@@ -419,22 +449,30 @@ def search(
 def _sync_runner(kind: str, dry_run: bool, log_file: Optional[str], **kw):
     from .llm.ollama import Ollama
     from .wiki import sync as syncmod
-    from .wiki.client import WikiClient
+    from .wiki.client import open_client
 
     s = settings()
+    if kind == "rc" and s.wiki.delta_source and s.wiki.delta_source != s.wiki.source:
+        # "What changed?" comes from the authoritative wiki even when pages are normally read from a mirror.
+        s.wiki = s.wiki.model_copy(update={"source": s.wiki.delta_source, "fallback_source": None})
     _attach_log_file(log_file)
     conn = db.connect(s)
 
     async def go():
-        async with WikiClient(s.wiki) as client, Ollama(s.ollama) as ol:
+        async with open_client(s.wiki) as client, Ollama(s.ollama) as ol:
             if kind == "rc":
                 return await syncmod.sync(s, conn, client, ol, dry_run=dry_run)
             if kind == "full":
                 return await syncmod.full_scan(s, conn, client, ol, dry_run=dry_run)
             return await syncmod.refresh_oldest(s, conn, client, ol, **kw)
 
+    from .wiki.discover import SourceMismatch
+
     try:
         return run(go())
+    except SourceMismatch as exc:  # one clear line instead of a traceback (the Index page shows the job's last lines)
+        console.print(f"[red]Cannot run this against the active source:[/red] {exc}", markup=True, highlight=False)
+        raise typer.Exit(3) from None
     finally:
         conn.close()  # `watch` calls this in a loop: do not leave a connection (and its WAL lock) per iteration
 
@@ -600,16 +638,33 @@ def eval_cmd(
     file: str = typer.Argument("eval/questions.yaml"),
     k: str = typer.Option("5,10", help="Comma-separated cutoffs for hit@k"),
     answers: bool = typer.Option(False, "--answers", help="Also generate answers for manual spot checks"),
+    conversations: bool = typer.Option(False, "--conversations", help="Run the scripted multi-turn dialogues instead"),
 ) -> None:
-    """Score retrieval quality on the question set."""
+    """Score retrieval quality on the question set (or, with --conversations, how well follow-ups are tracked)."""
     from pathlib import Path
 
-    from .evalx.runner import run_eval
+    from .evalx.runner import run_conversations, run_eval
     from .llm.ollama import Ollama
 
     s = settings()
     conn = db.connect(s)
     ks = [int(x) for x in k.split(",")]
+    if conversations:
+        path = Path(file if file != "eval/questions.yaml" else "eval/conversations.yaml")
+
+        async def talk() -> None:
+            async with Ollama(s.ollama) as ol:
+                rows = await run_conversations(s, conn, ol, path)
+            bad = 0
+            for r in rows:
+                mark = "ok " if not r["problems"] else "BAD"
+                bad += bool(r["problems"])
+                console.print(f"{mark} {r['script']} #{r['turn']}: {r['q']} -> {r['standalone']}"
+                              + ("  [" + "; ".join(r["problems"]) + "]" if r["problems"] else ""), markup=False, highlight=False)
+            console.print({"turns": len(rows), "passed": len(rows) - bad, "accuracy": round((len(rows) - bad) / max(1, len(rows)), 3)})
+
+        run(talk())
+        return
 
     async def go() -> None:
         async with Ollama(s.ollama) as ol:
@@ -645,7 +700,7 @@ def pipeline() -> None:
     from .index.classify import classify_all
     from .index.indexer import index_pages, rebuild_titles
     from .llm.ollama import Ollama
-    from .wiki.client import WikiClient
+    from .wiki.client import open_client
     from .wiki.crawl import crawl as _crawl
     from .wiki.discover import discover as _discover
     from .wiki.smw import build_catalog, smw_pages
@@ -654,7 +709,7 @@ def pipeline() -> None:
     conn = db.connect(s)
 
     async def go() -> None:
-        async with WikiClient(s.wiki) as client, Ollama(s.ollama) as ol:
+        async with open_client(s.wiki) as client, Ollama(s.ollama) as ol:
             console.print("[bold]discover[/bold]", await _discover(conn, client, s.wiki))
             console.print("[bold]crawl[/bold]", await _crawl(conn, client, s.wiki))
             console.print("[bold]classify[/bold]", classify_all(conn))

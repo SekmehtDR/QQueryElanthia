@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import quote
 
 from ..config import Settings
-from ..wiki.client import WikiClient
+from ..wiki.client import open_client
 from ..wiki.smw import ask, printout_text
 
 log = logging.getLogger("epedia.items")
@@ -141,7 +141,7 @@ async def items_passage(settings: Settings, conn: sqlite3.Connection, iq: dict[s
     try:
         # Interactive path: one retry and a hard cap, so an unreachable wiki costs seconds, not the background
         # client's two-minute backoff, before the local fallback answers.
-        async with WikiClient(settings.wiki, concurrency=1, retries=1) as client:
+        async with open_client(settings.wiki, concurrency=1, retries=1) as client:
             rows = await asyncio.wait_for(ask(client, ask_string), timeout=LIVE_ASK_TIMEOUT_S)
     except Exception as exc:
         log.warning("live ask failed (%s); using local index", exc or exc.__class__.__name__)

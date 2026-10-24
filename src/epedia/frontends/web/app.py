@@ -18,7 +18,17 @@ from ...config import Settings
 from ...core import memory
 from ...core.assistant import Assistant, Done, Retrieval, Token
 from ...db import connect
-from ...jobs import JobBusy, JobManager, index_changes, index_info
+from ...index.reset import clear_index
+from ...jobs import (
+    JobBusy,
+    JobManager,
+    find_reindex_pids,
+    index_changes,
+    index_info,
+    kill_pid_tree,
+    mark_reindex_interrupted,
+    reindex_status,
+)
 from ...llm.ollama import Ollama
 from ...progress import snapshot
 
@@ -47,12 +57,16 @@ def _host_name(header: str) -> str:
     return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
 
 
+class ClearRequest(BaseModel):
+    confirm: str  # must be the word CLEAR: this empties the search index
+
+
 class StartRequest(BaseModel):
     mode: str  # "delta" (only what changed) or "full" (re-walk and compare every page)
 
 
 def create_app(settings: Settings) -> FastAPI:
-    state: dict = {}
+    state: dict = {"locks": {}}  # session id -> lock; one entry per conversation used since the server started
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -112,6 +126,10 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/api/index/start")
     async def index_start(request: Request, body: StartRequest) -> dict:
         guard(request)
+        running = reindex_status(state["conn"])
+        if running and running["state"] == "running" and not jobs.running:
+            # one started from the command line: two writers re-chunking the same index would only fight
+            raise HTTPException(409, "a re-index is already running (started outside this page)")
         try:
             return await jobs.start(body.mode)
         except ValueError as exc:
@@ -119,10 +137,37 @@ def create_app(settings: Settings) -> FastAPI:
         except JobBusy as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.post("/api/index/clear")
+    async def index_clear(request: Request, body: ClearRequest) -> dict:
+        guard(request)
+        if body.confirm != "CLEAR":
+            raise HTTPException(400, "type CLEAR to confirm")
+        running = reindex_status(state["conn"])
+        if jobs.running or (running and running["state"] == "running"):
+            raise HTTPException(409, "a job or re-index is running; stop it first")
+
+        def clear() -> dict:  # its own connection: a long transaction on the shared one would swallow chat's queries
+            conn = connect(settings)
+            try:
+                return clear_index(conn)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(clear)
+
     @app.post("/api/index/stop")
     async def index_stop(request: Request) -> dict:
         guard(request)
-        return await jobs.stop()
+        snap = await jobs.stop()
+        running = reindex_status(state["conn"])
+        if not snap["running"] and not snap["stopped"] and running and running["state"] == "running":
+            # a re-index started outside this page (a terminal, a scheduled task): the page can stop it too
+            pids = await asyncio.to_thread(find_reindex_pids)
+            for pid in pids:
+                await asyncio.to_thread(kill_pid_tree, pid)
+            mark_reindex_interrupted(state["conn"])
+            return {**snap, "external_stopped": len(pids)}
+        return snap
 
     async def build() -> dict:
         # `git rev-parse` is a subprocess (up to 3 s on a slow machine): run it off the event loop so a page load can
@@ -146,9 +191,9 @@ def create_app(settings: Settings) -> FastAPI:
             "build": info,
             "name": p.name,
             "tagline": "a traveler's notes on Elanthia, from Elanthipedia",
-            "greeting": (f"Well met. I'm {p.name}. I carry a satchel of notes copied from Elanthipedia, the chronicle "
-                         "the players keep of Elanthia. Ask me about crafting, places, people, creatures, "
-                         "the gods and wars, or what a thing is worth."),
+            "greeting": (f"Hey, I'm {p.name}. I carry a satchel of notes copied from Elanthipedia, the wiki the players "
+                         "write about Elanthia. Ask me about crafting, places, people, creatures, "
+                         "the gods and wars, or what something's worth."),
             "chips": CHIPS,
         }
 
@@ -156,9 +201,31 @@ def create_app(settings: Settings) -> FastAPI:
     async def create_session() -> dict:
         return {"session_id": memory.new_session(state["conn"], "web")}
 
+    @app.get("/api/sessions")
+    async def list_sessions() -> list[dict]:
+        return memory.list_sessions(state["conn"], "web")
+
     @app.get("/api/sessions/{session_id}/messages")
-    async def get_messages(session_id: str) -> list[dict]:
-        return memory.messages(state["conn"], session_id)
+    async def get_messages(session_id: str) -> dict:
+        if not memory.session_exists(state["conn"], session_id):
+            raise HTTPException(404, "no such conversation")
+        return {"messages": memory.messages(state["conn"], session_id),
+                "topic": memory.get_topic(state["conn"], session_id)}
+
+    @app.post("/api/sessions/{session_id}/forget-context")
+    async def forget_context(request: Request, session_id: str) -> dict:
+        guard(request)
+        if not memory.session_exists(state["conn"], session_id):
+            raise HTTPException(404, "no such conversation")
+        memory.clear_context(state["conn"], session_id)
+        return {"topic": None}
+
+    @app.delete("/api/sessions/{session_id}")
+    async def delete_session(request: Request, session_id: str) -> dict:
+        guard(request)
+        if not memory.delete_session(state["conn"], session_id):
+            raise HTTPException(404, "no such conversation")
+        return {"deleted": True}
 
     @app.post("/api/chat")
     async def chat(req: ChatRequest) -> StreamingResponse:
@@ -169,16 +236,24 @@ def create_app(settings: Settings) -> FastAPI:
             def sse(name: str, data: dict) -> str:
                 return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+            sid = req.session_id
+            if not memory.session_exists(state["conn"], sid):
+                # a stale or unknown id (a deleted chat, a restored tab): start a fresh conversation and tell the page
+                sid = memory.new_session(state["conn"], "web")
+                yield sse("session", {"session_id": sid})
+            lock = state["locks"].setdefault(sid, asyncio.Lock())  # one answer at a time per conversation
             try:
-                async for ev in state["assistant"].answer_stream(req.session_id, req.message.strip()):
-                    if isinstance(ev, Retrieval):
-                        yield sse("sources", {"sources": [s.__dict__ for s in ev.sources],
-                                              "standalone_q": ev.standalone_q, "mode": ev.mode, "kind": ev.kind})
-                    elif isinstance(ev, Token):
-                        yield sse("token", {"text": ev.text})
-                    elif isinstance(ev, Done):
-                        # `answer` is the final text, including tags added for lines the model left uncited
-                        yield sse("done", {"cited": ev.cited, "related": ev.related, "answer": ev.answer})
+                async with lock:
+                    async for ev in state["assistant"].answer_stream(sid, req.message.strip()):
+                        if isinstance(ev, Retrieval):
+                            yield sse("sources", {"sources": [s.__dict__ for s in ev.sources],
+                                                  "standalone_q": ev.standalone_q, "mode": ev.mode, "kind": ev.kind})
+                        elif isinstance(ev, Token):
+                            yield sse("token", {"text": ev.text})
+                        elif isinstance(ev, Done):
+                            # `answer` is the final text, including tags added for lines the model left uncited
+                            yield sse("done", {"cited": ev.cited, "related": ev.related, "answer": ev.answer,
+                                               "topic": ev.topic})
             except Exception as exc:  # surface model/db problems in the UI instead of a dropped stream
                 yield sse("error", {"message": str(exc)})
 

@@ -43,9 +43,10 @@ class ParsedPage:
 # Maintenance banners the wiki puts on pages. They say "this page is weak", which is worth one line, but their
 # boilerplate (and the "see Category: ..." links) is noise in every chunk and in every embedding.
 BANNER_MARKERS = {
-    "incomplete": re.compile(r"This article is incomplete|Missing or Incomplete Creature Information", re.I),
+    "incomplete": re.compile(
+        r"This (?:article|item) is incomplete|Missing or Incomplete Creature Information", re.I),
     "stub": re.compile(r"This article is a stub", re.I),
-    "obsolete": re.compile(r"This article is obsolete", re.I),
+    "obsolete": re.compile(r"This article is obsolete|This item is outdated", re.I),
     "dr3": re.compile(r"needs to be updated for consistency with DR ?3|^DR3\b", re.I),
 }
 BANNER_MAX_CHARS = 900  # a banner is short; never remove a container that holds real content
@@ -54,7 +55,8 @@ DROP_HEADINGS = {"related forum posts"}
 
 # Cheap pre-check. Markup can sit inside the phrase ("This article is <b>incomplete</b>"), so "This article is"
 # and the banner's own title are hints too.
-_BANNER_HINTS = ("This article is", "Incomplete Article", "consistency with DR", "DR3", "Incomplete Creature")
+_BANNER_HINTS = ("This article is", "This item is", "Incomplete Article", "Incomplete Item", "Outdated Item",
+                 "consistency with DR", "DR3", "Incomplete Creature")
 
 
 def _strip_banners(root: Tag, html: str) -> list[str]:
@@ -161,6 +163,9 @@ def _is_inline_only(tag: Tag) -> bool:
     return not any(isinstance(c, Tag) and c.name in block_names for c in tag.descendants)
 
 
+_CATEGORY_LINK = re.compile(r"\[\[\s*category\s*:[^\]]*\]\]", re.I)  # wiki source typed into a page's visible text
+
+
 def _inline(tag: Tag) -> str:
     parts: list[str] = []
 
@@ -183,7 +188,7 @@ def _inline(tag: Tag) -> str:
                     rec(c)
 
     rec(tag)
-    text = "".join(parts).replace("\xa0", " ")
+    text = _CATEGORY_LINK.sub("", "".join(parts).replace("\xa0", " "))
     lines = [WS.sub(" ", ln).strip() for ln in text.split("\n")]
     return "\n".join(ln for ln in lines if ln)
 
@@ -339,6 +344,13 @@ def _render_kv(rows) -> str:
     return "\n".join(lines)
 
 
+def _plain_row(row: list[str]) -> str:
+    cells = [c.strip() for c in row if c.strip()]
+    if len(cells) == 2 and len(cells[0]) <= 40:
+        return f"{cells[0].rstrip(':')}: {cells[1]}"
+    return " ".join(cells)
+
+
 def _render_grid(table: Tag) -> str:
     grid: list[list[str]] = []
     pending: dict[tuple[int, int], str] = {}
@@ -374,8 +386,12 @@ def _render_grid(table: Tag) -> str:
         return ""
     width = max(len(r) for r in grid)
     grid = [r + [""] * (width - len(r)) for r in grid]
+    if header_row is None and width <= 2:
+        # No header and at most two columns: an infobox or a note box, not a grid. Plain lines read better than
+        # a table whose columns are called "Col 1" and "Col 2".
+        return "\n".join(_plain_row(r) for r in grid if _plain_row(r))
     if header_row is None:
-        head, body = [f"Col {i + 1}" for i in range(width)], grid
+        head, body = [""] * width, grid
     else:
         head, body = grid[header_row], grid[:header_row] + grid[header_row + 1:]
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * width]

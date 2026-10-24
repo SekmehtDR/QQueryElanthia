@@ -9,10 +9,12 @@ never disagree about what an update does. The child gets the same config file an
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import signal
 import sqlite3
+import subprocess
 import sys
 import time
 from collections import deque
@@ -29,7 +31,9 @@ LOG_LINES = 40
 MODES = {
     "delta": ("Delta update", ["sync"]),
     "full": ("Full refresh", ["sync", "--full-scan"]),
+    "reindex": ("Re-index", ["index", "--reembed-all"]),
 }
+STALE_AFTER_SECONDS = 180  # a re-index that has not reported for this long is taken to have been interrupted
 
 
 class JobBusy(RuntimeError):
@@ -194,6 +198,82 @@ class JobManager:
         }
 
 
+def find_reindex_pids() -> list[int]:
+    """Processes running `index --reembed-all` from outside the page (a terminal, a scheduled task), found by command
+    line: only the top of each process tree, since stopping that ends its children too."""
+    pairs: list[tuple[int, int]] = []
+    if sys.platform == "win32":
+        script = (
+            "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(python|pythonw|qqueryelanthia|epedia)(\\.exe)?$' "
+            "-and $_.CommandLine -match 'index --reembed-all' } | ForEach-Object { \"$($_.ProcessId),$($_.ParentProcessId)\" }"
+        )
+        try:
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
+                                 timeout=20).stdout
+        except (OSError, subprocess.SubprocessError):
+            return []
+        pairs = [(int(a), int(b)) for a, b in (ln.split(",") for ln in out.split() if "," in ln)]
+    else:
+        for entry in os.listdir("/proc") if os.path.isdir("/proc") else []:
+            if not entry.isdigit():
+                continue
+            try:
+                cmd = open(f"/proc/{entry}/cmdline", "rb").read().replace(b"\0", b" ").decode(errors="replace")
+                ppid = int(open(f"/proc/{entry}/stat").read().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue
+            if "epedia" in cmd and "index --reembed-all" in cmd:
+                pairs.append((int(entry), ppid))
+    ids = {p for p, _ in pairs}
+    return [p for p, parent in pairs if parent not in ids]
+
+
+def kill_pid_tree(pid: int) -> None:
+    """End a process and what it started (taskkill /T on Windows; a plain terminate elsewhere)."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=20)
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
+def mark_reindex_interrupted(conn: sqlite3.Connection) -> None:
+    """After stopping a re-index from the page: show it as stopped now, not three minutes from now."""
+    row = conn.execute("SELECT value FROM state WHERE key='reindex.progress'").fetchone()
+    if not row:
+        return
+    try:
+        info = json.loads(row["value"])
+    except ValueError:
+        return
+    if info.get("finished_at"):
+        return
+    info["updated_at"] = "1970-01-01T00:00:00Z"
+    conn.execute("UPDATE state SET value=? WHERE key='reindex.progress'", (json.dumps(info),))
+
+
+def reindex_status(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Progress of a whole-index re-chunk (from the command line or the page), or None if there never was one."""
+    try:
+        row = conn.execute("SELECT value FROM state WHERE key='reindex.progress'").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row:
+        return None
+    try:
+        info = json.loads(row["value"])
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(info["updated_at"].replace("Z", "+00:00"))).total_seconds()
+    except (ValueError, KeyError, TypeError):
+        return None
+    total, done = info.get("total") or 0, info.get("done") or 0
+    state = "finished" if info.get("finished_at") else "running" if age < STALE_AFTER_SECONDS else "interrupted"
+    return {"state": state, "done": done, "total": total, "pct": round(100 * done / total, 1) if total else 100.0,
+            "started_at": info.get("started_at"), "updated_at": info.get("updated_at"),
+            "finished_at": info.get("finished_at")}
+
+
 def index_info(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
     """When the index was last updated, by what, and how much work is waiting. Tolerates an unbuilt database."""
     def one(sql: str, *args: Any) -> sqlite3.Row | None:
@@ -225,9 +305,12 @@ def index_info(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
         "last_full": run(full),
         "newest_edit_seen": state.get("sync.cursor"),
         "source": settings.wiki.source,
+        "delta_source": settings.wiki.delta_source or settings.wiki.source,
         "primary_source": state.get("primary_source"),
         "pending_crawl": (pending["crawl"] or 0) if pending else 0,
         "pending_index": (pending["idx"] or 0) if pending else 0,
+        "reindex": reindex_status(conn),
+        "chunks": (one("SELECT count(*) AS n FROM chunks") or {"n": 0})["n"],
     }
 
 

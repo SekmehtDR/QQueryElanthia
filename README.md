@@ -124,6 +124,19 @@ epedia --source mirror crawl       # use another source for one command
 epedia --source mirror discover --force   # make it the primary source (re-labels pages, does not re-download)
 ```
 
+To read from a mirror with Elanthipedia behind it, put this in the git-ignored `epedia.local.toml`:
+
+```toml
+[wiki]
+source = "mirror"             # bulk work (crawl, full refresh) reads the fast mirror
+fallback_source = "original"   # used when the mirror is down or does not have a page yet
+delta_source = "original"      # "what changed?" always asks Elanthipedia, which is never behind
+```
+
+Links shown in answers always point at elanthipedia.play.net, whichever source was read. To start the search index
+over, use **Clear index** on the Index page (or `qqueryelanthia clear-index`) and then **Re-index**; the downloaded
+pages are kept, so this needs no wiki traffic.
+
 Pages are identified by title, so either source can feed incremental `sync`. Revision numbers differ between
 sites, so whole-wiki operations (`discover`, `sync --full-scan`) refuse to run against a source other than the
 primary one. `adopt` keeps already-fetched pages whose stored copy is provably current when the primary changes.

@@ -88,3 +88,11 @@ def test_offer_line_names_first_related_page_without_namespace_prefix():
 def test_router_schema_requires_kind_with_ten_values():
     assert "kind" in ROUTER_SCHEMA["required"]
     assert len(ROUTER_SCHEMA["properties"]["kind"]["enum"]) == 10
+
+
+def test_voice_never_tells_the_model_to_talk_about_the_chronicle():
+    from epedia.llm.prompts import FRAMING, NO_PASSAGES_ANSWER, OFFER_PHRASES, PERSONA_BLOCK, SHAPE_HINTS
+
+    text = " ".join([PERSONA_BLOCK, FRAMING, NO_PASSAGES_ANSWER, *OFFER_PHRASES, *SHAPE_HINTS.values()])
+    assert text.lower().count("chronicle") == 1  # only in the instruction not to say it
+    assert 'Never say "the chronicle"' in PERSONA_BLOCK

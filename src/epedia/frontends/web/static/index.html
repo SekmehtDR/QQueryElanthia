@@ -138,6 +138,25 @@
   .idx-changes .act { flex:0 0 5.8em; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
   .idx-changes .act.new { color:#3a9d5d; } .idx-changes .act.deleted { color:#d24a3a; }
   .idx-changes a { color:var(--accent); text-decoration:none; } .idx-changes a:hover { text-decoration:underline; }
+  /* Past chats list and the "Talking about" chip */
+  #past { display:none; border-bottom:1px solid var(--line); background:var(--panel); font-size:.88rem; }
+  #past.show { display:block; }
+  #past ul { list-style:none; margin:0; padding:6px var(--gutter) 10px; max-height:16em; overflow:auto; }
+  #past li { display:flex; align-items:center; gap:10px; padding:2px 0; }
+  #past li.empty { color:var(--muted); }
+  #past .pick { flex:1 1 auto; min-width:0; text-align:left; border:1px solid transparent; background:none; color:var(--ink); border-radius:8px; padding:6px 10px; font:inherit; cursor:pointer; }
+  #past .pick:hover { border-color:var(--accent); }
+  #past .pick .when { display:block; color:var(--muted); font-size:.78rem; }
+  #past .pick .ttl { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #past li.current .pick { border-color:var(--line); }
+  #past .del { flex:0 0 auto; border:0; background:none; color:var(--muted); cursor:pointer; font:inherit; padding:6px 8px; border-radius:6px; }
+  #past .del:hover { color:#d24a3a; }
+  #topicbar { display:flex; align-items:center; gap:8px; padding:6px var(--gutter); border-bottom:1px solid var(--line); color:var(--muted); font-size:.82rem; }
+  #topicbar[hidden] { display:none; }
+  #topicbar b { color:var(--ink); font-weight:600; }
+  #topicbar button { border:1px solid var(--line); background:none; color:var(--muted); border-radius:999px; width:1.7em; height:1.7em; line-height:1; cursor:pointer; font:inherit; }
+  #topicbar button:hover { border-color:var(--accent); color:var(--accent); }
+  .setaside { text-align:center; color:var(--muted); font-size:.8rem; margin:6px 0; }
   .idx-changes .note { padding:8px 10px; color:var(--muted); }
   html[data-view="mobile"] .idx-info { grid-template-columns:1fr; gap:0; }
   html[data-view="mobile"] .idx-info dt { margin-top:6px; }
@@ -236,15 +255,21 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg><span class="lbl">Mobile</span>
     </button>
   </div>
+  <button id="pastbtn" type="button" aria-expanded="false" aria-controls="past" title="Earlier conversations you can pick back up">Past chats</button>
   <button id="statusbtn" type="button" aria-expanded="false" aria-controls="status" title="Show or hide index details">Index</button>
   <button id="new" type="button" title="Start a fresh conversation">New chat</button>
   </div>
 </header>
+<div id="past"><ul id="pastlist"></ul></div>
+<div id="topicbar" hidden><span>Talking about:</span> <b id="topictext"></b>
+  <button id="topicx" type="button" title="Set this topic aside: the chat stays, but Fennick stops carrying it into new questions" aria-label="Set this topic aside">×</button></div>
 <div id="status">
   <div class="idx-top">
     <div class="idx-actions" role="group" aria-label="Index controls">
       <button id="idxdelta" type="button" class="idx-primary" title="Fetch only what changed on the wiki since the last update, then refresh just those pages">Start delta</button>
       <button id="idxfull" type="button" title="Re-walk the whole wiki, compare every page and refresh everything that differs (slower, but thorough)">Start full</button>
+      <button id="idxreindex" type="button" title="Re-read every stored page with the current text rules and refresh the search index (no wiki traffic; takes hours)">Re-index</button>
+      <button id="idxclear" type="button" class="idx-stop" title="Empty the search index so a new one can be built. Keeps the downloaded pages; rebuild with Re-index">Clear index</button>
       <button id="idxstop" type="button" class="idx-stop" hidden title="Stop the running job. Safe: the next run picks up where this one left off">Stop</button>
       <span id="idxstate" class="idx-state" role="status"></span>
     </div>
@@ -266,14 +291,15 @@
 <script src="/static/render.js"></script>
 <script>
 const log = document.getElementById('log'), q = document.getElementById('q'), send = document.getElementById('send');
+// A conversation lives only as long as this page: reloading starts fresh, and earlier chats are picked back up
+// from "Past chats". (Older versions kept the id in localStorage, which made Fennick remember a chat the screen had lost.)
 let sessionId = null;
-try { sessionId = localStorage.getItem('epedia.session'); } catch (e) {}
+try { localStorage.removeItem('epedia.session'); } catch (e) {}
 
 async function ensureSession() {
   if (sessionId) return;
   const r = await fetch('/api/sessions', { method: 'POST' });
   sessionId = (await r.json()).session_id;
-  try { localStorage.setItem('epedia.session', sessionId); } catch (e) {}
 }
 function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -483,15 +509,24 @@ function addActions(msg, text) {
   msg.querySelector('.sources').before(bar);
 }
 // One answer at a time: a starter chip clicked mid-stream must not start a second answer on top of the first.
+let runId = 0, runCtl = null;
 async function ask(text) {
   if (busy) return;
+  const run = ++runId, ctl = runCtl = new AbortController();
   busy = true; syncSend();
-  try { await runAsk(text); }
-  finally { busy = false; syncSend(); jump.hidden = true; q.focus(); }
+  try { await runAsk(text, ctl.signal); }
+  finally { if (run === runId) { busy = false; syncSend(); jump.hidden = true; q.focus(); } }
 }
-async function runAsk(text) {
+// New chat, picking a past chat, or deleting the open one: stop the answer that is still arriving, at once.
+function cancelRun() {
+  runId++;
+  if (runCtl) runCtl.abort();
+  runCtl = null; busy = false; syncSend();
+}
+async function runAsk(text, signal) {
   document.getElementById('hint')?.remove();
   await ensureSession();
+  if (signal.aborted) return;
   add('user', text);
   const a = add('assistant', ''), body = a.querySelector('.body'), note = a.querySelector('.note');
   const who = persona && persona.enabled ? persona.name : null;
@@ -508,7 +543,7 @@ async function runAsk(text) {
   };
   const settle = () => { if (frame) { cancelAnimationFrame(frame); frame = 0; } };
   try {
-    const r = await fetch('/api/chat', { method: 'POST', headers: {'Content-Type':'application/json'},
+    const r = await fetch('/api/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, signal,
       body: JSON.stringify({ session_id: sessionId, message: text }) });
     if (!r.ok || !r.body) {  // a 4xx/5xx or a proxy page is not an event stream: say so instead of waiting forever
       let detail = '';
@@ -530,7 +565,8 @@ async function runAsk(text) {
         try { data = JSON.parse(m[1]); } catch (e) { continue; }
         const ev = evName;
         if (ev === 'done' || ev === 'error') finished = true;
-        if (ev === 'sources') {
+        if (ev === 'session') sessionId = data.session_id;  // the server started a fresh conversation for an unknown id
+        else if (ev === 'sources') {
           sources = data.sources;
           // The search is done; he is now reading what he found and about to write.
           const thinkLabel = thinking.querySelector('.label');
@@ -543,6 +579,8 @@ async function runAsk(text) {
           if (data.answer) full = data.answer;  // the final text, with tags added for lines the model left uncited
           paint(false); showSources(a, sources, data.cited, data.related, full);
           if (full.trim()) addActions(a, full);
+          setTopic(data.topic);
+          if (document.getElementById('past').classList.contains('show')) loadPast();
         }
         else if (ev === 'error') { settle(); mouth.stop(); showError(body, data.message, text); }
         toEnd();
@@ -557,9 +595,89 @@ async function runAsk(text) {
         body.append(warn);
       } else showError(body, 'the connection ended before an answer arrived', text);
     }
-  } catch (e) { settle(); mouth.stop(); showError(body, String(e), text); }
+  } catch (e) {
+    settle(); mouth.stop();
+    if (!signal.aborted) showError(body, String(e), text);  // a cancelled run is intentional: say nothing
+  }
   settle(); mouth.stop();
 }
+
+// ---- Topic chip: what Fennick thinks the conversation is about, and a way to set it aside ------------------------
+function setTopic(t) {
+  const bar = document.getElementById('topicbar');
+  bar.hidden = !t;
+  document.getElementById('topictext').textContent = t || '';
+}
+document.getElementById('topicx').addEventListener('click', async () => {
+  if (!sessionId) return;
+  try {
+    const r = await fetch('/api/sessions/' + sessionId + '/forget-context', { method: 'POST', headers: { 'X-QQE': '1' } });
+    if (!r.ok) return;
+    setTopic(null);
+    const d = document.createElement('div'); d.className = 'setaside';
+    d.textContent = (persona && persona.enabled ? persona.name : 'The assistant') + ' has set that topic aside. New questions start fresh.';
+    log.append(d); toEnd(true);
+  } catch (e) { /* offline: leave the chip */ }
+});
+
+// ---- New chat and Past chats ---------------------------------------------------------------------------------------
+function startFresh() {
+  cancelRun();
+  sessionId = null; setTopic(null);
+  log.innerHTML = ''; log.append(hintHtml(persona ? persona.greeting : 'New conversation.'));
+  q.value = ''; autosize(); syncSend();
+}
+async function loadPast() {
+  const ul = document.getElementById('pastlist');
+  try {
+    const rows = await (await fetch('/api/sessions')).json();
+    if (!rows.length) { ul.innerHTML = '<li class="empty">Nothing yet. Conversations you have appear here.</li>'; return; }
+    ul.innerHTML = rows.map(r => `<li${r.session_id === sessionId ? ' class="current"' : ''}>` +
+      `<button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">${esc(r.title || 'Untitled')}</span>` +
+      `<span class="when">${when(r.updated_at) || ''} · ${r.questions} question${r.questions === 1 ? '' : 's'}${r.topic ? ' · ' + esc(r.topic) : ''}</span></button>` +
+      `<button type="button" class="del" data-del="${esc(r.session_id)}" title="Delete this conversation" aria-label="Delete this conversation">Delete</button></li>`).join('');
+  } catch (e) { ul.innerHTML = '<li class="empty">Could not load past chats.</li>'; }
+}
+function setPastVisible(on) {
+  document.getElementById('past').classList.toggle('show', on);
+  document.getElementById('pastbtn').setAttribute('aria-expanded', String(on));
+  if (on) loadPast();
+}
+async function resumeChat(id) {
+  cancelRun();
+  let data;
+  try {
+    const r = await fetch('/api/sessions/' + encodeURIComponent(id) + '/messages');
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+  } catch (e) { loadPast(); return; }  // it vanished (deleted elsewhere): refresh the list
+  sessionId = id;
+  log.innerHTML = '';
+  data.messages.forEach(m => {
+    if (m.role === 'user') { add('user', m.content); return; }
+    const a = add('assistant', ''), sources = m.sources || [];
+    a.querySelector('.body').innerHTML = renderMarkdown(m.content, sources, false);
+    const cited = [...new Set([...m.content.matchAll(/\[(\d+)\*?\]/g)].map(x => Number(x[1])))];
+    showSources(a, sources, cited, m.related || [], m.content);
+    makeAvatar(a).stop();
+    if (m.content.trim()) addActions(a, m.content);
+  });
+  setTopic(data.topic);
+  setPastVisible(false);
+  toEnd(true);
+}
+document.getElementById('pastbtn').addEventListener('click', () =>
+  setPastVisible(!document.getElementById('past').classList.contains('show')));
+document.getElementById('pastlist').addEventListener('click', async e => {
+  const del = e.target.closest('[data-del]'), pick = e.target.closest('[data-id]');
+  if (del) {
+    if (!confirm('Delete this conversation for good?')) return;
+    const id = del.dataset.del;
+    const r = await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'X-QQE': '1' } });
+    if (r.ok && id === sessionId) startFresh();
+    loadPast();
+  } else if (pick) resumeChat(pick.dataset.id);
+});
 function fmtEta(min) { return min == null ? '' : ' · ETA ' + Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm'; }
 async function refreshStatus() {
   try {
@@ -619,12 +737,26 @@ document.getElementById('idxinfo').addEventListener('click', e => {  // the list
   if (b) showChanges(Number(b.dataset.run));
 });
 function mmss(s) { return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
+// A whole-index re-chunk shows its progress here whether it was started from this page or the command line.
+function reindexRow(r) {
+  if (!r) return '';
+  const pct = `${r.done.toLocaleString()} / ${r.total.toLocaleString()} pages (${r.pct}%)`;
+  const text = r.state === 'running' ? `<span class="run">● running</span> · ${pct} <span class="dim">· started ${when(r.started_at)}</span>`
+    : r.state === 'finished' ? `<span class="ok">✓ finished</span> ${when(r.finished_at)} <span class="dim">· ${r.total.toLocaleString()} pages</span>`
+    : `<span class="bad">stopped early</span> at ${pct} <span class="dim">· last update ${when(r.updated_at)}</span>`;
+  return `<dt>Re-index</dt><dd>${text}</dd>`;
+}
+let flashHtml = '', flashUntil = 0;
+function flash(html, seconds = 20) { flashHtml = html; flashUntil = Date.now() + seconds * 1000; document.getElementById('idxstate').innerHTML = html; }
 let jobTimer = null, lastJobRunning = false;
 function renderIndex(j) {
   const job = j.job || {};
   const delta = document.getElementById('idxdelta'), full = document.getElementById('idxfull'), stop = document.getElementById('idxstop');
-  delta.disabled = full.disabled = !!job.running;
-  stop.hidden = !job.running;
+  const reindex = j.reindex, outsideRun = !!(reindex && reindex.state === 'running' && !job.running);  // e.g. started from the command line
+  delta.disabled = full.disabled = document.getElementById('idxreindex').disabled = !!job.running || outsideRun;
+  document.getElementById('idxclear').disabled = !!job.running || outsideRun || !j.chunks;
+  document.getElementById('idxreindex').classList.toggle('idx-primary', !j.chunks && j.pending_index > 0 && !job.running && !outsideRun);  // an empty index: the way forward
+  stop.hidden = !(job.running || outsideRun);  // a re-index started elsewhere can be stopped here too
   const st = document.getElementById('idxstate');
   if (job.running) {
     st.innerHTML = `<span class="run">● ${esc(job.label)} running</span> · ${mmss(job.elapsed_s || 0)}`;
@@ -633,6 +765,12 @@ function renderIndex(j) {
     st.innerHTML = job.stopped ? `■ ${esc(job.label)} stopped ${when(job.finished_at)}`
       : ok ? `<span class="ok">✓ ${esc(job.label)} finished</span> ${when(job.finished_at)}`
       : `<span class="bad">✗ ${esc(job.label)} failed (exit ${job.exit_code})</span> ${when(job.finished_at)}`;
+  } else if (outsideRun) {
+    st.innerHTML = '<span class="run">● Re-index running</span> <span class="dim">(started outside this page)</span>';
+  } else if (flashHtml && Date.now() < flashUntil) {
+    st.innerHTML = flashHtml;
+  } else if (!j.chunks && j.pending_index > 0) {
+    st.innerHTML = '<span class="bad">The search index is empty.</span> Click <b>Re-index</b> to rebuild it from the downloaded pages. <span class="dim">(Full refresh only checks the wiki for changes; it does not rebuild the index.)</span>';
   } else st.textContent = '';
   const log = document.getElementById('idxlog');
   const failed = job.finished_at && (job.exit_code !== 0 || job.stopped);
@@ -641,14 +779,16 @@ function renderIndex(j) {
   const waiting = (j.pending_crawl || j.pending_index)
     ? `${(j.pending_crawl || 0).toLocaleString()} to fetch · ${(j.pending_index || 0).toLocaleString()} to index` : '<span class="dim">nothing</span>';
   document.getElementById('idxinfo').innerHTML =
+    reindexRow(j.reindex) +
     `<dt>Last delta update</dt><dd>${runLine(j.last_delta)}</dd>` +
     `<dt>Last full refresh</dt><dd>${runLine(j.last_full)}</dd>` +
     `<dt>Newest wiki edit seen</dt><dd>${when(j.newest_edit_seen) || '<span class="dim">unknown</span>'}</dd>` +
     `<dt>Waiting</dt><dd>${waiting}</dd>` +
-    `<dt>Reading from</dt><dd>${esc(j.source || '?')}${j.primary_source && j.primary_source !== j.source ? ` <span class="dim">(index built from ${esc(j.primary_source)})</span>` : ''}</dd>`;
+    `<dt>Reading from</dt><dd>${esc(j.source || '?')}${j.delta_source && j.delta_source !== j.source ? ` <span class="dim">(updates and checks for new edits come from ${esc(j.delta_source)})</span>` : ''}</dd>`;
   // poll quickly while a job runs so the log and clock feel live; the slow poll covers the rest
-  if (job.running && !jobTimer) jobTimer = setInterval(loadIndexInfo, 1500);
-  if (!job.running && jobTimer) { clearInterval(jobTimer); jobTimer = null; }
+  const busy = job.running || outsideRun;
+  if (busy && !jobTimer) jobTimer = setInterval(loadIndexInfo, outsideRun && !job.running ? 5000 : 1500);
+  if (!busy && jobTimer) { clearInterval(jobTimer); jobTimer = null; }
   if (lastJobRunning && !job.running) refreshStatus();  // counts changed while it ran
   lastJobRunning = !!job.running;
 }
@@ -660,16 +800,45 @@ async function indexAction(path, body) {
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-QQE': '1' }, body: body ? JSON.stringify(body) : undefined });
   if (!r.ok) {
     let detail = ''; try { detail = (await r.json()).detail || ''; } catch (e) { /* not JSON */ }
-    document.getElementById('idxstate').innerHTML = `<span class="bad">${esc(detail || 'Could not do that (' + r.status + ')')}</span>`;
+    flash(`<span class="bad">${esc(detail || 'Could not do that (' + r.status + ')')}</span>`);
   }
   await loadIndexInfo();
 }
 document.getElementById('idxdelta').addEventListener('click', () => indexAction('/api/index/start', { mode: 'delta' }));
 document.getElementById('idxfull').addEventListener('click', () => {
-  if (confirm('Start a full refresh?\n\nIt re-checks every page on the wiki against your copy and refreshes whatever differs. ' +
+  if (confirm('Start a full refresh?\n\nIt re-checks every page on the wiki against your copy and refreshes whatever differs, ' +
+              'reading from the source shown under "Reading from". ' +
               'That is thorough but can take a while. You can stop it at any time and the next run continues where it left off.')) {
     indexAction('/api/index/start', { mode: 'full' });
   }
+});
+document.getElementById('idxreindex').addEventListener('click', () => {
+  if (confirm('Start a re-index?\n\nIt re-reads every stored page with the current text rules and refreshes the search index. ' +
+              'It makes no requests to the wiki, but it can take a few hours and uses the computer heavily. You can stop it at any time.')) {
+    indexAction('/api/index/start', { mode: 'reindex' });
+  }
+});
+document.getElementById('idxclear').addEventListener('click', async () => {
+  const typed = prompt('Clear the search index?\n\nThis removes every searchable chunk, so Fennick cannot answer until you click Re-index ' +
+                       'to rebuild it (a few hours, no wiki traffic). Your downloaded pages and conversations are kept.\n\nType CLEAR to continue.');
+  if (typed !== 'CLEAR') return;
+  const btn = document.getElementById('idxclear');
+  btn.disabled = true;
+  flash('<span class="run">● Clearing the search index…</span> <span class="dim">this can take a minute or two</span>', 600);
+  try {
+    const r = await fetch('/api/index/clear', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-QQE': '1' },
+      body: JSON.stringify({ confirm: typed }) });
+    if (!r.ok) {
+      let detail = ''; try { detail = (await r.json()).detail || ''; } catch (e) { /* not JSON */ }
+      flash(`<span class="bad">${esc(detail || 'Could not clear the index (' + r.status + ')')}</span>`);
+    } else {
+      const done = await r.json();
+      flash(`<span class="ok">✓ Cleared ${(done.chunks || 0).toLocaleString()} chunks.</span> Now click <b>Re-index</b> to build a new index from the downloaded pages.`, 120);
+    }
+  } catch (e) {
+    flash('<span class="bad">Lost the connection while clearing. Check the Index panel; the clear may still be finishing.</span>');
+  }
+  await loadIndexInfo(); refreshStatus();
 });
 document.getElementById('idxstop').addEventListener('click', () => indexAction('/api/index/stop'));
 
@@ -699,7 +868,7 @@ document.getElementById('form').addEventListener('submit', e => {
 q.addEventListener('keydown', e => {  // Enter sends, Shift+Enter adds a line; never mid-composition (IME)
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); document.getElementById('form').requestSubmit(); }
 });
-document.getElementById('new').addEventListener('click', () => { sessionId = null; try { localStorage.removeItem('epedia.session'); } catch (e) {} log.innerHTML = ''; log.append(hintHtml(persona ? persona.greeting : 'New conversation.')); });
+document.getElementById('new').addEventListener('click', startFresh);
 </script>
 </body>
 </html>

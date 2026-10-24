@@ -34,6 +34,13 @@ def _default_sources() -> dict[str, SourceCfg]:
 class WikiCfg(BaseModel):
     # Which source crawl/sync/smw read from. Override per command with `epedia --source <name> ...`.
     source: str = "original"
+    # A second source tried when the active one is unreachable or does not have a page yet (a mirror's fallback is
+    # normally the original). Unset means no fallback.
+    fallback_source: str | None = None
+    # Which source `sync` (the delta update) reads. Unset means the active source. With a mirror as the active source
+    # this is normally the original: bulk work (full refresh, crawl) comes from the fast mirror, while "what changed"
+    # always comes from the authoritative wiki, which is never behind.
+    delta_source: str | None = None
     sources: dict[str, SourceCfg] = Field(default_factory=_default_sources)
     # Canonical site used for citation links, whichever source the content was read from.
     base_url: str = "https://elanthipedia.play.net/"

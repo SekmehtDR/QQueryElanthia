@@ -19,7 +19,10 @@ _WORD = re.compile(r"[a-z0-9][a-z0-9'’-]*")
 # A sentence ends at . ! ? plus any citation tags the model put after the period ("... shop. [1] Next one"),
 # provided a new sentence follows. Keeping those tags with the sentence is what stops it looking uncited.
 _SENTENCE_END = re.compile(r"[.!?](?:\s*\[\d+\*?\])*(?=\s+[A-Z0-9(\"'*])")
-_OFFER = re.compile(r"^(If you like, I can|The chronicle has more on|There's a thread worth pulling on)")
+OFFER_LINE = re.compile(  # the closing offer (current wording first, then the earlier wording)
+    r"^(Want to hear about |If you're curious, I can |I can also tell you about |"
+    r"If you like, I can|The chronicle has more on|There's a thread worth pulling on)"
+)
 
 STOP = frozenset("""
 a about after all also an and any are as at be been being both but by can could did do does each for from had has
@@ -28,7 +31,7 @@ some such than that the their them then there these they this those through to t
 when where which while who will with would you your i me my been also per via
 """.split())
 
-MIN_CONTENT_TOKENS = 3  # shorter lines are framing ("Here is what the chronicle says") and are left alone
+MIN_CONTENT_TOKENS = 3  # shorter lines are framing ("Here is what I found") and are left alone
 MIN_COVERAGE = 0.5  # share of the line's weighted content words that the passage must contain
 CLEAR_MARGIN = 0.12  # ...and it must beat the runner-up by this much, unless it is a near-total match
 NEAR_TOTAL = 0.8
@@ -115,7 +118,7 @@ def attribute(answer: str, passage_texts: list[str]) -> Attribution:
     edits: list[tuple[int, str]] = []
     uncited = 0
     for start, end, unit in _split_units(answer):
-        if CITED.search(unit) or _OFFER.match(unit.strip()):
+        if CITED.search(unit) or OFFER_LINE.match(unit.strip()):
             continue
         words = _bag(unit)
         if len(words) < MIN_CONTENT_TOKENS:

@@ -11,7 +11,7 @@ import zlib
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeRemainingColumn
 
 from ..config import Settings
-from ..db import transaction
+from ..db import set_state, transaction
 from ..llm.ollama import Ollama
 from ..text.chunker import Chunk, chunk_page
 from ..text.html2md import html_to_page
@@ -20,6 +20,7 @@ from ..util import utcnow_iso
 log = logging.getLogger("epedia.index")
 
 EMBED_BATCH = 32
+REINDEX_KEY = "reindex.progress"  # state-table key holding a whole-index re-chunk's progress, read by the web page
 
 
 def vec_blob(v: list[float]) -> bytes:
@@ -75,6 +76,7 @@ async def index_pages(
                         disable=not show_progress)
     task = progress.add_task("index", total=total)
     last_id = 0  # keyset pagination: also guarantees --reembed-all visits each page once
+    beat = _Heartbeat(conn, total) if reembed_all else None  # the Index panel shows a re-index as it runs
     with progress:
         while remaining > 0:
             rows = select_pending(conn, ns, min(EMBED_BATCH, remaining), reembed_all, last_id)
@@ -84,7 +86,31 @@ async def index_pages(
             last_id = rows[-1]["page_id"]
             progress.update(task, advance=len(rows))
             remaining -= len(rows)
+            if beat:
+                beat.update(total - remaining)
+    if beat:
+        beat.finish()
     return stats
+
+
+class _Heartbeat:
+    """Progress of a whole-index re-chunk, kept in the state table so the web page can show it."""
+
+    def __init__(self, conn: sqlite3.Connection, total: int):
+        self.conn, self.total, self.started = conn, total, utcnow_iso()
+        self._write(0, None)
+
+    def _write(self, done: int, finished: str | None) -> None:
+        set_state(self.conn, REINDEX_KEY, json.dumps({
+            "total": self.total, "done": done, "started_at": self.started, "updated_at": utcnow_iso(),
+            "finished_at": finished,
+        }))
+
+    def update(self, done: int) -> None:
+        self._write(done, None)
+
+    def finish(self) -> None:
+        self._write(self.total, utcnow_iso())
 
 
 async def _index_batch(
