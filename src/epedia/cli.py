@@ -270,6 +270,31 @@ def index(
     run(go())
 
 
+@app.command()
+def fill() -> None:
+    """Fetch every page that is missing or out of date from the active source (the mirror), then classify, extract
+    item stats and index them. The counterpart of `sync`, which reads only what changed from the real wiki."""
+    from .llm.ollama import Ollama
+    from .wiki import sync as syncmod
+    from .wiki.client import open_client
+
+    s = settings()
+    conn = db.connect(s)
+
+    async def go() -> None:
+        async with open_client(s.wiki) as client, Ollama(s.ollama) as ol:
+            before = conn.execute(
+                "SELECT count(*) FROM pages WHERE is_redirect=0 AND fetched_revid IS NOT latest_revid").fetchone()[0]
+            console.print(f"{before:,} pages to fetch from {s.wiki.source}")
+            await syncmod.run_pipeline_for_changes(s, conn, client, ol)
+            console.print(f"fill done: requests={client.requests}")
+
+    try:
+        run(go())
+    finally:
+        conn.close()
+
+
 @app.command("clear-index")
 def clear_index_cmd(
     yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation"),

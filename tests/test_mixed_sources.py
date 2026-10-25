@@ -110,3 +110,45 @@ def test_sync_reads_deltas_from_the_delta_source(monkeypatch):
     monkeypatch.setattr(cli.db, "connect", lambda *a, **k: type("C", (), {"close": lambda self: None})())
     cli._sync_runner("rc", True, None)
     assert seen["source"] == "original"  # the delta asked the real wiki even though pages are normally read elsewhere
+
+
+def test_a_crawl_limited_to_named_pages_leaves_the_rest_of_the_backlog_alone(tmp_path):
+    from epedia.wiki.crawl import crawl
+
+    s, conn = make(tmp_path, delta_source="original")
+    conn.execute("UPDATE pages SET fetched_revid=NULL")  # all three pages are waiting to be fetched
+    fetched = []
+
+    class Client:
+        async def get(self, params):
+            fetched.append(params["page"])
+            return {"parse": {"text": "<p>x</p>", "revid": 11, "sections": [], "categories": [], "displaytitle": params["page"]}}
+
+    stats = asyncio.run(crawl(conn, Client(), s.wiki, show_progress=False, titles={"Edited"}))
+    assert stats["fetched"] == 1 and fetched == ["Edited"]  # a delta fetches only what it found changed
+    assert conn.execute("SELECT count(*) FROM pages WHERE fetched_revid IS NULL").fetchone()[0] == 2  # the backlog waits for Fill
+    fetched.clear()
+    asyncio.run(crawl(conn, Client(), s.wiki, show_progress=False))  # no titles: everything pending (what Fill does)
+    assert sorted(fetched) == ["Fresh", "Only here"]
+    assert conn.execute("SELECT count(*) FROM sqlite_temp_master WHERE name='crawl_scope'").fetchone()[0] == 0  # scope table is gone
+
+
+def test_the_delta_hands_only_its_changed_pages_to_the_pipeline(tmp_path, monkeypatch):
+    s, conn = make(tmp_path, delta_source="original")
+    seen = {}
+
+    async def fake_changes(client, settings, since):
+        return syncmod.Changes(titles={"Edited"}, template_titles=set(), newest="2026-10-23T16:00:00Z")
+
+    async def fake_reconcile(conn, client, settings, ch, stats, details=None):
+        details.append(("Edited", "edited"))
+        details.append(("Gone", "deleted"))
+
+    async def fake_pipeline(settings, conn, client, ollama, titles=None):
+        seen["titles"] = titles
+
+    monkeypatch.setattr(syncmod, "collect_changes", fake_changes)
+    monkeypatch.setattr(syncmod, "reconcile", fake_reconcile)
+    monkeypatch.setattr(syncmod, "run_pipeline_for_changes", fake_pipeline)
+    asyncio.run(syncmod.sync(s, conn, None, None))
+    assert seen["titles"] == {"Edited"}  # deleted pages are not fetched, and the backlog is not touched

@@ -72,6 +72,50 @@ epedia classify ; epedia smw ; epedia index --titles   # after the crawl
 Interrupt any stage with Ctrl-C and rerun it; it continues where it stopped. Watch progress with
 `epedia monitor` (live console view) or `epedia status`; the web page shows a status bar too.
 
+## Start it
+
+Everything runs on your computer. To chat with Fennick in the browser:
+
+1. **Make sure Ollama is running.** On Windows it normally starts with you (look for the llama in the tray). Check
+   with `ollama list`: it should show `qwen3:8b` and `nomic-embed-text`. If it is not running, open the Ollama app.
+2. **Start the server** from the project folder:
+
+   ```powershell
+   cd C:\temp\epediaindexer
+   .\.venv\Scripts\qqueryelanthia.exe serve          # keeps this window busy; Ctrl-C stops it
+   ```
+
+   To start it without keeping a window open (Windows):
+
+   ```powershell
+   Start-Process .\.venv\Scripts\qqueryelanthia.exe -ArgumentList serve -WindowStyle Hidden
+   ```
+
+   A different port: `qqueryelanthia serve --port 9000`.
+3. **Open <http://127.0.0.1:8765>** in your browser. You should see Fennick's portrait, his version badge and the
+   starter questions. `curl http://localhost:8765/api/version` answers when the server is up.
+
+**Stop it** with Ctrl-C in its window, or, if it is running hidden, by its exact command line (never match on the
+word "index": the project folder is called `epediaindexer`):
+
+```powershell
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'qqueryelanthia\.exe" serve' } |
+  ForEach-Object { taskkill /PID $_.ProcessId /T /F }
+```
+
+Stopping the server also stops any job you started from the Index panel (a delta update, a full refresh or a
+re-index), so let those finish first. A re-index started from a terminal is not affected.
+
+If something is wrong:
+
+| You see | Likely cause and fix |
+|---|---|
+| "Unable to connect" in the browser | The server is not running. Start it (step 2). |
+| The server starts, then answers fail with a connection error | Ollama is not running. Start it (step 1). |
+| Fennick says he can't find anything on every question | The search index is empty (for example after **Clear index**). Open **Index** and click **Re-index**. |
+| "Address already in use" | Another copy is already running (open the page) or use `--port`. |
+| Answers are slow right after starting | The first question loads the model into the GPU; later ones are faster. |
+
 ## Use it
 
 ```powershell
@@ -83,11 +127,14 @@ epedia serve                         # web chat at http://127.0.0.1:8765
 The web page greets you as Fennick, offers starter questions, shows what kind of question it detected, and
 suggests related pages to pull on after each answer. Answers are formatted as they arrive and carry numbered
 badges showing which page each line came from (solid: cited by the model; dashed: matched automatically). Use
-**Desktop / Mobile** in the header to switch layouts.
+**Desktop / Mobile** in the header to switch layouts. Every page load starts a fresh conversation; **Past chats**
+lists earlier ones to pick back up, and **New chat** starts over.
 
 The **Index** button opens the index panel: when the wiki was last checked, how many pages are waiting, and
-buttons for a **Delta update** (only what changed), a **Full refresh** (re-compares every page; slow, asks first)
-and **Stop**. Each run has a **View details** link listing the pages it changed. These only work from the computer running the server.
+buttons for a **Delta update** (only what changed, asked of Elanthipedia), a **Fill** (fetch missing or out-of-date
+pages from the mirror), a **Full refresh** (re-compares every page; slow, asks first),
+a **Re-index** (rebuilds the search index from the pages already downloaded; no wiki traffic), **Clear index** and
+**Stop**. Each run has a **View details** link listing the pages it changed. These only work from the computer running the server.
 
 Debugging helpers:
 

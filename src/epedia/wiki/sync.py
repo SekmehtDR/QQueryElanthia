@@ -172,12 +172,16 @@ async def reconcile(
                 upsert_redirect(conn, r["from"], r["to"], r.get("tofragment"))
 
 
-async def run_pipeline_for_changes(settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama) -> None:
+async def run_pipeline_for_changes(
+    settings: Settings, conn: sqlite3.Connection, client: WikiClient, ollama: Ollama, titles: set[str] | None = None
+) -> None:
+    """Fetch, classify, extract item stats for and index what is pending. `titles` limits the fetching to those pages
+    (a delta update: the rest of the backlog is for `fill` to read from the mirror); None fetches everything pending."""
     from ..index.classify import classify_all
     from ..index.indexer import index_pages, rebuild_titles
     from .smw import smw_pages
 
-    await crawl(conn, client, settings.wiki, show_progress=False)
+    await crawl(conn, client, settings.wiki, show_progress=False, titles=titles)
     classify_all(conn, show_progress=False)
     await smw_pages(settings, conn, client, ollama)
     await index_pages(settings, conn, ollama, show_progress=False)
@@ -217,7 +221,8 @@ async def sync(
             set_state(conn, "fullscan.needed", "1")
             log.warning("template edits touch >%d pages; a full scan is scheduled", EMBEDDED_CAP)
     await reconcile(conn, client, settings, ch, stats, details)
-    await run_pipeline_for_changes(settings, conn, client, ollama)
+    changed = {t for t, action in details if action != "deleted"}
+    await run_pipeline_for_changes(settings, conn, client, ollama, titles=changed)
 
     # allrevisions' start is inclusive, so the boundary revision is re-read next time; that is harmless.
     new_cursor = ch.newest or since

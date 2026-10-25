@@ -47,7 +47,8 @@ def test_modes_map_to_the_commands_a_person_would_type():
     assert m.command("delta")[:3] == [sys.executable, "-m", "epedia.cli"]
     with pytest.raises(ValueError):
         m.command("everything")
-    assert set(MODES) == {"delta", "full", "reindex"}
+    assert set(MODES) == {"delta", "full", "reindex", "fill"}
+    assert JobManager(Settings()).command("fill")[-1] == "fill"
     assert JobManager(Settings()).command("reindex")[-2:] == ["index", "--reembed-all"]
 
 

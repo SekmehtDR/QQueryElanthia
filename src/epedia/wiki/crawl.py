@@ -22,8 +22,11 @@ log = logging.getLogger("epedia.crawl")
 PARSE_PROPS = "text|sections|categories|displaytitle|revid"
 
 
+SCOPE = "AND title IN (SELECT title FROM crawl_scope)"  # a crawl limited to named pages (see crawl(titles=...))
+
+
 def select_pending(
-    conn: sqlite3.Connection, cfg: WikiCfg, *, ns: list[int] | None, limit: int, retry_errors: bool
+    conn: sqlite3.Connection, cfg: WikiCfg, *, ns: list[int] | None, limit: int, retry_errors: bool, scoped: bool = False
 ) -> list[sqlite3.Row]:
     order = ns or cfg.namespaces
     case = " ".join(f"WHEN {n} THEN {i}" for i, n in enumerate(order))
@@ -32,7 +35,7 @@ def select_pending(
     return conn.execute(
         f"""
         SELECT page_id, ns, title FROM pages
-        WHERE is_redirect=0 {where_ns} {err}
+        WHERE is_redirect=0 {where_ns} {err} {SCOPE if scoped else ""}
           AND fetched_revid IS NOT latest_revid
         ORDER BY CASE ns {case} ELSE 99 END, page_id
         LIMIT ?
@@ -41,12 +44,14 @@ def select_pending(
     ).fetchall()
 
 
-def count_pending(conn: sqlite3.Connection, cfg: WikiCfg, ns: list[int] | None, retry_errors: bool) -> int:
+def count_pending(conn: sqlite3.Connection, cfg: WikiCfg, ns: list[int] | None, retry_errors: bool,
+                  scoped: bool = False) -> int:
     order = ns or cfg.namespaces
     where_ns = f"AND ns IN ({','.join(str(n) for n in order)})"
     err = "" if retry_errors else "AND error_count < 5"
     return conn.execute(
-        f"SELECT count(*) FROM pages WHERE is_redirect=0 {where_ns} {err} AND fetched_revid IS NOT latest_revid"
+        f"SELECT count(*) FROM pages WHERE is_redirect=0 {where_ns} {err} {SCOPE if scoped else ''} "
+        "AND fetched_revid IS NOT latest_revid"
     ).fetchone()[0]
 
 
@@ -103,8 +108,12 @@ async def crawl(
     retry_errors: bool = False,
     batch_size: int = 200,
     show_progress: bool = True,
+    titles: set[str] | None = None,
 ) -> dict[str, int]:
-    """Fetch pending pages in batches. First Ctrl-C finishes the batch in flight and stops; a second interrupts."""
+    """Fetch pending pages in batches. First Ctrl-C finishes the batch in flight and stops; a second interrupts.
+
+    `titles` limits the crawl to those pages (a delta update fetches only what it found changed; the rest of the
+    backlog is the job of `fill`, which reads from the mirror)."""
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -119,8 +128,15 @@ async def crawl(
     except (NotImplementedError, RuntimeError):
         pass  # Windows event loops: KeyboardInterrupt propagates instead; batches commit atomically anyway.
     try:
-        return await _crawl_loop(conn, client, cfg, stop, ns, limit, retry_errors, batch_size, show_progress)
+        if titles is not None:
+            conn.execute("CREATE TEMP TABLE IF NOT EXISTS crawl_scope(title TEXT PRIMARY KEY)")
+            conn.execute("DELETE FROM crawl_scope")
+            conn.executemany("INSERT OR IGNORE INTO crawl_scope(title) VALUES (?)", [(t,) for t in titles])
+        return await _crawl_loop(conn, client, cfg, stop, ns, limit, retry_errors, batch_size, show_progress,
+                                 scoped=titles is not None)
     finally:
+        if titles is not None:
+            conn.execute("DROP TABLE IF EXISTS crawl_scope")
         if installed:  # never leave our handler behind: later stages (smw, index) must stay interruptible
             try:
                 loop.remove_signal_handler(signal.SIGINT)
@@ -138,9 +154,10 @@ async def _crawl_loop(
     retry_errors: bool,
     batch_size: int,
     show_progress: bool,
+    scoped: bool = False,
 ) -> dict[str, int]:
     stats = {"fetched": 0, "deleted": 0, "errors": 0}
-    total = count_pending(conn, cfg, ns, retry_errors)
+    total = count_pending(conn, cfg, ns, retry_errors, scoped)
     if limit:
         total = min(total, limit)
     progress = Progress(
@@ -150,7 +167,8 @@ async def _crawl_loop(
     remaining = limit if limit else total
     with progress:
         while remaining > 0 and not stop.is_set():
-            rows = select_pending(conn, cfg, ns=ns, limit=min(batch_size, remaining), retry_errors=retry_errors)
+            rows = select_pending(conn, cfg, ns=ns, limit=min(batch_size, remaining), retry_errors=retry_errors,
+                                  scoped=scoped)
             if not rows:
                 break
             results = await asyncio.gather(*(_one(client, r["title"]) for r in rows))

@@ -47,6 +47,12 @@ The first full release: the whole of Elanthipedia, answered by a persona.
   tagged in code as over, upcoming, or mixed (`core/dates.py`), so the model does not do date arithmetic. The answer
   step is told today's date, to name the most recent event when everything listed is over, and to treat in-game years
   ("Festival 453", "457 AV") as not real dates.
+- **Fill from the mirror; deltas fetch only what changed.** A delta update used to fetch every page waiting in the
+  queue as well as the ones it found changed, all from Elanthipedia. It now fetches only the pages it found changed
+  (`crawl(titles=...)`), and the backlog is the job of the new **Fill** (`qqueryelanthia fill`, and a button on the
+  Index page), which fetches missing or out-of-date pages from the mirror (Elanthipedia as fallback), then classifies,
+  extracts item stats and indexes them. Full refresh also reads from the mirror. Re-index is local (it re-reads stored
+  pages and contacts no wiki).
 - **Bulk from the mirror, deltas from Elanthipedia.** `[wiki] delta_source` names the source the delta update
   asks what changed (the real wiki, never behind), while crawls and full refreshes read the fast mirror. A mirror
   full refresh compares edit times against when each page was fetched (the same on every copy of a wiki, unlike
@@ -156,7 +162,7 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 - Change detection uses `allrevisions` and `logevents` rather than recent changes.
 - Maintenance banners are stripped at index time and noted in one line; "Redirect to:" stubs are dropped;
   creature infoboxes and one-column tables come out as `Key: value` lines.
-- 197 tests; lint clean.
+- 199 tests; lint clean.
 
 ## 0.1.0: first commit (2026-10-22)
 

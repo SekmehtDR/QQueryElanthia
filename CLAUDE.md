@@ -98,7 +98,8 @@ data/         wiki.db and logs (git-ignored)
 - **Sources:** `wiki.source` is where pages are read, `wiki.fallback_source` (via `wiki.client.open_client`) is tried
   when it fails or lacks a page; always construct clients with `open_client`, never `WikiClient` directly. Citation
   URLs come from `wiki.base_url` (Elanthipedia), never from the source that was read. `wiki.delta_source` is
-  what `sync` (deltas) reads. With a mirror setup (delta_source or fallback_source set) full scans compare edit
+  what `sync` (deltas) reads, and a delta fetches only the pages it found changed (`crawl(titles=...)`); the backlog is
+  `fill`'s, read from the mirror. With a mirror setup (delta_source or fallback_source set) full scans compare edit
   times, not revision ids, and `check_primary_source` stands down; with a single source it still protects revision ids.
 - Pass large JSON to child processes on stdin (Windows command lines are limited to ~32k characters).
 - A non-breaking space does not glue text to an inline badge; wrap the pair in a `nowrap` span (`render.js`).

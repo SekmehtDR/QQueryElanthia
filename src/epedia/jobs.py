@@ -32,6 +32,7 @@ MODES = {
     "delta": ("Delta update", ["sync"]),
     "full": ("Full refresh", ["sync", "--full-scan"]),
     "reindex": ("Re-index", ["index", "--reembed-all"]),
+    "fill": ("Fill from mirror", ["fill"]),
 }
 STALE_AFTER_SECONDS = 180  # a re-index that has not reported for this long is taken to have been interrupted
 

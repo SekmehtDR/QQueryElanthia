@@ -201,7 +201,8 @@ One SQLite file (WAL mode), `data/wiki.db`:
 
 Sources can be mixed on purpose: `wiki.source` is where pages are read (a fast mirror), `wiki.fallback_source`
 catches errors and missing pages (`FailoverClient`), and `wiki.delta_source` answers "what changed?" for the delta
-update (the real wiki). A full scan on a lagging source compares edit times with each page's fetch time, never deletes
+update (the real wiki). A delta fetches only the pages it found changed; `fill` fetches the whole backlog from
+the active source. A full scan on a lagging source compares edit times with each page's fetch time, never deletes
 pages the source lacks, and winds `sync.cursor` back to the source's newest edit (`sync.rewind_cursor`) so deltas
 cover the gap.
 
