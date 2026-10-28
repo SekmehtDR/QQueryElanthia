@@ -47,6 +47,12 @@ The first full release: the whole of Elanthipedia, answered by a persona.
   tagged in code as over, upcoming, or mixed (`core/dates.py`), so the model does not do date arithmetic. The answer
   step is told today's date, to name the most recent event when everything listed is over, and to treat in-game years
   ("Festival 453", "457 AV") as not real dates.
+- **Share it through a tunnel, safely.** `[web] access_code` (git-ignored local config) puts a sign-in page in front of
+  everyone who arrives through a tunnel (Cloudflare, Tailscale, ngrok: recognised by the forwarding headers they
+  add); the owner at the computer needs no login. With no code set, tunnelled requests are refused outright. Visitors
+  get private chats (owned per browser), no Index panel (status, jobs, clear and stop are refused for them, whatever
+  Host header they send), a trimmed version record, five wrong codes per ten minutes, a 6,000-character message cap,
+  one answer at a time each and `max_concurrent` (2) at a time overall. README has the steps for a Cloudflare quick tunnel.
 - **Fill from the mirror; deltas fetch only what changed.** A delta update used to fetch every page waiting in the
   queue as well as the ones it found changed, all from Elanthipedia. It now fetches only the pages it found changed
   (`crawl(titles=...)`), and the backlog is the job of the new **Fill** (`qqueryelanthia fill`, and a button on the
@@ -162,7 +168,7 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 - Change detection uses `allrevisions` and `logevents` rather than recent changes.
 - Maintenance banners are stripped at index time and noted in one line; "Redirect to:" stubs are dropped;
   creature infoboxes and one-column tables come out as `Key: value` lines.
-- 199 tests; lint clean.
+- 211 tests; lint clean.
 
 ## 0.1.0: first commit (2026-10-22)
 

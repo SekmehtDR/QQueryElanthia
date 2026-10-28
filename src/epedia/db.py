@@ -225,6 +225,7 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "sessions", "topic", "TEXT")
     _ensure_column(conn, "sessions", "context_from", "INTEGER")
     _ensure_column(conn, "messages", "related", "TEXT")
+    _ensure_column(conn, "sessions", "owner", "TEXT")  # 'local', or a per-browser id for visitors through a tunnel
     conn.executescript(
         """
         CREATE INDEX IF NOT EXISTS ix_sessions_updated ON sessions(updated_at);

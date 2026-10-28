@@ -477,11 +477,15 @@ async function loadPersona() {
     if (b) {  // read from the running server, not baked into the page
       const ver = document.getElementById('pver');
       ver.textContent = 'v' + b.version + (b.commit ? ' · ' + b.commit : '');
-      ver.title = ['QQueryElanthia ' + b.version + (b.commit ? ' (commit ' + b.commit + ')' : ''),
+      if (b.chat_model) ver.title = ['QQueryElanthia ' + b.version + (b.commit ? ' (commit ' + b.commit + ')' : ''),
         'chat model ' + b.chat_model + ' · embeddings ' + b.embed_model,
         b.pages.toLocaleString() + ' pages · last updated ' + (b.last_sync || 'never'),
         'reading from the ' + b.source + ' wiki'].join('\n');
       ver.hidden = false;
+    }
+    if (persona.local === false) {  // a visitor through a tunnel: no Index panel (the server refuses it anyway)
+      document.getElementById('statusbtn').hidden = true;
+      document.getElementById('status').classList.remove('show');
     }
     const hint = document.getElementById('hint');
     if (hint) hint.replaceWith(hintHtml(persona.greeting));
@@ -847,6 +851,7 @@ document.getElementById('idxstop').addEventListener('click', () => indexAction('
 // The index details are hidden until asked for; the choice is remembered, and polling only runs while shown.
 let statusTimer = null;
 function setStatusVisible(on) {
+  if (persona && persona.local === false) return;
   document.getElementById('status').classList.toggle('show', on);
   document.getElementById('statusbtn').setAttribute('aria-expanded', String(on));
   if (on) { refreshStatus(); loadIndexInfo(); if (!statusTimer) statusTimer = setInterval(() => { refreshStatus(); loadIndexInfo(); }, 5000); }

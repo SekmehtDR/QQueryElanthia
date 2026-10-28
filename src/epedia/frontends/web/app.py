@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -31,6 +31,7 @@ from ...jobs import (
 )
 from ...llm.ollama import Ollama
 from ...progress import snapshot
+from . import access
 
 STATIC = Path(__file__).parent / "static"
 
@@ -50,6 +51,10 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class LoginRequest(BaseModel):
+    code: str
+
+
 def _host_name(header: str) -> str:
     """The host part of a Host header: 'localhost:8765' -> 'localhost', '[::1]:8765' -> '::1'."""
     if header.startswith("["):
@@ -66,7 +71,9 @@ class StartRequest(BaseModel):
 
 
 def create_app(settings: Settings) -> FastAPI:
-    state: dict = {"locks": {}}  # session id -> lock; one entry per conversation used since the server started
+    state: dict = {"locks": {}, "active": set()}  # session id -> lock; client ids with an answer in progress
+    limiter = access.LoginLimiter()
+    turns = asyncio.Semaphore(max(1, settings.web.max_concurrent))  # answers written at once; the rest queue
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -82,26 +89,76 @@ def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title="QQueryElanthia", lifespan=lifespan)
     app.state.jobs = jobs
 
-    def guard(request: Request) -> None:
-        """Index controls start real work against the wiki, so they are local-only and CSRF-safe.
+    @app.middleware("http")
+    async def sharing(request: Request, call_next):
+        """Visitors through a tunnel need the access code and get their own browser id; the owner at this computer
+        needs neither (see access.py for what makes a request local)."""
+        local = access.is_local(request)
+        code = settings.web.access_code
+        path = request.url.path
+        public = path.startswith("/static/") or path == "/login"
+        if not local and not code:
+            # Fail closed: a request that came through a tunnel while no access code is set would otherwise get in freely.
+            return JSONResponse({"detail": "sharing is switched off: the owner has not set web.access_code"}, status_code=403)
+        if not local and code and not public and not access.has_valid_cookie(request, code):
+            if path.startswith("/api/"):
+                return JSONResponse({"detail": "login required"}, status_code=401)
+            return HTMLResponse(access.LOGIN_PAGE, status_code=401)
+        if not local and not request.cookies.get(access.CLIENT_COOKIE):
+            request.state.client_id = access.new_client_id()
+        response = await call_next(request)
+        new_id = getattr(request.state, "client_id", None)
+        if new_id:
+            response.set_cookie(access.CLIENT_COOKIE, new_id, max_age=365 * 86400, httponly=True, samesite="lax",
+                                secure=access.is_https(request))
+        return response
 
-        A custom header cannot be sent cross-site without a CORS preflight (which this app never grants), so a
-        malicious web page cannot trigger a job through the visitor's browser; a mismatched Origin is refused too.
-        If the server is bound beyond loopback, only loopback clients may use these endpoints."""
+    def local_only(request: Request) -> None:
+        """The Index panel, jobs and status are for the owner at this computer, never for visitors through a tunnel."""
+        if not access.is_local(request):
+            raise HTTPException(403, "only available from the computer running the server")
+
+    @app.post("/login")
+    async def login(request: Request, body: LoginRequest) -> JSONResponse:
+        code = settings.web.access_code
+        ip = access.client_ip(request)
+        if not code:
+            return JSONResponse({"ok": True})
+        if limiter.blocked(ip):
+            return JSONResponse({"detail": "too many attempts"}, status_code=429)
+        if not access.code_matches(body.code, code):
+            limiter.fail(ip)
+            return JSONResponse({"detail": "wrong code"}, status_code=401)
+        limiter.clear(ip)
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(access.AUTH_COOKIE, access.auth_token(code), max_age=30 * 86400, httponly=True,
+                        samesite="lax", secure=access.is_https(request))
+        return resp
+
+    def csrf(request: Request) -> None:
+        """State-changing calls must come from this page: a custom header cannot be sent cross-site without a CORS
+        preflight (which this app never grants), and a mismatched Origin is refused too."""
         if request.headers.get("x-qqe") != "1":
             raise HTTPException(403, "missing X-QQE header")
-        host_header = request.headers.get("host", "")
-        # DNS rebinding: a hostile page can make its own name resolve to 127.0.0.1, which would pass an
-        # Origin == Host check. Only the names this server is really reached by are accepted.
-        if _host_name(host_header) not in {"localhost", "127.0.0.1", "::1", settings.web.host}:
-            raise HTTPException(403, "unexpected Host header")
         origin = request.headers.get("origin")
-        if origin and urlparse(origin).netloc != host_header:
+        if origin and urlparse(origin).netloc != request.headers.get("host", ""):
             raise HTTPException(403, "cross-site request refused")
+
+    def guard(request: Request) -> None:
+        """Index controls start real work against the wiki, so they are for the owner at this computer only, and CSRF-safe.
+
+        On top of csrf(): only requests that really come from this computer (no tunnel headers), and only under the
+        names this server is reached by (DNS rebinding: a hostile page can make its own name resolve to 127.0.0.1,
+        which would pass an Origin == Host check). If the server is bound beyond loopback, only loopback clients."""
+        local_only(request)
+        csrf(request)
+        if _host_name(request.headers.get("host", "")) not in {"localhost", "127.0.0.1", "::1", settings.web.host}:
+            raise HTTPException(403, "unexpected Host header")
         local_bind = settings.web.host in ("127.0.0.1", "localhost", "::1")
         peer = request.client.host if request.client else ""
         if not local_bind and peer not in ("127.0.0.1", "::1"):
             raise HTTPException(403, "index controls are only available from this computer")
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")  # Fennick's portraits
 
     @app.get("/")
@@ -109,15 +166,18 @@ def create_app(settings: Settings) -> FastAPI:
         return FileResponse(STATIC / "index.html")
 
     @app.get("/api/status")
-    async def status() -> dict:
+    async def status(request: Request) -> dict:
+        local_only(request)
         return snapshot(state["conn"])
 
     @app.get("/api/index/info")
-    async def index_state() -> dict:
+    async def index_state(request: Request) -> dict:
+        local_only(request)
         return {**index_info(state["conn"], settings), "job": jobs.snapshot()}
 
     @app.get("/api/index/changes/{sync_id}")
-    async def index_run_changes(sync_id: int) -> dict:
+    async def index_run_changes(request: Request, sync_id: int) -> dict:
+        local_only(request)
         found = index_changes(state["conn"], settings, sync_id)
         if found is None:
             raise HTTPException(404, "no such run")
@@ -175,19 +235,26 @@ def create_app(settings: Settings) -> FastAPI:
         await asyncio.to_thread(git_commit)
         return build_info(settings, state["conn"])
 
+    def public_build(info: dict) -> dict:
+        return {"version": info.get("version"), "commit": info.get("commit")}
+
     @app.get("/api/version")
-    async def version() -> dict:
-        return await build()
+    async def version(request: Request) -> dict:
+        info = await build()
+        return info if access.is_local(request) else public_build(info)
 
     @app.get("/api/persona")
-    async def persona() -> dict:
+    async def persona(request: Request) -> dict:
         p = settings.persona
+        local = access.is_local(request)
         info = await build()
+        info = info if local else public_build(info)
         if not p.enabled:
             return {"enabled": False, "name": "QQueryElanthia", "tagline": "answers from the wiki",
-                    "greeting": "Ask a question about DragonRealms.", "chips": CHIPS, "build": info}
+                    "greeting": "Ask a question about DragonRealms.", "chips": CHIPS, "build": info, "local": local}
         return {
             "enabled": True,
+            "local": local,  # the page hides the Index panel from visitors
             "build": info,
             "name": p.name,
             "tagline": "a traveler's notes on Elanthia, from Elanthipedia",
@@ -198,52 +265,59 @@ def create_app(settings: Settings) -> FastAPI:
         }
 
     @app.post("/api/sessions")
-    async def create_session() -> dict:
-        return {"session_id": memory.new_session(state["conn"], "web")}
+    async def create_session(request: Request) -> dict:
+        return {"session_id": memory.new_session(state["conn"], "web", owner=access.owner_of(request))}
 
     @app.get("/api/sessions")
-    async def list_sessions() -> list[dict]:
-        return memory.list_sessions(state["conn"], "web")
+    async def list_sessions(request: Request) -> list[dict]:
+        return memory.list_sessions(state["conn"], "web", owner=access.owner_of(request))
 
     @app.get("/api/sessions/{session_id}/messages")
-    async def get_messages(session_id: str) -> dict:
-        if not memory.session_exists(state["conn"], session_id):
+    async def get_messages(request: Request, session_id: str) -> dict:
+        if not memory.owned_by(state["conn"], session_id, access.owner_of(request)):
             raise HTTPException(404, "no such conversation")
         return {"messages": memory.messages(state["conn"], session_id),
                 "topic": memory.get_topic(state["conn"], session_id)}
 
     @app.post("/api/sessions/{session_id}/forget-context")
     async def forget_context(request: Request, session_id: str) -> dict:
-        guard(request)
-        if not memory.session_exists(state["conn"], session_id):
+        csrf(request)
+        if not memory.owned_by(state["conn"], session_id, access.owner_of(request)):
             raise HTTPException(404, "no such conversation")
         memory.clear_context(state["conn"], session_id)
         return {"topic": None}
 
     @app.delete("/api/sessions/{session_id}")
     async def delete_session(request: Request, session_id: str) -> dict:
-        guard(request)
-        if not memory.delete_session(state["conn"], session_id):
+        csrf(request)
+        if not memory.owned_by(state["conn"], session_id, access.owner_of(request)):
             raise HTTPException(404, "no such conversation")
+        memory.delete_session(state["conn"], session_id)
         return {"deleted": True}
 
     @app.post("/api/chat")
-    async def chat(req: ChatRequest) -> StreamingResponse:
+    async def chat(request: Request, req: ChatRequest) -> StreamingResponse:
         if not req.message.strip():
             raise HTTPException(400, "empty message")
+        if len(req.message) > settings.web.max_message_chars:
+            raise HTTPException(413, f"message too long (the limit is {settings.web.max_message_chars:,} characters)")
+        owner = access.owner_of(request)
+        if owner in state["active"]:
+            raise HTTPException(429, "still answering your last question")
 
         async def events():
             def sse(name: str, data: dict) -> str:
                 return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
             sid = req.session_id
-            if not memory.session_exists(state["conn"], sid):
-                # a stale or unknown id (a deleted chat, a restored tab): start a fresh conversation and tell the page
-                sid = memory.new_session(state["conn"], "web")
+            if not memory.owned_by(state["conn"], sid, owner):
+                # an unknown id (a deleted chat, a restored tab) or someone else's: start a fresh conversation
+                sid = memory.new_session(state["conn"], "web", owner=owner)
                 yield sse("session", {"session_id": sid})
             lock = state["locks"].setdefault(sid, asyncio.Lock())  # one answer at a time per conversation
+            state["active"].add(owner)
             try:
-                async with lock:
+                async with turns, lock:
                     async for ev in state["assistant"].answer_stream(sid, req.message.strip()):
                         if isinstance(ev, Retrieval):
                             yield sse("sources", {"sources": [s.__dict__ for s in ev.sources],
@@ -256,6 +330,8 @@ def create_app(settings: Settings) -> FastAPI:
                                                "topic": ev.topic})
             except Exception as exc:  # surface model/db problems in the UI instead of a dropped stream
                 yield sse("error", {"message": str(exc)})
+            finally:
+                state["active"].discard(owner)
 
         return StreamingResponse(events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

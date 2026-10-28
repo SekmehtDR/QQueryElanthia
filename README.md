@@ -116,6 +116,43 @@ If something is wrong:
 | "Address already in use" | Another copy is already running (open the page) or use `--port`. |
 | Answers are slow right after starting | The first question loads the model into the GPU; later ones are faster. |
 
+## Share it with friends
+
+Fennick runs on your computer, so sharing means opening a private doorway to it. A Cloudflare quick tunnel is the
+simplest: free, no account, no domain. The address it gives you changes every time, and it only works while your
+computer, Ollama and the server are running.
+
+1. **Set an access code** (8 or more characters; a phrase is fine) in the git-ignored `epedia.local.toml`:
+
+   ```toml
+   [web]
+   access_code = "a phrase only your friends know"
+   ```
+
+   Restart the server. Without a code the server refuses everyone who arrives through a tunnel, so a forgotten code
+   fails safe rather than open.
+2. **Install the tunnel program once:** `winget install --id Cloudflare.cloudflared`
+3. **Open the tunnel** (keep this window open while people use it):
+
+   ```powershell
+   cloudflared tunnel --url http://localhost:8765
+   ```
+
+   It prints an address like `https://something-random.trycloudflare.com`. Send friends that link and the code.
+   Close the window (Ctrl-C) to stop sharing; the link stops working at once.
+
+What visitors get, and what they don't:
+- They enter the code once (remembered for 30 days in their browser), then chat with Fennick like you do.
+- Each visitor's chats are private to their browser. They cannot see yours or each other's, and they have no Index
+  panel: updating, clearing and stopping stay with you, at your computer.
+- Wrong codes are limited to five tries per address every ten minutes. Messages are capped at 6,000 characters and
+  at most two answers are written at once (`[web] max_concurrent`), so one GPU is shared fairly; others wait.
+- **Be upfront with friends:** their questions are saved in your local database, where you can read them.
+
+Keep `[web] host` at its default `127.0.0.1`; the tunnel reaches the server from your own computer. Do not set it to
+`0.0.0.0`. For anything more permanent than an evening (a stable address, a login per person), use a named
+Cloudflare Tunnel with Cloudflare Access, or Tailscale.
+
 ## Use it
 
 ```powershell

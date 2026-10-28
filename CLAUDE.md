@@ -101,6 +101,10 @@ data/         wiki.db and logs (git-ignored)
   what `sync` (deltas) reads, and a delta fetches only the pages it found changed (`crawl(titles=...)`); the backlog is
   `fill`'s, read from the mirror. With a mirror setup (delta_source or fallback_source set) full scans compare edit
   times, not revision ids, and `check_primary_source` stands down; with a single source it still protects revision ids.
+- **Who is asking** (`frontends/web/access.py`): a request is local only if it comes from loopback AND has none of the
+  tunnel's forwarding headers (`cf-connecting-ip`, `x-forwarded-for`, ...); a tunnel always connects from loopback, so
+  the peer address proves nothing. Anything admin (Index, jobs, status, clear) must call `guard()`/`local_only()`; chats
+  are scoped by `sessions.owner` (`local` or a per-browser cookie id). Never bind `web.host` beyond 127.0.0.1 to share.
 - Pass large JSON to child processes on stdin (Windows command lines are limited to ~32k characters).
 - A non-breaking space does not glue text to an inline badge; wrap the pair in a `nowrap` span (`render.js`).
 - Check the page's script with `node --check` after editing `static/index.html` (a duplicate `const` once broke

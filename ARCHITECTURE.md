@@ -246,6 +246,10 @@ Everything on the page lives in one `#app` container, so the header, chat and in
 └─────────────────────────────────────────────────────────────┘
 ```
 
+- **Sharing.** The server can be reached through a tunnel (README: "Share it with friends"). `access.py` tells the
+  owner at the computer from a visitor by the forwarding headers a tunnel adds; visitors need `web.access_code`, own
+  private chats (`sessions.owner`), and are refused every Index, job, status and clear endpoint. No code set means a
+  tunnelled request is refused, never let in.
 - **Layout choice** is made in `<head>` before first paint: the saved choice, else mobile on a phone-sized
   screen, else desktop. `html[data-view="desktop|mobile"]` drives the CSS; the header toggle switches and remembers it.
 - **Live formatting.** `static/render.js` (a pure function, also tested under node) turns the growing answer into

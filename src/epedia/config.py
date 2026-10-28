@@ -146,6 +146,19 @@ class ChatCfg(BaseModel):
 class WebCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
+    # Sharing through a tunnel: visitors who are not at this computer must enter this code (set it in the git-ignored
+    # epedia.local.toml). Unset means no login, which is only safe while the page is not shared.
+    access_code: str | None = None
+    max_concurrent: int = 2  # answers being written at once (one GPU); others wait their turn
+    max_message_chars: int = 6000  # longest message accepted (a pasted post fits)
+
+    @field_validator("access_code")
+    @classmethod
+    def _code_strength(cls, value: str | None) -> str | None:
+        value = (value or "").strip() or None
+        if value is not None and len(value) < 8:
+            raise ValueError("web.access_code must be at least 8 characters")
+        return value
 
 
 class Settings(BaseModel):

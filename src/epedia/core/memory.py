@@ -21,13 +21,22 @@ MAX_HISTORY_CHARS = 1500
 TITLE_CHARS = 60
 
 
-def new_session(conn: sqlite3.Connection, frontend: str = "cli", session_id: str | None = None) -> str:
+def new_session(conn: sqlite3.Connection, frontend: str = "cli", session_id: str | None = None,
+                owner: str | None = None) -> str:
     sid = session_id or uuid.uuid4().hex[:12]
     conn.execute(
-        "INSERT OR IGNORE INTO sessions(session_id, frontend, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        (sid, frontend, utcnow_iso(), utcnow_iso()),
+        "INSERT OR IGNORE INTO sessions(session_id, frontend, created_at, updated_at, owner) VALUES (?, ?, ?, ?, ?)",
+        (sid, frontend, utcnow_iso(), utcnow_iso(), owner),
     )
     return sid
+
+
+def owned_by(conn: sqlite3.Connection, session_id: str, owner: str) -> bool:
+    """Does this conversation belong to `owner`? Conversations from before owners existed belong to 'local'."""
+    row = conn.execute("SELECT owner FROM sessions WHERE session_id=?", (session_id,)).fetchone()
+    if row is None:
+        return False
+    return (row["owner"] or "local") == owner
 
 
 def session_exists(conn: sqlite3.Connection, session_id: str) -> bool:
@@ -158,14 +167,16 @@ def delete_session(conn: sqlite3.Connection, session_id: str) -> bool:
     return cur.rowcount > 0
 
 
-def list_sessions(conn: sqlite3.Connection, frontend: str = "web", limit: int = 50) -> list[dict]:
-    """Conversations that have at least one question, newest first, for the Past chats list."""
+def list_sessions(conn: sqlite3.Connection, frontend: str = "web", limit: int = 50, owner: str | None = None) -> list[dict]:
+    """Conversations that have at least one question, newest first, for the Past chats list. With `owner`, only that
+    person's (visitors never see each other's, or the owner's)."""
     rows = conn.execute(
         "SELECT s.session_id, substr(coalesce(s.title, (SELECT m.content FROM messages m WHERE m.session_id=s.session_id "
         "AND m.role='user' ORDER BY m.msg_id LIMIT 1)), 1, 60) AS title, s.topic, coalesce(s.updated_at, s.created_at) AS updated_at, "
         "(SELECT count(*) FROM messages m WHERE m.session_id=s.session_id AND m.role='user') AS questions "
-        "FROM sessions s WHERE s.frontend=? AND questions > 0 ORDER BY updated_at DESC, s.rowid DESC LIMIT ?",
-        (frontend, limit),
+        "FROM sessions s WHERE s.frontend=? AND questions > 0 AND (? IS NULL OR coalesce(s.owner, 'local') = ?) "
+        "ORDER BY updated_at DESC, s.rowid DESC LIMIT ?",
+        (frontend, owner, owner, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
