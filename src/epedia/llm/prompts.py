@@ -90,9 +90,10 @@ _SHAPE_HINTS_PLAIN: dict[str, str] = {
         "passages give one. Keep legend and recorded history distinct."
     ),
     "creature": (
-        "Shape for a creature question: (OOC) level and skill ranges (Overall, Natural Attack, Weapon Attack, "
-        "Defense, Skill Cap), where it is found, special attacks or defenses, loot and skinning (part, ranks, "
-        "value), then the hedges: player-estimated numbers, incomplete pages."
+        "Shape for a creature question: (OOC) the level and rank range, where it is found, special attacks or "
+        "defenses, loot and skinning (part, ranks, value), then the hedges: player-estimated numbers, incomplete "
+        "pages. Use only the figures the passages actually give, and name only creatures that appear in the "
+        "passages; if none fits the question, say so and point to the hunting ladder pages instead of inventing one."
     ),
     "mechanics": (
         "Shape for a mechanics question: (OOC) a plain explanation of how the system works, the exact commands in "

@@ -17,7 +17,7 @@ from ..llm import prompts
 from ..llm.ollama import Ollama, OllamaError
 from ..retrieval.search import Hit, search
 from ..util import now_text, page_url
-from . import memory
+from . import hunting, memory
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -240,6 +240,20 @@ class Assistant:
             log.warning("planner failed (%s); falling back to plain search", exc)
             return Plan(message, material=material)
 
+    def _is_hunt_fit(self, plan: Plan, session_id: str | None) -> bool:
+        """A 'what should I hunt?' question, or the reply to Fennick asking for the ranks to answer one."""
+        if hunting.HUNT_FIT.search(plan.standalone_question):
+            return True
+        row = session_id and self.conn.execute(
+            "SELECT content FROM messages WHERE session_id=? AND role='assistant' ORDER BY msg_id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return bool(row) and row["content"] == hunting.NEED_RANKS
+
+    def _hunt_ranks(self, plan: Plan, user_message: str) -> list[int]:
+        """Combat ranks the person gave, in this message or in what they said earlier in the conversation."""
+        return hunting.parse_ranks(plan.standalone_question, user_message)
+
     def _property_catalog(self) -> str:
         rows = self.conn.execute(
             "SELECT prop, value_type, coalesce(description, label, '') AS d, sample_values FROM smw_properties "
@@ -309,7 +323,13 @@ class Assistant:
                     k = 4
             except Exception as exc:  # the items tool is best-effort; ordinary search still answers
                 log.warning("items tool failed: %s", exc)
-        prior: list[dict] = self._prior_passages(session_id) if plan.follow_up else []
+        if self._is_hunt_fit(plan, session_id):
+            ranks = self._hunt_ranks(plan, plan.standalone_question)
+            p = hunting.passage(self.conn, ranks, self.s.wiki.base_url, plan.standalone_question) if ranks else None
+            if p:
+                passages.append(p)
+                k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
+        prior: list[dict] = self._prior_passages(session_id) if plan.follow_up and k else []
         passages.extend(prior)
         have = {p["chunk_id"] for p in prior}
         extra_k = self.s.retrieval.related_k if self.s.retrieval.offer_related else 0
@@ -446,6 +466,9 @@ class Assistant:
             self._persist(session_id, user_message, answer, plan, [], [])
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
             return
+        if (not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
+                and not self._hunt_ranks(plan, user_message)):
+            plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
         if plan.clarify and not memory.last_was_clarification(self.conn, session_id):
             # Ask rather than guess, but never twice in a row: the second time it is answered as best it can be.
             yield Retrieval([], plan.standalone_question, "clarify", plan.kind, [])
@@ -486,6 +509,14 @@ class Assistant:
             yield Token(answer)
             self._persist(session_id, user_message, answer, plan, [], [])
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
+            return
+
+        if passages[0].get("answer"):
+            # The ladder match is data, not prose: the creatures and numbers are written by code so none can be invented.
+            answer = passages[0]["answer"]
+            yield Token(answer)
+            self._persist(session_id, user_message, answer, plan, sources, [])
+            yield Done(answer, [1], sources, [], memory.get_topic(self.conn, session_id))
             return
 
         system = prompts.build_answer_system(plan.kind, text, self.name, persona=self.s.persona.enabled,

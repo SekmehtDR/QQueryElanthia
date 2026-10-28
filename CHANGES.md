@@ -9,6 +9,13 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 
 ### New
 
+- **"What should I hunt?" is answered from the hunting ladder, in code.** The question is matched on combat ranks
+  (offense and defense; the lower one decides), whatever the guild, because a circle alone does not give them. Without
+  ranks Fennick asks for them; with ranks (and any areas named) `core/hunting.py` lists the creatures whose ladder range
+  takes them in, nearest the middle first, and writes the answer itself so no creature or stat can be invented. The
+  creature answer hint no longer asks for a stat line the passages do not give, and says to name only creatures that
+  appear in them. 217 tests.
+
 - **Fennick**, a Halfling Bard who keeps a satchel of notes copied from Elanthipedia. He frames places, people,
   gods and creatures in his own voice, keeps game mechanics plain and marked out of character, relays the wiki's
   own hedges (outdated, obsolete, incomplete, era, GM post versus player guide), and never claims experience of
