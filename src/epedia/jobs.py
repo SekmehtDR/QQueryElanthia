@@ -256,6 +256,22 @@ def mark_reindex_interrupted(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE state SET value=? WHERE key='reindex.progress'", (json.dumps(info),))
 
 
+async def auto_delta(jobs: JobManager, conn: sqlite3.Connection, minutes: int, first_delay: float = 120.0,
+                     sleep=asyncio.sleep) -> None:
+    """Keep the index current while the server runs: a delta update every `minutes`, the first one shortly after start.
+    It never competes with work already under way (a job from the page, or a re-index from the command line) and is
+    simply skipped that round. Runs as the same child job the Index panel shows, so it can be watched or stopped."""
+    await sleep(first_delay)
+    while True:
+        status = reindex_status(conn)
+        if not jobs.running and not (status and status.get("state") == "running"):
+            try:
+                await jobs.start("delta")
+            except (JobBusy, ValueError):
+                pass
+        await sleep(minutes * 60)
+
+
 def reindex_status(conn: sqlite3.Connection) -> dict[str, Any] | None:
     """Progress of a whole-index re-chunk (from the command line or the page), or None if there never was one."""
     try:

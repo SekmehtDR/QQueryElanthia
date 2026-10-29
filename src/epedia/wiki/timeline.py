@@ -228,22 +228,28 @@ def lines(conn: sqlite3.Connection, title: str, now: datetime | None = None) -> 
     return out
 
 
-def caveats(conn: sqlite3.Connection, title: str, answer: str, now: datetime | None = None) -> list[str]:
+def caveats(conn: sqlite3.Connection, title: str, answer: str, now: datetime | None = None,
+            earlier_too: bool = True) -> list[str]:
     """Sentences in Fennick's voice, written by code, for changed facts the answer states: the model is told how to
-    hedge but an 8B model forgets. The value whoever started the entry set is authoritative and needs none; a value
-    someone else changed away from it, or one that has flipped between editors, is never given without a caution."""
+    hedge but an 8B model forgets. The value whoever started the entry set is authoritative and is stated plainly, with
+    only a "that said" note of what it used to be (`earlier_too`); a value someone else changed away from it, or one
+    that has flipped between editors, is never given without a caution."""
     out = []
     for r in readings(conn, title, now):
-        if r.verdict == "credible" or not r.current:
+        if not r.current or (r.verdict == "credible" and not earlier_too):
             continue
         if not re.search(r"(?<![\w-])" + re.escape(r.current.casefold()) + r"(?![\w-])", answer.casefold()):
             continue
         earlier = []
-        for s in r.history[1:]:
+        for s in reversed(r.history[1:]):  # oldest first, each with the year it first appeared
             if s.value and _norm(s.value) != _norm(r.current) and s.value not in [e for e, _ in earlier]:
                 earlier.append((s.value, s.since[:4]))
         names = " and ".join(f"{v} ({y})" for v, y in earlier[:3])
-        if r.verdict == "suspect":
+        if r.verdict == "credible":
+            if earlier:
+                out.append(f"That said, my notes first had {title}'s {r.field} as {names}, before the entry settled on "
+                           f"{r.current}.")
+        elif r.verdict == "suspect":
             owner = next((s for s in r.history[1:] if s.by_owner), None)
             said = owner.value if owner else names
             out.append(f"Mind you, my notes first had {title}'s {r.field} as {said}, and someone else has since changed "

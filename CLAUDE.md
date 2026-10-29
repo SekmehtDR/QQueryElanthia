@@ -105,6 +105,9 @@ data/         wiki.db and logs (git-ignored)
   tunnel's forwarding headers (`cf-connecting-ip`, `x-forwarded-for`, ...); a tunnel always connects from loopback, so
   the peer address proves nothing. Anything admin (Index, jobs, status, clear) must call `guard()`/`local_only()`; chats
   are scoped by `sessions.owner` (`local` or a per-browser cookie id). Never bind `web.host` beyond 127.0.0.1 to share.
+- **Auto-sync lives in the web server** (`jobs.auto_delta`, started by the app's lifespan): the owner does not want a
+  Windows scheduled task, so never register one. `[web] auto_sync_minutes = 0` disables it. Tests that build the app must
+  keep `JobManager.command` replaced, because the first round fires 120 seconds after start.
 - **Edit history** (`wiki/history.py`, `wiki/timeline.py`): `revisions` holds metadata only; `field_values` holds the
   infobox facts of old character versions. The trust rules live in `timeline.judge` and are the thing to change if
   Fennick trusts too much or too little. `epedia history` is the one bulk read (about 1,400 + ~3,900 requests to the

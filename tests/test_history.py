@@ -92,3 +92,24 @@ def test_the_setting_is_changed_from_the_page_only_by_the_owner(client):
     r = client.post("/api/settings/history", json={"history_edits": 3}, headers=LOCAL)
     assert r.status_code == 200 and r.json()["history_edits"] == 3
     assert client.get("/api/index/info", headers={"Host": "localhost:8765"}).json()["history_edits"] == 3
+
+
+def test_any_page_changed_lately_by_a_person_gets_a_that_said_note_with_their_summary():
+    from datetime import datetime
+
+    now = datetime(2026, 10, 29)
+    rows = [(1, "Binu", "2025-01-01T10:00:00Z", "A", "created", 1000, 0, ""),
+            (2, "Binu", "2026-10-12T10:00:00Z", "B", "/* Damage */ [[Fire Ball|fireball]] now hits harder", 1300, 1, ""),
+            (3, "Binu", "2026-10-13T10:00:00Z", "C", "", 1301, 2, "")]  # a one-byte tidy with no summary is not news
+    c = conn_with(rows)
+    note = history.revised_note(c, "Binu", now)
+    assert note.startswith("That said, my notes on Binu were last revised on 12 Oct 2026 (Damage"[:55])
+    assert "fireball now hits harder" in note and "in the Damage section" in note and "[[" not in note
+    sec_only = conn_with([rows[0], (2, "Binu", "2026-10-12T10:00:00Z", "B", "/* Empath Shock Quest */", 1300, 1, "")])
+    assert "(in the Empath Shock Quest section)" in history.revised_note(sec_only, "Binu", now)
+    made = conn_with([rows[0], (2, "Binu", "2026-10-12T10:00:00Z", "B", 'Created page with "{{Critter"', 1300, 1, "")])
+    assert "(" not in history.revised_note(made, "Binu", now)  # creation text says nothing about a change
+    assert history.revised_note(c, "Binu", datetime(2027, 6, 1)) == ""  # long ago: the page has stood a while
+    assert history.revised_note(conn_with(rows[:1]), "Binu", now) == ""  # only created, never changed
+    bot = conn_with([rows[0], (2, "Binu", "2026-10-12T10:00:00Z", "Maintenance script", "bulk", 1300, 1, "")])
+    assert history.revised_note(bot, "Binu", now) == ""

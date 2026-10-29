@@ -9,6 +9,9 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 
 ### New
 
+- **Fennick keeps the index current while the server runs.** A delta update starts two minutes after start-up and then
+  hourly (`[web] auto_sync_minutes`, 0 = off), as the same job the Index panel shows; skipped when another job is running.
+  No Windows scheduled task is involved.
 - **Crafting disciplines answered from the Crafting page's own list.** "What are the crafting disciplines?" is written in
   code: five Lore skills, the disciplines each controls, and the guide the page names for each (so the model can no longer
   call Tinkering a skill). New extractor `index/extract/crafting.py`, tool `core/disciplines.py`.
@@ -181,6 +184,14 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 
 ### Fixed
 
+- **The "that said" note covers every page and every question.** It goes with any page an answer cites (not only one the
+  question names): a character's earlier guild/race/gender/status, and for every other page, when a person changed it in
+  the last 90 days, when and what they said ("That said, my notes on Tinkering products were last revised on 14 Oct 2026
+  (added bellows, in the Tinkered Toys and Accessories section)..."). Written by code from stored edit metadata, no extra
+  wiki requests. Old values of other infobox fields (spells, creatures...) would need old page text: not fetched yet.
+- **Fennick volunteers what a trusted fact used to be.** Asked "What guild is Binu?" he says Necromancer, then adds in code
+  "That said, my notes first had Binu's guild as Warrior Mage (2017)…", without doubting the current value (the page's
+  creator set it). Only for the page the question names; doubtful facts still get their caution, as before.
 - A page whose facts are all trusted (and that is not being fought over) no longer shows the model its edit history at
   all: given the margin, the 8B model remarked on it ("not contested in recent edits"). Doubtful facts still carry it.
 - A fact the page's own creator set (a trusted one) now reaches the model as "state it plainly", without the list of

@@ -138,10 +138,13 @@ def test_caveat_names_earlier_values_only_when_the_answer_states_the_fact(conn):
     assert timeline.caveats(conn, "Binu", "Binu is a Necromancers fan.", NOW) == []  # whole words only
 
 
-def test_the_owners_own_value_is_authoritative_and_gets_no_caveat(conn):
+def test_the_owners_own_value_is_stated_plainly_with_a_that_said_note_of_what_it_used_to_be(conn):
     put(conn, "Binu", BINU)  # the owner restored Necromancer after a third party's Warrior Mage
     assert reading(conn, "Binu").verdict == "credible"
-    assert timeline.caveats(conn, "Binu", "Binu is a Necromancer [1].", NOW) == []
+    assert timeline.caveats(conn, "Binu", "Binu is a Necromancer [1].", NOW, earlier_too=False) == []
+    (note,) = timeline.caveats(conn, "Binu", "Binu is a Necromancer [1].", NOW)
+    assert note.startswith("That said, my notes first had Binu's guild as Warrior Necro-Mage (2018) and Warrior Mage (2019)")
+    assert "vouch" not in note and "someone else" not in note  # it is not doubted, only remembered
 
 
 def test_updates_refresh_history_only_after_the_bulk_read_and_only_for_changed_characters(conn, monkeypatch):
@@ -194,3 +197,17 @@ def test_a_page_made_by_a_script_is_not_owned_by_it_and_placeholders_are_not_own
     assert timeline.owners(conn, "Emuin") == {"emuin", "maker"}
     put(conn, "Zed", [(1, "2009-01-01", "Zed", "n"), (2, "2020-01-01", "Other", "Necromancer")])
     assert reading(conn, "Zed").verdict != "suspect"
+
+
+def test_the_assistant_volunteers_what_a_trusted_fact_used_to_be_for_pages_it_rests_on_not_passing_mentions(conn):
+    from epedia.config import Settings
+    from epedia.core.assistant import Assistant
+
+    put(conn, "Binu", BINU)
+    a = Assistant(Settings(), conn, None)
+    passages = [{"title": "Binu", "chunk_id": 1}]
+    assert a._edit_notes(passages, "What guild is Binu?", "Binu is a Necromancer [1].")[0].startswith("That said")
+    # not named in the question, and the answer only mentions him without resting on his page: no note
+    assert a._edit_notes(passages, "Who fought the volcano?", "Binu, a Necromancer, was there.") == []
+    # an answer that cites his page rests on it, whatever the question named
+    assert a._edit_notes(passages, "Who fought the volcano?", "Binu is a Necromancer [1].")[0].startswith("That said")

@@ -153,6 +153,15 @@ class WebCfg(BaseModel):
     access_code: str | None = None
     max_concurrent: int = 2  # answers being written at once (one GPU); others wait their turn
     max_message_chars: int = 6000  # longest message accepted (a pasted post fits)
+    # While the server runs it starts a delta update this often (minutes); 0 turns it off. Nothing runs when it is not.
+    auto_sync_minutes: int = 60
+
+    @field_validator("auto_sync_minutes")
+    @classmethod
+    def _sync_interval(cls, value: int) -> int:
+        if value != 0 and value < 5:
+            raise ValueError("web.auto_sync_minutes must be 0 (off) or at least 5")
+        return value
 
     @field_validator("access_code")
     @classmethod

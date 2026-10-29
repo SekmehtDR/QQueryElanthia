@@ -71,6 +71,8 @@ What each stage does:
 
 Beyond text chunks the index carries three derived layers, all rebuilt by the pipeline (no hand-made links):
 
+- **Auto-sync:** the web server's lifespan runs `jobs.auto_delta`, which starts a `delta` job every `web.auto_sync_minutes`
+  (skipping a round while another job runs); there is no external scheduler.
 - **Facts** (`facts`): tables read by registered extractors, so tools compare in code. `core/materials.py` ranks materials
   (weapons by hardness with density capped at 7.5, armor by resistances, bows by wood affinity, leather/cloth/bone/stone by
   their deciding stat) with each rule cited to the page that states it; `core/hunting.py` does the same for the ladder, and

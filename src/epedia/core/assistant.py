@@ -278,6 +278,26 @@ class Assistant:
                 break
         return out
 
+    def _edit_notes(self, passages: list[dict], question: str, answer: str, pages: int = 3) -> list[str]:
+        """In-voice notes, written by code, on what the edits say about facts the answer states. A doubtful fact is
+        cautioned for any of the top pages; what a trusted fact used to be is volunteered only for the page(s) the
+        question names, so a passing mention of another character does not pick up a note."""
+        if page_history.edits_setting(self.conn, self.s.retrieval.history_edits) <= 0:
+            return []
+        q = f" {re.sub(r'[^a-z0-9]+', ' ', question.casefold())} "
+        top = list(dict.fromkeys(p["title"] for p in passages if p.get("chunk_id")))[:pages]
+        cited = {int(n) for n in re.findall(r"\[(\d+)\*?\]", answer)}
+        relied = [passages[i - 1]["title"].removesuffix(": recent edits") for i in sorted(cited) if 1 <= i <= len(passages)]
+        out: list[str] = []
+        for title in dict.fromkeys([*top, *relied]):
+            named = f" {re.sub(r'[^a-z0-9]+', ' ', title.casefold()).strip()} " in q
+            leans_on = named or title in relied  # the answer is about this page, or rests on it
+            notes = timeline.caveats(self.conn, title, answer, earlier_too=leans_on)
+            if not notes and leans_on and title in relied[:2]:
+                notes = [n for n in [page_history.revised_note(self.conn, title)] if n]
+            out += notes
+        return out
+
     def _is_hunt_fit(self, plan: Plan, session_id: str | None) -> bool:
         """A 'what should I hunt?' question, or the reply to Fennick asking for the ranks to answer one."""
         if hunting.HUNT_FIT.search(plan.standalone_question):
@@ -592,8 +612,7 @@ class Assistant:
         # Lines the model left uncited get a "[n*]" tag where one passage clearly matches (see core/attribution.py).
         # The streamed text is the raw draft; the final text, with these tags, is what Done carries and what is saved.
         answer = attribute(answer, [p["text"] for p in passages]).text
-        notes = [c for p in passages if p.get("history")
-                 for c in timeline.caveats(self.conn, p["title"].removesuffix(": recent edits"), answer)]
+        notes = self._edit_notes(passages, plan.standalone_question, answer)
         if notes:
             tail = "\n\n" + " ".join(notes)
             yield Token(tail)

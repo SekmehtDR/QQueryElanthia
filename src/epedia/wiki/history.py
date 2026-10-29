@@ -230,6 +230,36 @@ def passage(conn: sqlite3.Connection, title: str, n: int, base_url: str) -> dict
     }
 
 
+REVISED_DAYS = 90  # an edit younger than this is worth mentioning when an answer rests on the page
+
+
+def revised_note(conn: sqlite3.Connection, title: str, now: datetime | None = None) -> str:
+    """For any page: one in-voice sentence when a real person changed it lately, with their edit summary if they left one,
+    else ''. It needs no old page text, only the stored edit metadata, so it covers every page, not just characters."""
+    edits = recent_edits(conn, title, 6)
+    if len(edits) < 2:
+        return ""  # a page with one revision was only created
+    now = now or datetime.utcnow()
+    for e in edits:
+        if timeline._SYSTEM_USER.search(e.user) or e.is_revert:
+            continue
+        if not e.comment.strip() and (e.delta is None or abs(e.delta) < 30):
+            continue  # a typo fix with nothing to say
+        when = datetime.strptime(e.ts, "%Y-%m-%dT%H:%M:%SZ")
+        if (now - when).days > REVISED_DAYS:
+            return ""  # the newest real change is old: the page has stood a while
+        sec = re.match(r"\s*/\*\s*(.*?)\s*\*/\s*(.*)", e.comment)  # "/* Section */ what they did" as the wiki writes it
+        said, section = (sec.group(2), sec.group(1)) if sec else (e.comment, "")
+        said = re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]", r"\1", said).strip(" -:")[:80]
+        if said.lower().startswith(("created page", "redirected", "moved page")):
+            said = ""
+        said = ", ".join(x for x in (said, f"in the {section[:50]} section" if section else "") if x)
+        label = f"{when.day} {when:%b %Y}"
+        shown = f" ({said})" if said else ""
+        return f"That said, my notes on {title} were last revised on {label}{shown}, so it may be newer than other write-ups."
+    return ""
+
+
 def caution(conn: sqlite3.Connection, titles: list[str], default_n: int = DEFAULT_EDITS) -> str:
     """One in-voice sentence for a code-written answer when a page it rests on has been heavily rewritten or reverted
     lately, else ''. The tables are the whole evidence of such an answer, so a shaky page must not pass unremarked."""

@@ -424,3 +424,46 @@ def test_live_progress_counts_only_what_happened_since_the_job_started():
     assert (live["fetched"], live["indexed"]) == (2, 1)
     assert [p["title"] for p in live["latest"]] == ["New indexed", "New fetched"]
     assert live_progress(sqlite3.connect(":memory:"), "2026-10-28T12:00:00Z")["latest"] == []  # no tables yet
+
+
+def test_the_server_starts_a_delta_each_round_but_never_over_a_running_job():
+    from epedia.jobs import auto_delta
+
+    class Stop(Exception):
+        pass
+
+    async def go(busy_first: bool):
+        m = manager(QUICK)
+        conn = sqlite3.connect(":memory:")
+        started, waits = [], []
+        real = m.start
+
+        async def start(mode):
+            started.append(mode)
+            return await real(mode)
+        m.start = start
+        if busy_first:
+            m.job = type("J", (), {"running": True})()  # something already running: this round is skipped
+
+        async def sleep(seconds):
+            waits.append(seconds)
+            if getattr(m.job, "reader", None):
+                await m.wait()  # the hour passes: the round's job has long finished
+            if len(waits) == 3:
+                raise Stop
+        try:
+            await auto_delta(m, conn, 60, first_delay=7, sleep=sleep)
+        except Stop:
+            pass
+        return started, waits
+
+    started, waits = asyncio.run(go(False))
+    assert started == ["delta", "delta"] and waits == [7, 3600, 3600]  # the first shortly after start, then hourly
+    assert asyncio.run(go(True))[0] == []
+
+
+def test_the_sync_interval_is_off_or_sane():
+    assert Settings().web.auto_sync_minutes == 60
+    Settings(web={"auto_sync_minutes": 0})
+    with pytest.raises(ValueError):
+        Settings(web={"auto_sync_minutes": 2})

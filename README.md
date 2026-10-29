@@ -229,6 +229,11 @@ before raising `rps`, and note that API requests are generally not cached.
 
 ## Keep it current
 
+**While Fennick's web server is running it keeps itself current:** a delta update starts two minutes after start-up
+and then every hour (`[web] auto_sync_minutes`, default 60; `0` turns it off). It runs as an ordinary job, so you can
+watch or stop it in the Index panel, and it skips a round when a job or re-index is already running. When the server
+is not running, nothing runs: there is no scheduled task. The commands below are for doing it by hand.
+
 ```powershell
 epedia sync                          # edits/deletions/moves since the last run (crawl, classify, smw, index)
 epedia sync --full-scan              # weekly safety net (catches silent re-renders)

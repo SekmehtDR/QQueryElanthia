@@ -23,6 +23,7 @@ from ...index.reset import clear_index
 from ...jobs import (
     JobBusy,
     JobManager,
+    auto_delta,
     find_reindex_pids,
     index_changes,
     index_info,
@@ -87,7 +88,11 @@ def create_app(settings: Settings) -> FastAPI:
         state["conn"] = connect(settings)
         state["ollama"] = Ollama(settings.ollama)
         state["assistant"] = Assistant(settings, state["conn"], state["ollama"])
+        sync_task = (asyncio.create_task(auto_delta(jobs, state["conn"], settings.web.auto_sync_minutes))
+                     if settings.web.auto_sync_minutes else None)
         yield
+        if sync_task:
+            sync_task.cancel()
         await jobs.stop()  # never leave an index job running with nobody watching it
         await state["ollama"].aclose()
         state["conn"].close()
