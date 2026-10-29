@@ -18,12 +18,13 @@ from ...buildinfo import build_info, git_commit
 from ...config import Settings
 from ...core import memory
 from ...core.assistant import Assistant, Done, Retrieval, Token
-from ...db import connect
+from ...db import connect, get_state
 from ...index.reset import clear_index
 from ...jobs import (
     JobBusy,
     JobManager,
     auto_delta,
+    auto_sync_info,
     find_reindex_pids,
     index_changes,
     index_info,
@@ -31,10 +32,12 @@ from ...jobs import (
     live_progress,
     mark_reindex_interrupted,
     reindex_status,
+    set_auto_sync_minutes,
 )
 from ...llm.ollama import Ollama
 from ...progress import snapshot
 from ...wiki import history as page_history
+from ...wiki import timeline
 from . import access
 
 STATIC = Path(__file__).parent / "static"
@@ -74,6 +77,10 @@ class HistorySetting(BaseModel):
     history_edits: int
 
 
+class AutoSyncSetting(BaseModel):
+    minutes: int
+
+
 class StartRequest(BaseModel):
     mode: str  # "delta" (only what changed) or "full" (re-walk and compare every page)
 
@@ -88,11 +95,10 @@ def create_app(settings: Settings) -> FastAPI:
         state["conn"] = connect(settings)
         state["ollama"] = Ollama(settings.ollama)
         state["assistant"] = Assistant(settings, state["conn"], state["ollama"])
-        sync_task = (asyncio.create_task(auto_delta(jobs, state["conn"], settings.web.auto_sync_minutes))
-                     if settings.web.auto_sync_minutes else None)
+        # always running: the page can switch automatic updates on or off, and the loop reads that setting every minute
+        sync_task = asyncio.create_task(auto_delta(jobs, state["conn"], settings.web.auto_sync_minutes))
         yield
-        if sync_task:
-            sync_task.cancel()
+        sync_task.cancel()
         await jobs.stop()  # never leave an index job running with nobody watching it
         await state["ollama"].aclose()
         state["conn"].close()
@@ -187,22 +193,47 @@ def create_app(settings: Settings) -> FastAPI:
         local_only(request)
         job = jobs.snapshot()
         live = live_progress(state["conn"], job["started_at"]) if job["running"] else None
-        return {**index_info(state["conn"], settings), "job": job, "live": live, **history_info()}
+        return {**index_info(state["conn"], settings), "job": job, "live": live, **history_info(),
+                "auto_sync": auto_sync_info(state["conn"], settings.web.auto_sync_minutes)}
 
-    stored_count = {"at": -1e9, "n": 0}
+    stored_count: dict = {"at": -1e9, "n": 0, "extra": {}}
 
     def history_info() -> dict:
         conn = state["conn"]
         now = time.monotonic()
         if now - stored_count["at"] > 60:  # counting a million rows on every poll would stall the chat
+            def one(sql: str) -> int:
+                try:
+                    return conn.execute(sql).fetchone()[0] or 0
+                except Exception:
+                    return 0
+            stored_count["n"] = one("SELECT count(*) FROM revisions")
             try:
-                stored_count["n"] = conn.execute("SELECT count(*) FROM revisions").fetchone()[0]
+                waiting = len(timeline.pending_titles(conn))
             except Exception:
-                stored_count["n"] = 0
+                waiting = 0
+            stored_count["extra"] = {
+                "history_pages_read": one("SELECT count(*) FROM fields_done"),
+                "history_pages_waiting": waiting,
+                "knowledge": {
+                    "facts": one("SELECT count(*) FROM facts"),
+                    "materials": one("SELECT count(DISTINCT entity) FROM facts WHERE domain='material'"),
+                    "disciplines": one("SELECT count(*) FROM facts WHERE domain='crafting' AND attribute='discipline_of'"),
+                    "hubs": one("SELECT count(*) FROM topic_hubs"), "links": one("SELECT count(*) FROM page_topics"),
+                    "suspect": get_state(conn, "enrich.suspect") or ""}}
             stored_count["at"] = now
         stored = stored_count["n"]
         return {"history_edits": page_history.edits_setting(conn, settings.retrieval.history_edits),
-                "history_max": page_history.MAX_EDITS, "history_stored": stored}
+                "history_max": page_history.MAX_EDITS, "history_stored": stored, **stored_count["extra"]}
+
+    @app.post("/api/settings/auto-sync")
+    async def set_auto_sync(request: Request, body: AutoSyncSetting) -> dict:
+        guard(request)
+        try:
+            set_auto_sync_minutes(state["conn"], body.minutes)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return auto_sync_info(state["conn"], settings.web.auto_sync_minutes)
 
     @app.post("/api/settings/history")
     async def set_history(request: Request, body: HistorySetting) -> dict:

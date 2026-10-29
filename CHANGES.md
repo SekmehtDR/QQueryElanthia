@@ -9,6 +9,12 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 
 ### New
 
+- **The Index panel shows the whole picture.** New buttons **Rebuild knowledge** (facts and topic graph, local) and
+  **Health check** (the `doctor` report, left visible in the panel); new rows for **Automatic updates** (schedule, last and
+  next run), **Edit history** (edits stored, pages whose older versions were read, pages still waiting) and **Knowledge**
+  (facts, materials, disciplines, topics, and a warning when an extractor read far fewer facts than before); an interval
+  box that changes the automatic-update schedule without a restart (stored in the database, 0 = off). Tooltips describe
+  what each button now does.
 - **Fennick keeps the index current while the server runs.** A delta update starts two minutes after start-up and then
   hourly (`[web] auto_sync_minutes`, 0 = off), as the same job the Index panel shows; skipped when another job is running.
   No Windows scheduled task is involved.

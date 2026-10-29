@@ -39,13 +39,84 @@ def parse_fields(wikitext: str) -> dict[str, str]:
     return out
 
 
+# Other pages (spells, creatures, places...) have infoboxes with their own parameters. Rather than list them by hand, every
+# short parameter of the page's first template is read, and only its changes are kept.
+INFOBOX_KINDS = ("spell", "creature", "material", "place", "shop", "guild", "race", "skill", "command")
+_NOISE = re.compile(r"^(image\w*|img\w*|pic\w*|photo\w*|map\w*|icon\w*|caption|alt|desc\w*|note\w*|text|quote|links?|url|"
+                    r"colou?r|bg\w*|style|width|height|size|sort\w*|name|title|displaytitle|new|updated?\w*|date|dr3|"
+                    r"instance|footer|header|template|id|number)$", re.I)
+MAX_VALUE = 60
+
+
+def _first_template(text: str) -> str:
+    """The body of the page's first {{template}}, with nested braces balanced, or ''."""
+    start = text.find("{{")
+    if start < 0:
+        return ""
+    depth, i = 0, start
+    while i < len(text) - 1:
+        pair = text[i:i + 2]
+        if pair == "{{":
+            depth, i = depth + 1, i + 2
+        elif pair == "}}":
+            depth, i = depth - 1, i + 2
+            if depth == 0:
+                return text[start + 2:i - 2]
+        else:
+            i += 1
+    return ""
+
+
+def _top_level_split(body: str) -> list[str]:
+    parts, depth, cur, i = [], 0, [], 0
+    while i < len(body):
+        two = body[i:i + 2]
+        if two in ("[[", "{{"):
+            depth, i = depth + 1, i + 2
+            cur.append(two)
+        elif two in ("]]", "}}"):
+            depth, i = depth - 1, i + 2
+            cur.append(two)
+        elif body[i] == "|" and depth == 0:
+            parts.append("".join(cur))
+            cur, i = [], i + 1
+        else:
+            cur.append(body[i])
+            i += 1
+    parts.append("".join(cur))
+    return parts
+
+
+def parse_infobox(wikitext: str) -> dict[str, str]:
+    """{parameter: short plain value} of the first template. Long, markup-heavy and decorative parameters are left out."""
+    out: dict[str, str] = {}
+    for part in _top_level_split(_first_template(wikitext))[1:]:
+        name, eq, value = part.partition("=")
+        name = re.sub(r"[^a-z0-9]+", "_", name.strip().casefold()).strip("_")
+        if not eq or not name or _NOISE.match(name):
+            continue
+        value = re.sub(r"\s+", " ", _LINK.sub(r"\1", re.sub(r"<!--.*?-->", "", value, flags=re.S))).strip()
+        if len(value) > MAX_VALUE or "{{" in value or "<" in value or "[[" in value:
+            continue
+        out[name] = value
+    return out
+
+
 # ------------------------------------------------------------------------------------------------ fetching
 
-def store_fields(conn: sqlite3.Connection, title: str, revs: list[dict[str, Any]], upto_revid: int) -> int:
+def store_fields(conn: sqlite3.Connection, title: str, revs: list[dict[str, Any]], upto_revid: int,
+                 generic: bool = False) -> int:
+    """Keep each version's fields. `generic` (a page that is not a character) reads whatever the infobox holds and stores
+    a value only when it differs from the version before it, so a page of many versions stays small."""
     rows = []
-    for r in revs:
+    seen: dict[str, str] = {}
+    for r in sorted(revs, key=lambda r: (r["timestamp"], r["revid"])) if generic else revs:
         text = ((r.get("slots") or {}).get("main") or {}).get("content") or r.get("content") or ""
-        for f, v in parse_fields(text).items():
+        for f, v in (parse_infobox(text) if generic else parse_fields(text)).items():
+            if generic:
+                if seen.get(f) == v:
+                    continue
+                seen[f] = v
             rows.append((title, r["revid"], r["timestamp"], r.get("user") or "", f, v))
     with transaction(conn):
         conn.executemany(
@@ -55,23 +126,29 @@ def store_fields(conn: sqlite3.Connection, title: str, revs: list[dict[str, Any]
     return len(rows)
 
 
-async def fetch_fields(client: Any, conn: sqlite3.Connection, title: str, upto_revid: int) -> int:
-    """One request: the last 50 versions of a page, reduced to their guild/race/gender/status."""
+async def fetch_fields(client: Any, conn: sqlite3.Connection, title: str, upto_revid: int, generic: bool = False) -> int:
+    """One request: the last 50 versions of a page, reduced to their guild/race/gender/status (a character) or to
+    whatever its infobox holds (`generic`)."""
     data = await client.get({
         "action": "query", "prop": "revisions", "titles": title, "rvprop": "ids|timestamp|user|content",
         "rvslots": "main", "rvlimit": FETCH_REVISIONS, "format": "json", "formatversion": "2",
     })
     pages = data.get("query", {}).get("pages", [])
     revs = pages[0].get("revisions", []) if pages else []
-    return store_fields(conn, title, revs, upto_revid)
+    return store_fields(conn, title, revs, upto_revid, generic)
 
 
-def pending_titles(conn: sqlite3.Connection, only: set[str] | None = None) -> list[tuple[str, int]]:
-    """Character pages whose field history is missing or older than the page we hold (optionally just `only`)."""
+def pending_titles(conn: sqlite3.Connection, only: set[str] | None = None, others: bool = True) -> list[tuple[str, int]]:
+    """Pages whose field history is missing or older than the page we hold (optionally just `only`): characters, and
+    unless `others` is off the kinds with an infobox, when they have been edited more than once."""
+    kinds = ("pc", "npc", *(INFOBOX_KINDS if others else ()))
+    marks = ",".join("?" * len(kinds))
     return [(r[0], r[1]) for r in conn.execute(
         "SELECT p.title, p.latest_revid FROM pages p LEFT JOIN fields_done d ON d.title = p.title "
-        "WHERE p.is_redirect = 0 AND p.page_kind IN ('pc', 'npc') AND p.latest_revid IS NOT NULL "
-        "AND (d.upto_revid IS NULL OR d.upto_revid != p.latest_revid) ORDER BY p.title")
+        f"WHERE p.is_redirect = 0 AND (p.ns = 0 OR p.page_kind IN ('pc','npc')) AND p.page_kind IN ({marks}) AND p.latest_revid IS NOT NULL "
+        "AND (d.upto_revid IS NULL OR d.upto_revid != p.latest_revid) "
+        "AND (p.page_kind IN ('pc','npc') OR (SELECT count(*) FROM revisions r WHERE r.title = p.title) >= 2) "
+        "ORDER BY p.title", kinds)
         if only is None or r[0] in only]
 
 
@@ -81,7 +158,8 @@ async def fetch_all(client: Any, conn: sqlite3.Connection, progress: Any = None,
     done = 0
     for title, revid in todo:
         try:
-            await fetch_fields(client, conn, title, revid)
+            kind = conn.execute("SELECT page_kind FROM pages WHERE title=?", (title,)).fetchone()
+            await fetch_fields(client, conn, title, revid, generic=bool(kind) and kind[0] not in ("pc", "npc"))
         except Exception as exc:  # one odd page must not stop a few thousand
             if progress:
                 progress(done, len(todo), f"skipped {title}: {exc}")
@@ -206,7 +284,9 @@ def readings(conn: sqlite3.Connection, title: str, now: datetime | None = None) 
     """Readings for the facts that changed (an unchanged fact needs no comment)."""
     out = []
     try:
-        for f in FIELDS:
+        stored = [r[0] for r in conn.execute(
+            "SELECT DISTINCT field FROM field_values WHERE title=? AND field NOT IN (?,?,?,?)", (title, *FIELDS))]
+        for f in (*FIELDS, *sorted(stored)):
             r = judge(f, segments(conn, title, f), now)
             if r and r.verdict != "unchanged":
                 out.append(r)
@@ -218,6 +298,8 @@ def readings(conn: sqlite3.Connection, title: str, now: datetime | None = None) 
 def lines(conn: sqlite3.Connection, title: str, now: datetime | None = None) -> list[str]:
     out = []
     for r in readings(conn, title, now):
+        if r.verdict == "credible" and r.field not in FIELDS:
+            continue  # an infobox detail nobody doubts needs no line
         if r.verdict == "credible":
             # Nothing to hedge, and the older values only tempt the model to remark on the margin.
             out.append(f"- {r.field.capitalize()}: {r.current or 'blank'}: state it plainly; {GUIDANCE['credible']}.")
@@ -235,11 +317,19 @@ def caveats(conn: sqlite3.Connection, title: str, answer: str, now: datetime | N
     only a "that said" note of what it used to be (`earlier_too`); a value someone else changed away from it, or one
     that has flipped between editors, is never given without a caution."""
     out = []
+    generic = 0
     for r in readings(conn, title, now):
         if not r.current or (r.verdict == "credible" and not earlier_too):
             continue
         if not re.search(r"(?<![\w-])" + re.escape(r.current.casefold()) + r"(?![\w-])", answer.casefold()):
             continue
+        label = r.field.replace("_", " ")
+        if r.field not in FIELDS:
+            # A page's own infobox detail ("level", "slot"): the answer must say both what it is and its value, and a page
+            # gets at most two such notes, or a coincidence of numbers would litter the answer.
+            if label not in answer.casefold() or generic >= 2:
+                continue
+            generic += 1
         earlier = []
         for s in reversed(r.history[1:]):  # oldest first, each with the year it first appeared
             if s.value and _norm(s.value) != _norm(r.current) and s.value not in [e for e, _ in earlier]:
@@ -247,17 +337,17 @@ def caveats(conn: sqlite3.Connection, title: str, answer: str, now: datetime | N
         names = " and ".join(f"{v} ({y})" for v, y in earlier[:3])
         if r.verdict == "credible":
             if earlier:
-                out.append(f"That said, my notes first had {title}'s {r.field} as {names}, before the entry settled on "
+                out.append(f"That said, my notes first had {title}'s {label} as {names}, before the entry settled on "
                            f"{r.current}.")
         elif r.verdict == "suspect":
             owner = next((s for s in r.history[1:] if s.by_owner), None)
             said = owner.value if owner else names
-            out.append(f"Mind you, my notes first had {title}'s {r.field} as {said}, and someone else has since changed "
+            out.append(f"Mind you, my notes first had {title}'s {label} as {said}, and someone else has since changed "
                        f"it to {r.current}. I can't vouch for that.")
         elif r.verdict == "disputed":
-            out.append(f"Mind you, my notes on {title} have swapped the {r.field} back and forth (earlier: {names}), "
+            out.append(f"Mind you, my notes on {title} have swapped the {label} back and forth (earlier: {names}), "
                        f"so I can't vouch for {r.current}.")
         elif r.verdict == "unverified" and earlier:
-            out.append(f"Mind you, the {r.field} in my notes used to say {names}; it changed recently and nobody has "
+            out.append(f"Mind you, the {label} in my notes used to say {names}; it changed recently and nobody has "
                        f"confirmed it yet.")
     return out

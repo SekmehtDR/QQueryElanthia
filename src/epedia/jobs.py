@@ -19,11 +19,12 @@ import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
 from .config import Settings
+from .db import get_state, set_state
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _LINE_BREAKS = re.compile(r"[\r\n]+")
@@ -34,6 +35,8 @@ MODES = {
     "reindex": ("Re-index", ["index", "--reembed-all"]),
     "fill": ("Fill from mirror", ["fill"]),
     "history": ("Fetch edit history", ["history"]),
+    "enrich": ("Rebuild knowledge", ["enrich", "--force"]),  # local only: facts and the topic graph from indexed pages
+    "doctor": ("Health check", ["doctor"]),  # read-only integrity and coverage report; its output is the log
 }
 STALE_AFTER_SECONDS = 180  # a re-index that has not reported for this long is taken to have been interrupted
 
@@ -256,20 +259,58 @@ def mark_reindex_interrupted(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE state SET value=? WHERE key='reindex.progress'", (json.dumps(info),))
 
 
+AUTO_SYNC_KEY = "auto_sync.minutes"  # the page's setting; the config file's value is the default
+AUTO_SYNC_LAST = "auto_sync.last"
+
+
+def auto_sync_minutes(conn: sqlite3.Connection, default: int) -> int:
+    """Minutes between automatic delta updates while the server runs (0 = off): the page's setting, else the config's."""
+    raw = get_state(conn, AUTO_SYNC_KEY)
+    try:
+        return max(0, int(raw)) if raw is not None else default
+    except ValueError:
+        return default
+
+
+def set_auto_sync_minutes(conn: sqlite3.Connection, minutes: int) -> None:
+    if minutes != 0 and minutes < 5:
+        raise ValueError("use 0 (off) or at least 5 minutes")
+    set_state(conn, AUTO_SYNC_KEY, str(minutes))
+
+
+def auto_sync_info(conn: sqlite3.Connection, default: int) -> dict[str, Any]:
+    minutes = auto_sync_minutes(conn, default)
+    last = get_state(conn, AUTO_SYNC_LAST)
+    nxt = None
+    if minutes and last:
+        try:
+            nxt = (datetime.fromisoformat(last.replace("Z", "+00:00")) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            nxt = None
+    return {"minutes": minutes, "last": last, "next": nxt}
+
+
 async def auto_delta(jobs: JobManager, conn: sqlite3.Connection, minutes: int, first_delay: float = 120.0,
-                     sleep=asyncio.sleep) -> None:
-    """Keep the index current while the server runs: a delta update every `minutes`, the first one shortly after start.
-    It never competes with work already under way (a job from the page, or a re-index from the command line) and is
-    simply skipped that round. Runs as the same child job the Index panel shows, so it can be watched or stopped."""
+                     sleep=asyncio.sleep, tick: float = 60.0) -> None:
+    """Keep the index current while the server runs: a delta update every `minutes` (changeable from the page, which is
+    read again every tick), the first one shortly after start-up. It never competes with work already under way (a job from
+    the page, or a re-index from the command line) and is simply skipped that round. Runs as the same child job the Index
+    panel shows, so it can be watched or stopped."""
     await sleep(first_delay)
+    waited, first = 0.0, True
     while True:
-        status = reindex_status(conn)
-        if not jobs.running and not (status and status.get("state") == "running"):
-            try:
-                await jobs.start("delta")
-            except (JobBusy, ValueError):
-                pass
-        await sleep(minutes * 60)
+        every = auto_sync_minutes(conn, minutes)
+        if every and (first or waited >= every * 60):
+            status = reindex_status(conn)
+            if not jobs.running and not (status and status.get("state") == "running"):
+                try:
+                    await jobs.start("delta")
+                    set_state(conn, AUTO_SYNC_LAST, _now())
+                except (JobBusy, ValueError):
+                    pass
+            waited, first = 0.0, False
+        await sleep(tick)
+        waited += tick
 
 
 def reindex_status(conn: sqlite3.Connection) -> dict[str, Any] | None:

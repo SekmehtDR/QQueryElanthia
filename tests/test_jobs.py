@@ -47,7 +47,7 @@ def test_modes_map_to_the_commands_a_person_would_type():
     assert m.command("delta")[:3] == [sys.executable, "-m", "epedia.cli"]
     with pytest.raises(ValueError):
         m.command("everything")
-    assert set(MODES) == {"delta", "full", "reindex", "fill", "history"}
+    assert set(MODES) == {"delta", "full", "reindex", "fill", "history", "enrich", "doctor"}
     assert JobManager(Settings()).command("history")[-1] == "history"
     assert JobManager(Settings()).command("fill")[-1] == "fill"
     assert JobManager(Settings()).command("reindex")[-2:] == ["index", "--reembed-all"]
@@ -435,6 +435,8 @@ def test_the_server_starts_a_delta_each_round_but_never_over_a_running_job():
     async def go(busy_first: bool):
         m = manager(QUICK)
         conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT)")
         started, waits = [], []
         real = m.start
 
@@ -452,7 +454,7 @@ def test_the_server_starts_a_delta_each_round_but_never_over_a_running_job():
             if len(waits) == 3:
                 raise Stop
         try:
-            await auto_delta(m, conn, 60, first_delay=7, sleep=sleep)
+            await auto_delta(m, conn, 60, first_delay=7, sleep=sleep, tick=3600)
         except Stop:
             pass
         return started, waits
@@ -467,3 +469,53 @@ def test_the_sync_interval_is_off_or_sane():
     Settings(web={"auto_sync_minutes": 0})
     with pytest.raises(ValueError):
         Settings(web={"auto_sync_minutes": 2})
+
+
+def test_the_interval_can_be_changed_from_the_page_and_zero_pauses_the_rounds():
+    from epedia.jobs import auto_delta, auto_sync_info, auto_sync_minutes, set_auto_sync_minutes
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT)")
+    assert auto_sync_minutes(conn, 60) == 60  # the config's value until the page sets one
+    set_auto_sync_minutes(conn, 15)
+    assert auto_sync_minutes(conn, 60) == 15
+    with pytest.raises(ValueError):
+        set_auto_sync_minutes(conn, 3)
+    conn.execute("INSERT INTO state VALUES ('auto_sync.last', '2026-10-29T12:00:00Z')")
+    assert auto_sync_info(conn, 60) == {"minutes": 15, "last": "2026-10-29T12:00:00Z", "next": "2026-10-29T12:15:00Z"}
+    set_auto_sync_minutes(conn, 0)
+
+    class Stop(Exception):
+        pass
+
+    async def go():
+        m = manager(QUICK)
+        started, n = [], 0
+        real = m.start
+
+        async def start(mode):
+            started.append(mode)
+            return await real(mode)
+        m.start = start
+
+        async def sleep(seconds):
+            nonlocal n
+            n += 1
+            if n == 4:
+                raise Stop
+        try:
+            await auto_delta(m, conn, 60, first_delay=1, sleep=sleep, tick=60)
+        except Stop:
+            pass
+        return started
+    assert asyncio.run(go()) == []  # switched off from the page: nothing starts, however long it waits
+
+
+def test_the_index_page_reports_automatic_updates_history_and_knowledge_and_saves_the_interval(client):
+    info = client.get("/api/index/info", headers=LOCAL).json()
+    assert info["auto_sync"]["minutes"] == 60 and "history_pages_waiting" in info and "hubs" in info["knowledge"]
+    assert client.post("/api/settings/auto-sync", json={"minutes": 30}, headers=LOCAL).json()["minutes"] == 30
+    assert client.get("/api/index/info", headers=LOCAL).json()["auto_sync"]["minutes"] == 30
+    assert client.post("/api/settings/auto-sync", json={"minutes": 2}, headers=LOCAL).status_code == 400
+    assert client.post("/api/settings/auto-sync", json={"minutes": 30}).status_code in (403, 400)  # not the owner's page

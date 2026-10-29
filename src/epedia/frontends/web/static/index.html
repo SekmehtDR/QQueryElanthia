@@ -272,10 +272,12 @@
 <div id="status">
   <div class="idx-top">
     <div class="idx-actions" role="group" aria-label="Index controls">
-      <button id="idxdelta" type="button" class="idx-primary" title="Fetch only what changed on the wiki since the last update, then refresh just those pages">Start delta</button>
+      <button id="idxdelta" type="button" class="idx-primary" title="Fetch only what changed on the wiki since the last update, then refresh just those pages, the facts and the edit history. This also runs by itself on the schedule below while Fennick is running.">Start delta</button>
       <button id="idxfill" type="button" title="Fetch the pages that are missing or out of date from the mirror (with Elanthipedia as the fallback), then index them. Delta update only fetches what it finds changed.">Fill</button>
       <button id="idxfull" type="button" title="Re-walk the whole wiki, compare every page and refresh everything that differs (slower, but thorough)">Start full</button>
-      <button id="idxhist" type="button" title="Read every page's edit history (who, when, how big; no text) from Elanthipedia, so answers can say how steady a page is. One-off; later updates keep it current.">Fetch history</button>
+      <button id="idxhist" type="button" title="Read the edit history from Elanthipedia (about 50 minutes the first time, resumable): every page's edits (who, when, how big), then the older versions of characters and of spells, creatures, places, shops, materials and similar pages, so Fennick can say what changed and who changed it. Later updates keep it current.">Fetch history</button>
+      <button id="idxenrich" type="button" title="Rebuild what Fennick works out from the pages: the crafting facts (materials, disciplines) and the topic graph. Local only: no wiki traffic, takes a minute.">Rebuild knowledge</button>
+      <button id="idxdoctor" type="button" title="Check the index is sound: integrity, that every page is up to date, search and vector rows match, facts and topics are built, and the rules answers rely on are still on the wiki. Read-only; the result shows below.">Health check</button>
       <button id="idxreindex" type="button" title="Re-read every stored page with the current text rules and refresh the search index (no wiki traffic; takes hours)">Re-index</button>
       <button id="idxclear" type="button" class="idx-stop" title="Empty the search index so a new one can be built. Keeps the downloaded pages; rebuild with Re-index">Clear index</button>
       <button id="idxstop" type="button" class="idx-stop" hidden title="Stop the running job. Safe: the next run picks up where this one left off">Stop</button>
@@ -288,6 +290,13 @@
     <input id="histn" type="number" min="0" max="100" step="1" inputmode="numeric">
     <button id="histsave" type="button">Save</button>
     <span class="dim" id="histnote"></span>
+  </div>
+  <div class="idx-setting" id="autosetting">
+    <label for="autom">Update automatically every</label>
+    <input id="autom" type="number" min="0" max="1440" step="5" inputmode="numeric">
+    <span>minutes</span>
+    <button id="autosave" type="button">Save</button>
+    <span class="dim" id="autonote"></span>
   </div>
   <pre class="idx-log" id="idxlog" hidden></pre>
   <div class="idx-changes" id="idxchanges" hidden></div>
@@ -764,6 +773,28 @@ function reindexRow(r) {
     : `<span class="bad">stopped early</span> at ${pct} <span class="dim">· last update ${when(r.updated_at)}</span>`;
   return `<dt>Re-index</dt><dd>${text}</dd>`;
 }
+function autoRow(a) {
+  if (!a) return '';
+  if (!a.minutes) return '<dt>Automatic updates</dt><dd><span class="dim">off (set a number of minutes below to turn them on)</span></dd>';
+  const nxt = a.next ? new Date(a.next) : null;
+  const soon = nxt && !isNaN(nxt) ? (nxt.getTime() <= Date.now() ? 'due now' : 'next about ' + nxt.toLocaleTimeString([], { timeStyle: 'short' })) : 'first one shortly after start-up';
+  return `<dt>Automatic updates</dt><dd>every ${a.minutes} min while Fennick is running <span class="dim">· ${a.last ? 'last started ' + when(a.last) : 'none yet'} · ${soon}</span></dd>`;
+}
+function historyRow(j) {
+  if (j.history_stored === undefined) return '';
+  if (!j.history_stored) return '<dt>Edit history</dt><dd><span class="bad">none stored yet</span> <span class="dim">· click Fetch history</span></dd>';
+  const read = (j.history_pages_read || 0).toLocaleString(), wait = j.history_pages_waiting || 0;
+  const tail = wait ? ` · <span class="run">${wait.toLocaleString()} pages still to read</span> <span class="dim">(Fetch history)</span>` : ' · <span class="ok">up to date</span>';
+  return `<dt>Edit history</dt><dd>${j.history_stored.toLocaleString()} edits stored · older versions read for ${read} pages${tail}</dd>`;
+}
+function knowledgeRow(k) {
+  if (!k) return '';
+  if (!k.facts && !k.hubs) return '<dt>Knowledge</dt><dd><span class="bad">not built</span> <span class="dim">· click Rebuild knowledge</span></dd>';
+  const bits = [`${k.facts.toLocaleString()} facts (${k.materials.toLocaleString()} materials, ${k.disciplines} crafting disciplines)`,
+    `${k.hubs.toLocaleString()} topics linking ${k.links.toLocaleString()} pages`];
+  const warn = k.suspect ? `<div class="bad">Read far fewer facts than before from: ${esc(k.suspect)}. The wiki's layout may have changed; the old facts were kept. Run Health check.</div>` : '';
+  return `<dt>Knowledge</dt><dd>${bits.join(' · ')}${warn}</dd>`;
+}
 let flashHtml = '', flashUntil = 0;
 function flash(html, seconds = 20) { flashHtml = html; flashUntil = Date.now() + seconds * 1000; document.getElementById('idxstate').innerHTML = html; }
 let jobTimer = null, lastJobRunning = false;
@@ -771,7 +802,8 @@ function renderIndex(j) {
   const job = j.job || {};
   const delta = document.getElementById('idxdelta'), full = document.getElementById('idxfull'), stop = document.getElementById('idxstop');
   const reindex = j.reindex, outsideRun = !!(reindex && reindex.state === 'running' && !job.running);  // e.g. started from the command line
-  delta.disabled = full.disabled = document.getElementById('idxreindex').disabled = document.getElementById('idxfill').disabled = document.getElementById('idxhist').disabled = !!job.running || outsideRun;
+  const busyNow = !!job.running || outsideRun;
+  for (const id of ['idxdelta', 'idxfull', 'idxreindex', 'idxfill', 'idxhist', 'idxenrich', 'idxdoctor']) document.getElementById(id).disabled = busyNow;
   document.getElementById('idxclear').disabled = !!job.running || outsideRun || !j.chunks;
   document.getElementById('idxreindex').classList.toggle('idx-primary', !j.chunks && j.pending_index > 0 && !job.running && !outsideRun);  // an empty index: the way forward
   stop.hidden = !(job.running || outsideRun);  // a re-index started elsewhere can be stopped here too
@@ -792,8 +824,9 @@ function renderIndex(j) {
   } else st.textContent = '';
   const log = document.getElementById('idxlog');
   const failed = job.finished_at && (job.exit_code !== 0 || job.stopped);
-  log.hidden = !(job.log && job.log.length && (job.running || failed));
-  if (!log.hidden) { log.textContent = job.log.slice(-8).join('\n'); log.scrollTop = log.scrollHeight; }
+  const report = job.mode === 'doctor' || job.mode === 'enrich';  // their output is the point, so it stays after they finish
+  log.hidden = !(job.log && job.log.length && (job.running || failed || report));
+  if (!log.hidden) { log.textContent = job.log.slice(report ? -26 : -8).join('\n'); log.scrollTop = log.scrollHeight; }
   const waiting = (j.pending_crawl || j.pending_index)
     ? `${(j.pending_crawl || 0).toLocaleString()} to fetch · ${(j.pending_index || 0).toLocaleString()} to index` : '<span class="dim">nothing</span>';
   if (j.history_edits !== undefined) {
@@ -802,6 +835,12 @@ function renderIndex(j) {
     document.getElementById('histnote').textContent = j.history_stored
       ? `${j.history_stored.toLocaleString()} edits stored · 0 turns it off`
       : 'No history stored yet: click Fetch history · 0 turns it off';
+  }
+  if (j.auto_sync) {
+    const inp = document.getElementById('autom');
+    if (document.activeElement !== inp) inp.value = j.auto_sync.minutes;
+    document.getElementById('autonote').textContent = j.auto_sync.minutes
+      ? 'while Fennick is running · 0 turns it off' : 'off: only the buttons above update the index · 0 turns it off';
   }
   const lv = j.live;  // a running job: what it has done so far (the run is only logged when it ends)
   const perMin = lv && job.elapsed_s > 20 ? Math.round(lv.fetched / (job.elapsed_s / 60)) : 0;
@@ -814,6 +853,7 @@ function renderIndex(j) {
     `<dt>Last full refresh</dt><dd>${runLine(j.last_full)}</dd>` +
     `<dt>Newest wiki edit seen</dt><dd>${when(j.newest_edit_seen) || '<span class="dim">unknown</span>'}</dd>` +
     `<dt>Waiting</dt><dd>${waiting}</dd>` +
+    autoRow(j.auto_sync) + historyRow(j) + knowledgeRow(j.knowledge) +
     `<dt>Reading from</dt><dd>${esc(j.source || '?')}${j.delta_source && j.delta_source !== j.source ? ` <span class="dim">(updates and checks for new edits come from ${esc(j.delta_source)})</span>` : ''}</dd>`;
   // poll quickly while a job runs so the log and clock feel live; the slow poll covers the rest
   const busy = job.running || outsideRun;
@@ -837,6 +877,15 @@ async function indexAction(path, body) {
 document.getElementById('idxdelta').addEventListener('click', () => indexAction('/api/index/start', { mode: 'delta' }));
 document.getElementById('idxfill').addEventListener('click', () => indexAction('/api/index/start', { mode: 'fill' }));
 document.getElementById('idxhist').addEventListener('click', () => indexAction('/api/index/start', { mode: 'history' }));
+document.getElementById('idxenrich').addEventListener('click', () => indexAction('/api/index/start', { mode: 'enrich' }));
+document.getElementById('idxdoctor').addEventListener('click', () => indexAction('/api/index/start', { mode: 'doctor' }));
+document.getElementById('autosave').addEventListener('click', async () => {
+  const n = parseInt(document.getElementById('autom').value, 10);
+  if (isNaN(n)) return;
+  if (n !== 0 && n < 5) { flash('<span class="bad">Use 0 (off) or at least 5 minutes.</span>', 6); return; }
+  await indexAction('/api/settings/auto-sync', { minutes: n });
+  flash('<span class="ok">Saved.</span> ' + (n ? `Fennick updates every ${n} minutes while it is running.` : 'Automatic updates are off.'), 6);
+});
 document.getElementById('histsave').addEventListener('click', async () => {
   const n = parseInt(document.getElementById('histn').value, 10);
   if (isNaN(n)) return;

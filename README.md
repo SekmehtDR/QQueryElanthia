@@ -170,8 +170,12 @@ lists earlier ones to pick back up, and **New chat** starts over.
 The **Index** button opens the index panel: when the wiki was last checked, how many pages are waiting, and
 buttons for a **Delta update** (only what changed, asked of Elanthipedia), a **Fill** (fetch missing or out-of-date
 pages from the mirror), a **Full refresh** (re-compares every page; slow, asks first),
-a **Re-index** (rebuilds the search index from the pages already downloaded; no wiki traffic), **Clear index** and
-**Stop**. Each run has a **View details** link listing the pages it changed. These only work from the computer running the server.
+**Fetch history** (the edit history, about 50 minutes the first time, resumable), **Rebuild knowledge** (the crafting facts and
+topic graph; local, takes a minute), **Health check** (the `doctor` report, shown in the panel), a **Re-index** (rebuilds the
+search index from the pages already downloaded; no wiki traffic), **Clear index** and **Stop**. The panel also shows the
+automatic-update schedule (and lets you change it: minutes, 0 = off), how much edit history is stored and how many pages
+still wait to be read, and what the knowledge layer holds (facts, topics, and a warning if the wiki's layout changed).
+Each run has a **View details** link listing the pages it changed. These only work from the computer running the server.
 
 Debugging helpers:
 

@@ -287,7 +287,10 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   connection is reported as possibly incomplete.
 
 - **Index panel.** Shows last delta, last full refresh, newest edit seen, source and pending work
-  (`jobs.index_info`, read from `sync_log` and `state`), with **Delta update**, **Full refresh** and **Stop**.
+  (`jobs.index_info`, read from `sync_log` and `state`), with **Delta update**, **Full refresh**, **Fill**, **Fetch history**,
+  **Rebuild knowledge** (`enrich --force`), **Health check** (`doctor`, its output is the job log) and **Stop**. It also
+  reports the automatic-update schedule (`jobs.auto_sync_info`, editable at `/api/settings/auto-sync`, stored in `state`),
+  edit-history coverage and the knowledge layer's counts (cached for a minute by `history_info` in `app.py`).
 
 ### Index jobs
 

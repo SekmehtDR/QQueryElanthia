@@ -211,3 +211,46 @@ def test_the_assistant_volunteers_what_a_trusted_fact_used_to_be_for_pages_it_re
     assert a._edit_notes(passages, "Who fought the volcano?", "Binu, a Necromancer, was there.") == []
     # an answer that cites his page rests on it, whatever the question named
     assert a._edit_notes(passages, "Who fought the volcano?", "Binu is a Necromancer [1].")[0].startswith("That said")
+
+
+CRITTER = ("{{Critter |new=No |Critter Name=small tree sloth |level=32 |Province=Shard |Image=Sloth.gif"
+           " |special attacks=[[Slam|slams]] its arms |desc=<!-- c --> long text {{x}} |slot={{#if:a|b}} }}\nThe sloth.")
+
+
+def test_an_infobox_is_read_without_a_list_of_fields_and_decoration_is_left_out():
+    got = timeline.parse_infobox(CRITTER)
+    assert got["level"] == "32" and got["province"] == "Shard" and got["critter_name"] == "small tree sloth"
+    assert "image" not in got and "desc" not in got and "slot" not in got  # decoration, and markup-heavy values
+    assert got["special_attacks"] == "slams its arms"  # a link is flattened to its text
+    assert timeline.parse_infobox("no template here") == {}
+
+
+def test_a_non_character_page_keeps_only_the_changes_between_versions(conn):
+    def rev(i, day, user, level):
+        return {"revid": i, "timestamp": f"2026-0{day}-01T00:00:00Z", "user": user, "slots": {"main": {"content": CRITTER.replace("32", level)}}}
+    revs = [rev(1, 1, "WDODD", "30"), rev(2, 2, "WDODD", "30"), rev(3, 3, "PRANK", "32"), rev(4, 4, "PRANK", "32")]
+    timeline.store_fields(conn, "Small tree sloth", revs, 4, generic=True)
+    rows = conn.execute("SELECT revid, value FROM field_values WHERE title='Small tree sloth' AND field='level' ORDER BY revid").fetchall()
+    assert [tuple(r) for r in rows] == [(1, "30"), (3, "32")]  # the unchanged versions are not stored
+    conn.execute("INSERT INTO revisions(revid, title, ts, user, size) VALUES (1,'Small tree sloth','2026-01-01T00:00:00Z','WDODD',5)")
+    r = timeline.judge("level", timeline.segments(conn, "Small tree sloth", "level"), NOW)
+    assert r.verdict == "suspect"  # the creator had 30; someone else made it 32
+
+
+def test_an_infobox_detail_is_noted_only_when_the_answer_names_it_and_states_its_value(conn):
+    put(conn, "Small tree sloth", [(1, "2026-01-01", "WDODD", "30"), (3, "2026-03-01", "PRANK", "32")], field="level")
+    conn.execute("INSERT INTO revisions(revid, title, ts, user, size) VALUES (1,'Small tree sloth','2026-01-01T00:00:00Z','WDODD',5)")
+    assert timeline.caveats(conn, "Small tree sloth", "It is level 32 [1].", NOW)[0].startswith("Mind you, my notes first had Small tree sloth's level as 30")
+    assert timeline.caveats(conn, "Small tree sloth", "It slams for 32 damage [1].", NOW) == []  # a number that is not its level
+    assert timeline.caveats(conn, "Small tree sloth", "It is hunted at level 30 [1].", NOW) == []  # not the current value
+
+
+def test_pending_pages_include_infobox_kinds_with_more_than_one_edit(conn):
+    for pid, title, kind in [(1, "Fire Ball", "spell"), (2, "Once", "spell"), (3, "Forging guide", "guide"), (4, "Binu", "pc")]:
+        conn.execute("INSERT INTO pages(page_id, ns, title, title_norm, is_redirect, page_kind, latest_revid, updated_at)"
+                     " VALUES (?,0,?,?,0,?,9,'x')", (pid, title, title.lower(), kind))
+    conn.executemany("INSERT INTO revisions(revid, title, ts, user, size) VALUES (?,?,?,?,?)",
+                     [(1, "Fire Ball", "2026-01-01T00:00:00Z", "A", 1), (2, "Fire Ball", "2026-02-01T00:00:00Z", "B", 2),
+                      (3, "Once", "2026-01-01T00:00:00Z", "A", 1)])
+    assert [t for t, _ in timeline.pending_titles(conn)] == ["Binu", "Fire Ball"]  # not a guide, not a page never edited
+    assert [t for t, _ in timeline.pending_titles(conn, others=False)] == ["Binu"]
