@@ -109,6 +109,7 @@ class RetrievalCfg(BaseModel):
     per_page_cap: int = 3
     title_exact_boost: float = 0.05
     title_partial_boost: float = 0.02
+    topic_boost: float = 0.25  # score multiplier (x1 + this x weight) for pages in the topic family the question names
     prior_boost: float = 0.012  # bonus for chunks the previous answer used (follow-up continuity)
     ns_weights: dict[str, float] = Field(
         default_factory=lambda: {"120": 0.8, "14": 0.7, "4": 0.9, "12": 0.9}
@@ -118,6 +119,7 @@ class RetrievalCfg(BaseModel):
     obsolete_weight: float = 0.75  # pages the wiki itself marks obsolete
     offer_related: bool = True  # end answers with one offer drawn from related pages
     related_k: int = 3
+    history_edits: int = 10  # recent edits of a page shown with answers; changeable from the page (0 = off)
     # question kind -> page kind -> multiplier. Values from epedia.toml are merged over the defaults.
     kind_weights: dict[str, dict[str, float]] = Field(
         default_factory=lambda: {q: dict(r) for q, r in DEFAULT_KIND_WEIGHTS.items()}

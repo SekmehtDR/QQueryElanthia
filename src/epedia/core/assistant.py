@@ -12,12 +12,17 @@ from datetime import date
 from typing import Any, AsyncIterator
 
 from ..config import Settings
+from ..index import topics
 from ..kinds import OFFER_EXCLUDED_PAGE_KINDS, OFFER_MIN_WEIGHT, QUESTION_KINDS
 from ..llm import prompts
 from ..llm.ollama import Ollama, OllamaError
+from ..retrieval import resolve
 from ..retrieval.search import Hit, search
+from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
-from . import hunting, memory
+from ..wiki import history as page_history
+from ..wiki import timeline
+from . import disciplines, hunting, materials, memory
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -215,7 +220,7 @@ class Assistant:
             data = await self.ollama.chat_json(
                 [{"role": "system", "content": system}, {"role": "user", "content": user}], prompts.ROUTER_SCHEMA
             )
-            q = (data.get("standalone_question") or message).strip() or message
+            q = strip_game_name((data.get("standalone_question") or message).strip() or message)
             q = drop_unasked_year(q, message)
             mode = data.get("mode") if data.get("mode") in ("search", "items") else "search"
             iq = data.get("items_query") if mode == "items" else None
@@ -239,6 +244,39 @@ class Assistant:
         except (OllamaError, KeyError, ValueError) as exc:
             log.warning("planner failed (%s); falling back to plain search", exc)
             return Plan(message, material=material)
+
+    def _not_meant(self, question: str, res=None) -> set[int]:
+        """Pages the question's own words rule out: a same-named page of another kind (the creature when it asked how
+        to cast), or, for an acronym like SIS, pages whose names merely contain the letters."""
+        res = res or resolve.resolve(self.conn, question)
+        if res is None:
+            return set()
+        chosen = {c.page_id for c in res.chosen}
+        out = {c.page_id for c in res.candidates} - chosen if chosen else set()
+        return out | resolve.set_aside(self.conn, res)
+
+    def _history_passages(self, passages: list[dict], question: str = "", pages: int = 3) -> list[dict]:
+        """Recent edits and a reading of them for the pages the question names, then the top pages, so a page that
+        was rewritten or reverted is not taken at face value. Off when the 'edits of history' setting is 0, or no
+        history is stored yet."""
+        n = page_history.edits_setting(self.conn, self.s.retrieval.history_edits)
+        if n <= 0:
+            return []
+        out: list[dict] = []
+        seen: set[str] = set()
+        q = f" {re.sub(r'[^a-z0-9]+', ' ', question.casefold())} "
+        named = [p for p in passages if p.get("chunk_id") and f" {re.sub(r'[^a-z0-9]+', ' ', p['title'].casefold()).strip()} " in q]
+        for p in [*named, *passages]:
+            title = p["title"]
+            if not p.get("chunk_id") or title in seen:
+                continue
+            seen.add(title)
+            h = page_history.passage(self.conn, title, n, self.s.wiki.base_url)
+            if h:
+                out.append(h)
+            if len(seen) >= pages:
+                break
+        return out
 
     def _is_hunt_fit(self, plan: Plan, session_id: str | None) -> bool:
         """A 'what should I hunt?' question, or the reply to Fennick asking for the ranks to answer one."""
@@ -329,15 +367,25 @@ class Assistant:
             if p:
                 passages.append(p)
                 k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
+        mats = materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+        if mats:
+            passages = list(mats)  # replaces an items-tool lookup too: the ranking is the whole evidence
+            k = 0
+        elif (disc := disciplines.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)):
+            passages = [disc]  # the Crafting page's own list is the whole evidence
+            k = 0
         prior: list[dict] = self._prior_passages(session_id) if plan.follow_up and k else []
         passages.extend(prior)
         have = {p["chunk_id"] for p in prior}
         extra_k = self.s.retrieval.related_k if self.s.retrieval.offer_related else 0
         qvec = (await self.ollama.embed(["search_query: " + plan.standalone_question]))[0]
         plan.qvec = qvec  # reused to pick related pages that are really about this question
+        named = resolve.resolve(self.conn, plan.standalone_question)  # once: the avoid set and the topic family agree
+        avoid = self._not_meant(plan.standalone_question, named)
         hits: list[Hit] = search(
             self.conn, plan.standalone_question, self.s.retrieval, self.s.wiki.base_url, qvec, k_final=k + extra_k,
             prior_chunk_ids=self._prior_chunk_ids(session_id) if plan.follow_up else None, kind=plan.kind,
+            avoid_pages=avoid, topic_pages=topics.family(self.conn, plan.standalone_question, named) or None,
         )
         extras: list[dict] = []
         taken = 0
@@ -351,6 +399,8 @@ class Assistant:
                 taken += 1
             else:
                 extras.append(item)
+        if not (passages and passages[0].get("answer")):
+            passages.extend(self._history_passages(passages, plan.standalone_question))
         return passages, extras
 
     def _meta_passages(self) -> list[dict]:
@@ -469,6 +519,10 @@ class Assistant:
         if (not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
                 and not self._hunt_ranks(plan, user_message)):
             plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
+        if not plan.clarify and plan.kind != "meta":
+            named = resolve.resolve(self.conn, plan.standalone_question)
+            if named is not None and named.ambiguous:
+                plan.clarify = resolve.clarify(named)  # one name, different kinds of page, and nothing to choose between
         if plan.clarify and not memory.last_was_clarification(self.conn, session_id):
             # Ask rather than guess, but never twice in a row: the second time it is answered as best it can be.
             yield Retrieval([], plan.standalone_question, "clarify", plan.kind, [])
@@ -514,9 +568,13 @@ class Assistant:
         if passages[0].get("answer"):
             # The ladder match is data, not prose: the creatures and numbers are written by code so none can be invented.
             answer = passages[0]["answer"]
+            note = page_history.caution(self.conn, [p["title"] for p in passages], self.s.retrieval.history_edits)
+            if note:
+                answer += "\n\n" + note
             yield Token(answer)
             self._persist(session_id, user_message, answer, plan, sources, [])
-            yield Done(answer, [1], sources, [], memory.get_topic(self.conn, session_id))
+            cited = sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer) if 1 <= int(n) <= len(sources)})
+            yield Done(answer, cited or [1], sources, [], memory.get_topic(self.conn, session_id))
             return
 
         system = prompts.build_answer_system(plan.kind, text, self.name, persona=self.s.persona.enabled,
@@ -534,6 +592,12 @@ class Assistant:
         # Lines the model left uncited get a "[n*]" tag where one passage clearly matches (see core/attribution.py).
         # The streamed text is the raw draft; the final text, with these tags, is what Done carries and what is saved.
         answer = attribute(answer, [p["text"] for p in passages]).text
+        notes = [c for p in passages if p.get("history")
+                 for c in timeline.caveats(self.conn, p["title"].removesuffix(": recent edits"), answer)]
+        if notes:
+            tail = "\n\n" + " ".join(notes)
+            yield Token(tail)
+            answer += tail
         offer = prompts.offer_line(related) if self.s.persona.enabled else ""
         if offer and not answer.endswith("?"):
             tail = "\n\n" + offer
@@ -541,7 +605,8 @@ class Assistant:
             answer += tail
         cited = sorted({int(n) for n in re.findall(r"\[(\d+)\*?\]", answer) if 1 <= int(n) <= len(sources)})
         self._persist(session_id, user_message, answer, plan, sources, related)
-        top = (sources[cited[0] - 1] if cited else sources[0]).title if sources else ""
+        real = [s for s in sources if not s.title.endswith(": recent edits")]
+        top = (real[cited[0] - 1] if cited and cited[0] <= len(real) else real[0]).title if real else ""
         topic = plan.topic or re.sub(r"^[A-Za-z]+:(?=\S)", "", top)  # a planner label, else the main page cited
         if topic and plan.kind != "meta":
             memory.set_topic(self.conn, session_id, topic)

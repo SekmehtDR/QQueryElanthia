@@ -125,3 +125,37 @@
 - q: "What is Elanthipedia?"
   kind: meta
   expect_pages: []
+# Names, topic families, materials and edit history (added 2026-10-29). Kinds are left out where the planner's
+# label is a matter of taste; the pages are what must be found.
+- q: "What is SIS?"
+  expect_pages: ["Sidasas Sedra"]
+- q: "How do I cast SIS?"
+  expect_pages: ["Sidasas Sedra"]
+- q: "What does Marshal Order do?"
+  expect_pages: ["Marshal Order"]
+- q: "What is a rat?"
+  expect_pages: ["Rat"]
+- q: "How does crafting work?"
+  expect_pages: ["Crafting", "Forging guide"]
+- q: "What are the crafting disciplines?"
+  expect_pages: ["Crafting"]
+- q: "Which skills do I need to make armor?"
+  expect_pages: ["Armorsmithing discipline", "Crafting", "Outfitting skill", "Forging skill"]
+- q: "Whats the best material to make a greatsword with?"
+  expect_pages: ["Category:Crafting materials", "Forging guide"]
+- q: "What is the best metal for plate armor?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "What's the best wood for a longbow?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "Is damascus steel the best metal for a sword?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "What is the best leather for gloves?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "What is the weapon density cap when forging?"
+  expect_pages: ["Forging guide"]
+- q: "What do you know about Binu?"
+  expect_pages: ["Binu"]
+- q: "Who is Binu?"
+  expect_pages: ["Binu"]
+- q: "Tell me about the Thieves"
+  expect_pages: ["Thief"]

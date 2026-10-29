@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -26,11 +27,13 @@ from ...jobs import (
     index_changes,
     index_info,
     kill_pid_tree,
+    live_progress,
     mark_reindex_interrupted,
     reindex_status,
 )
 from ...llm.ollama import Ollama
 from ...progress import snapshot
+from ...wiki import history as page_history
 from . import access
 
 STATIC = Path(__file__).parent / "static"
@@ -64,6 +67,10 @@ def _host_name(header: str) -> str:
 
 class ClearRequest(BaseModel):
     confirm: str  # must be the word CLEAR: this empties the search index
+
+
+class HistorySetting(BaseModel):
+    history_edits: int
 
 
 class StartRequest(BaseModel):
@@ -173,7 +180,30 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/index/info")
     async def index_state(request: Request) -> dict:
         local_only(request)
-        return {**index_info(state["conn"], settings), "job": jobs.snapshot()}
+        job = jobs.snapshot()
+        live = live_progress(state["conn"], job["started_at"]) if job["running"] else None
+        return {**index_info(state["conn"], settings), "job": job, "live": live, **history_info()}
+
+    stored_count = {"at": -1e9, "n": 0}
+
+    def history_info() -> dict:
+        conn = state["conn"]
+        now = time.monotonic()
+        if now - stored_count["at"] > 60:  # counting a million rows on every poll would stall the chat
+            try:
+                stored_count["n"] = conn.execute("SELECT count(*) FROM revisions").fetchone()[0]
+            except Exception:
+                stored_count["n"] = 0
+            stored_count["at"] = now
+        stored = stored_count["n"]
+        return {"history_edits": page_history.edits_setting(conn, settings.retrieval.history_edits),
+                "history_max": page_history.MAX_EDITS, "history_stored": stored}
+
+    @app.post("/api/settings/history")
+    async def set_history(request: Request, body: HistorySetting) -> dict:
+        guard(request)
+        page_history.set_edits_setting(state["conn"], body.history_edits)
+        return history_info()
 
     @app.get("/api/index/changes/{sync_id}")
     async def index_run_changes(request: Request, sync_id: int) -> dict:

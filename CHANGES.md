@@ -9,6 +9,48 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 
 ### New
 
+- **Crafting disciplines answered from the Crafting page's own list.** "What are the crafting disciplines?" is written in
+  code: five Lore skills, the disciplines each controls, and the guide the page names for each (so the model can no longer
+  call Tinkering a skill). New extractor `index/extract/crafting.py`, tool `core/disciplines.py`.
+- **16 new evaluation questions** (names, topic families, materials, edit history) and two new `doctor` checks
+  (disciplines read; extractors still read what they used to).
+- **Fennick reads a page's edit history before trusting it.** Every delta now keeps edit metadata (who, when, size,
+  summary, revert tags), and `history` (the "Fetch history" button) backfills the rest and reads the guild, race, gender
+  and status of each character page's old versions. Answers about a page carry its last N edits (Index panel setting,
+  local only, 0 = off) with a reading computed in code: steady, mixed or contested (reverts, large rewrites, anonymous
+  editors, bursts; an owner tidying their own page is not a dispute). For characters each changed fact is judged by who
+  set it and how long it stood: credible (the page's owner set or restored it), accepted, unverified (recent, by someone
+  else) or disputed (changed back and forth). Fennick states credible facts plainly, flags the rest, and never chooses
+  between disputed versions (`wiki/history.py`, `wiki/timeline.py`). 236 tests.
+- **"Best material for X?" is answered from the crafting tables, in code.** The index now has a typed `facts` layer: the
+  `enrich` stage (runs after indexing in every update, `epedia enrich [--force]` by hand) reads every table of
+  Category:Crafting materials (metals, woods, bones, stones, cloth, leather: 2,437 facts for 298 materials) through
+  small extractors in `index/extract/`. For weapons, armor and bows `core/materials.py` ranks the materials with the
+  wiki's own rules, each cited to the page that states it (hardness drives weapon damage, density counts for weapons
+  only up to 7.5 and keeps helping armor, bows follow the wood's affinity for the bow type, nothing is craftable under
+  3.0 density, a mix keeps a metal's properties at 67%). A name that is not in the tables ("damascus steel", only a
+  decoration in item names) is said to be one instead of being ranked. `epedia doctor` is a repeatable integrity and
+  coverage report (revision lag, full-text/vector parity, link graph coverage, facts, rules still on their pages).
+  The chunker folds small sections into a neighbour, so an extractor reads the heading line above a table, not only
+  the chunk's section path. 251 tests.
+- **Names, topics and kind rules.** A name in a question now resolves through the title index (`retrieval/resolve.py`):
+  one name reaching different kinds of page is narrowed by the question's own words (cast, wield, hunt... in the new
+  declarative `kinds.INTENT_WORDS`/`KIND_LABEL`/`KIND_GROUP`), or asked about ("Mo could mean the character Mo or the spell
+  Marshal Order. Which did you mean?"), and an acronym like SIS sets aside pages that merely contain the letters (the
+  Svidaw sis weapon). The new topic graph (`index/topics.py`, built by `enrich` from categories, subpages and links: 1,129
+  hubs, 77,729 memberships) lets "crafting" favour its whole family in search (`retrieval.topic_boost`). Materials now
+  also cover leather, cloth, bone and stone. A code-written answer cautions when its source page was heavily rewritten
+  lately, `doctor` compares the materials table with all 297 material pages (they agree), and the game name the
+  planner appends ("in MUD DragonRealms") is stripped so it stops pulling the pages called DragonRealms and MUD.
+- **Updates keep history current.** After the one-off history read, every delta and full refresh also reads the edits
+  since the last read and re-reads the key facts of each character page it changed (from the real wiki, never the
+  mirror; a failure only logs). Before that read has been done they make no history requests.
+  Trust rule: the page owner's (creator's) own edits are authoritative; a value someone else changed away from the
+  owner's is suspect and Fennick says so (a note written by code). Review fixes: `mw-reverted` is no revert, piped links
+  in infoboxes, whole-word fact matching, updates only top up a completed history read (`history.complete`).
+- **The Index panel shows a running job live.** A run is only logged when it ends, so the panel sat on the previous run
+  until then. A "This run" row now shows pages fetched and indexed so far, the rate, and the latest page titles, read
+  from the pipeline's own timestamps (`jobs.live_progress`). 218 tests.
 - **"What should I hunt?" is answered from the hunting ladder, in code.** The question is matched on combat ranks
   (offense and defense; the lower one decides), whatever the guild, because a circle alone does not give them. Without
   ranks Fennick asks for them; with ranks (and any areas named) `core/hunting.py` lists the creatures whose ladder range
@@ -139,6 +181,23 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 
 ### Fixed
 
+- A page whose facts are all trusted (and that is not being fought over) no longer shows the model its edit history at
+  all: given the margin, the 8B model remarked on it ("not contested in recent edits"). Doubtful facts still carry it.
+- A fact the page's own creator set (a trusted one) now reaches the model as "state it plainly", without the list of
+  older values; the model used to repeat them ("updated to Necromancer, a detail set by himself in 2025").
+- The topic graph no longer counts forum posts, news, characters, meta pages, redirect stubs or disambiguation pages as
+  members of a topic just because they link to its hub (Crafting: 448 members down to 427, none of them chatter).
+- The Index panel's live "indexed" count included pages other stages had merely touched; it now counts pages this job
+  fetched and indexed.
+- The name resolver now picks the most specific of several equally long names ("hunt rats" means the Rat, not the Hunt
+  command), understands a plural ("rats"), and treats an all-caps message as shouting, not as an acronym. It runs once per
+  question and the avoid-pages set and topic family share its answer.
+- Enrich keeps the facts it already has when an extractor suddenly reads fewer than half of them (a layout change on the
+  wiki), logs a warning and retries next run, instead of wiping them.
+- "Best common/strongest/light metal for…" wrongly opened with "I don't have that as a craftable material"; describing
+  words (common, rare, strongest, light...) are no longer taken for a missing material's name.
+- The topic graph rebuild took 66 seconds (one scan of every title per hub) and ran after any delta that classified a
+  page; subpages are now matched in one pass (1.2 seconds, identical result).
 - A long section's short closing paragraph could be silently dropped by the chunker and never searched.
 - `EPEDIA_WIKI__RPS` (and per-source overrides) were ignored.
 - `pipeline` skipped classification, leaving a fresh build without page kinds.

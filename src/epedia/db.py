@@ -162,6 +162,68 @@ CREATE TABLE IF NOT EXISTS sync_pages (
   action  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_sync_pages ON sync_pages(sync_id);
+
+-- Edit history (metadata only): who changed which page, when, by how much. Keyed by title like everything else.
+CREATE TABLE IF NOT EXISTS revisions (
+  revid    INTEGER PRIMARY KEY,
+  title    TEXT NOT NULL,
+  ts       TEXT NOT NULL,
+  user     TEXT,
+  comment  TEXT,
+  size     INTEGER,
+  parentid INTEGER,
+  tags     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_revisions_title ON revisions(title, ts);
+
+-- Guild/race/gender/status of each stored version of a character page, to see which fact changed and who changed it.
+CREATE TABLE IF NOT EXISTS field_values (
+  title TEXT NOT NULL,
+  revid INTEGER NOT NULL,
+  ts    TEXT NOT NULL,
+  user  TEXT,
+  field TEXT NOT NULL,
+  value TEXT,
+  PRIMARY KEY (revid, field)
+);
+CREATE INDEX IF NOT EXISTS ix_fieldvalues_title ON field_values(title, field, ts);
+CREATE TABLE IF NOT EXISTS fields_done (
+  title      TEXT PRIMARY KEY,
+  upto_revid INTEGER,
+  fetched_at TEXT
+);
+
+-- Typed facts read from tables and infoboxes by index/extract/*, so tools can rank and compare in code instead of
+-- asking a small model to read a table. page_id is the page a fact came from (replaced together on a new revision).
+CREATE TABLE IF NOT EXISTS facts (
+  page_id    INTEGER NOT NULL REFERENCES pages(page_id) ON DELETE CASCADE,
+  domain     TEXT NOT NULL,
+  entity     TEXT NOT NULL,
+  grp        TEXT NOT NULL,
+  attribute  TEXT NOT NULL,
+  value_num  REAL,
+  value_text TEXT,
+  section    TEXT,
+  PRIMARY KEY (page_id, domain, entity, grp, attribute)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_facts_domain ON facts(domain, grp, attribute);
+CREATE INDEX IF NOT EXISTS ix_facts_entity ON facts(entity COLLATE NOCASE);
+
+-- Topic graph derived from categories, subpages and links (index/topics.py): which pages belong to the family of a hub
+-- page such as Crafting or Forging, and how strongly. No hand-made links.
+CREATE TABLE IF NOT EXISTS topic_hubs (
+  hub_page_id INTEGER PRIMARY KEY REFERENCES pages(page_id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  members     INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS page_topics (
+  hub_page_id INTEGER NOT NULL REFERENCES pages(page_id) ON DELETE CASCADE,
+  page_id     INTEGER NOT NULL REFERENCES pages(page_id) ON DELETE CASCADE,
+  weight      REAL NOT NULL,
+  via         TEXT NOT NULL,
+  PRIMARY KEY (hub_page_id, page_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_page_topics_page ON page_topics(page_id);
 """
 
 
@@ -219,6 +281,7 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "pages", "is_obsolete", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "pages", "is_log", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "pages", "classified_revid", "INTEGER")
+    _ensure_column(conn, "pages", "enriched_revid", "INTEGER")
     _ensure_column(conn, "messages", "kind", "TEXT")
     # conversation tracking: when a chat was last used, what it is about, and where the model's memory of it starts
     _ensure_column(conn, "sessions", "updated_at", "TEXT")

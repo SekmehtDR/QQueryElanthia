@@ -206,6 +206,15 @@ Passages:
 {passages}"""
 
 
+HISTORY_RULE = (
+    "A passage titled \"<page>: recent edits\" is not lore: it is the margin of your notes, showing who has scribbled "
+    "over that entry and when. Stay Fennick: say \"my notes\" and \"whoever keeps that entry\", and never use words "
+    "like edit history, reading, verdict, credible, owner or revert. Where a key fact says to state it plainly, just "
+    "state it, with no remark about the margin. Otherwise add one short, in-voice caution naming the older value. "
+    "Never choose between disputed versions, and never cite this passage for facts about the game."
+)
+
+
 def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bool = True,
                         continuing: bool = False, pasted: str = "", today: str = "") -> str:
     """System prompt for the answer step. Uses replace(), never format(): passage text may contain braces."""
@@ -221,6 +230,8 @@ def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bo
         parts.append(CONTINUING)
     if pasted:
         parts.append(PASTED.replace("{text}", pasted))
+    if "Reading of the history:" in passages_text:
+        parts.append(HISTORY_RULE)
     parts.append(ANSWER_TAIL.replace("{passages}", passages_text))
     return "\n\n".join(parts)
 

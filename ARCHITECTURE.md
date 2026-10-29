@@ -65,6 +65,24 @@ What each stage does:
 | `smw`      | Semantic MediaWiki properties (weight, damage, cost…) → `item_properties` and one `stats` chunk per item page |
 | `index`    | HTML → text blocks → ~450-token chunks → FTS5 rows + 768-dim vectors (unchanged text reuses its vector by hash) |
 | `titles`   | page and redirect titles → `titles_fts`, so "choke" finds "Choke command" |
+| `enrich`   | indexed pages → typed `facts` (crafting materials from the Category:Crafting materials tables; `index/extract/`), and the topic graph `topic_hubs` / `page_topics` from categories, subpages and links (`index/topics.py`). Pure code, runs after `index` in every update |
+
+### The knowledge layer
+
+Beyond text chunks the index carries three derived layers, all rebuilt by the pipeline (no hand-made links):
+
+- **Facts** (`facts`): tables read by registered extractors, so tools compare in code. `core/materials.py` ranks materials
+  (weapons by hardness with density capped at 7.5, armor by resistances, bows by wood affinity, leather/cloth/bone/stone by
+  their deciding stat) with each rule cited to the page that states it; `core/hunting.py` does the same for the ladder, and
+  `core/disciplines.py` lists the crafting skills, their disciplines and guides from the Crafting page's own list.
+- **Names** (`retrieval/resolve.py`): a name in the question resolves through the title index; a name reaching different
+  kinds of page is narrowed by the question's own words (`kinds.INTENT_WORDS`: cast, wield, hunt...) or asked about; an
+  acronym like SIS sets aside pages that merely contain the letters.
+- **Topics** (`page_topics`): the family of pages around a hub such as Crafting; retrieval favours them when the question
+  names the hub.
+
+`epedia doctor` checks the lot (revision lag, full-text/vector parity, link coverage, facts, table-versus-page agreement,
+rules still on their pages).
 
 ### From HTML to chunks
 
@@ -321,11 +339,12 @@ restores plain answers.
  ├─ buildinfo.py ....... version, git commit, models, index size (read live, cached for a minute)
  ├─ wiki/    client (rate limit, maxlag, retries) · discover · crawl · smw · sync
  ├─ text/    html2md (HTML → blocks) · chunker · stats (item stat sheets)
- ├─ index/   indexer (chunks, vectors, titles) · classify (kinds, links, soft redirects)
- ├─ retrieval/ search (hybrid, scoring) · titles (normalisation)
+ ├─ index/   indexer (chunks, vectors, titles) · classify (kinds, links, soft redirects) · enrich · extract/ (materials, crafting) ·
+ │           topics (hub families) · doctor (integrity report)
+ ├─ retrieval/ search (hybrid, scoring, topic/avoid hooks) · titles (normalisation) · resolve (names → pages, by kind)
  ├─ llm/     ollama (embed, chat, JSON-schema chat) · prompts (planner, persona, shapes, passages)
  ├─ core/    assistant (plan → retrieve → answer) · attribution (tag uncited lines) · memory · dates (past/upcoming notes on passages) ·
- │           items_tool (SMW ask + local fallback)
+ │           items_tool (SMW ask + local fallback) · hunting (ladder) · materials (best-material rankings)
  ├─ frontends/web/  app.py (FastAPI) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
  └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, voice checklist)
  tests/  pytest suite + saved action=parse fixtures       eval/questions.yaml  the evaluation set

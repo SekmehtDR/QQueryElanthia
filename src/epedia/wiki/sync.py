@@ -17,6 +17,7 @@ from ..config import Settings
 from ..db import delete_page, get_state, set_state, transaction
 from ..llm.ollama import Ollama
 from ..util import utcnow_iso
+from . import history
 from .client import WikiClient
 from .crawl import crawl
 from .discover import (
@@ -50,7 +51,7 @@ async def collect_changes(client: WikiClient, settings: Settings, since: str) ->
 
     async for data in client.paginate({
         "action": "query", "list": "allrevisions", "arvstart": since, "arvdir": "newer", "arvlimit": 500,
-        "arvprop": "ids|timestamp", "arvnamespace": nslist,
+        "arvprop": history.ARV_PROPS, "arvnamespace": nslist,
     }):
         for page in data.get("query", {}).get("allrevisions", []):
             for rev in page.get("revisions", []):
@@ -178,6 +179,7 @@ async def run_pipeline_for_changes(
     """Fetch, classify, extract item stats for and index what is pending. `titles` limits the fetching to those pages
     (a delta update: the rest of the backlog is for `fill` to read from the mirror); None fetches everything pending."""
     from ..index.classify import classify_all
+    from ..index.enrich import enrich_all
     from ..index.indexer import index_pages, rebuild_titles
     from .smw import smw_pages
 
@@ -185,7 +187,28 @@ async def run_pipeline_for_changes(
     classify_all(conn, show_progress=False)
     await smw_pages(settings, conn, client, ollama)
     await index_pages(settings, conn, ollama, show_progress=False)
+    enrich_all(conn)
     rebuild_titles(conn)
+
+
+async def refresh_history(settings: Settings, conn: sqlite3.Connection, titles: set[str] | None = None,
+                          limit: int = 500) -> None:
+    """Keep edit history current as part of an update: the edits since the last read, and the key facts of character
+    pages that changed. Does nothing until the one-off `history` read has been done (that is the bulk request, and the
+    owner's call). Reads the real wiki, never the mirror, and never fails an update."""
+    from . import timeline
+    from .client import open_client
+
+    if not get_state(conn, history.COMPLETE_KEY):
+        return
+    cfg = settings.wiki.model_copy(update={"source": settings.wiki.delta_source or settings.wiki.source,
+                                           "fallback_source": None})
+    try:
+        async with open_client(cfg) as client:
+            await history.backfill(client, conn, list(settings.wiki.namespaces))
+            await timeline.fetch_all(client, conn, only=titles, limit=limit)
+    except Exception as exc:
+        log.warning("edit history not refreshed: %s", exc)
 
 
 async def sync(
@@ -223,6 +246,7 @@ async def sync(
     await reconcile(conn, client, settings, ch, stats, details)
     changed = {t for t, action in details if action != "deleted"}
     await run_pipeline_for_changes(settings, conn, client, ollama, titles=changed)
+    await refresh_history(settings, conn, changed)
 
     # allrevisions' start is inclusive, so the boundary revision is re-read next time; that is harmless.
     new_cursor = ch.newest or since
@@ -323,6 +347,7 @@ async def full_scan(
         return stats
     await discover(conn, client, settings.wiki, force=False)  # fills redirects for any new namespaces only
     await run_pipeline_for_changes(settings, conn, client, ollama)
+    await refresh_history(settings, conn)
     if not authoritative:
         await rewind_cursor(conn, client)
     set_state(conn, "fullscan.last_run", utcnow_iso())

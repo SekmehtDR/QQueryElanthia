@@ -237,6 +237,7 @@ def index(
 ) -> None:
     """Chunk crawled pages, build the keyword index and embed chunks via Ollama."""
 
+    from .index.enrich import enrich_all
     from .index.indexer import index_pages, rebuild_titles
     from .llm.ollama import Ollama
 
@@ -266,8 +267,35 @@ def index(
                     await asyncio.sleep(60)
             rebuild_titles(conn)
             conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
+            console.print(f"enrich: {enrich_all(conn)}")
 
     run(go())
+
+
+@app.command()
+def doctor() -> None:
+    """Check the index's integrity and coverage (read-only). Exits non-zero if anything is wrong."""
+    from .index.doctor import run as run_doctor
+
+    conn = db.connect(settings(), readonly=True)
+    checks = run_doctor(conn)
+    for c in checks:
+        console.print(f"[{'green' if c.ok else 'red'}]{'ok  ' if c.ok else 'FAIL'}[/] {c.name}"
+                      + (f"  [dim]{c.detail}[/dim]" if c.detail else ""))
+    if not all(c.ok for c in checks):
+        raise typer.Exit(1)
+
+
+@app.command()
+def enrich(
+    force: bool = typer.Option(False, "--force", help="Re-read every source page, not just those whose revision lags"),
+) -> None:
+    """Derive typed facts (crafting materials...) from indexed pages. Local only: no network, no model."""
+    from .index.enrich import enrich_all
+
+    conn = db.connect(settings())
+    console.print(enrich_all(conn, force=force))
+    console.print(f"facts: {conn.execute('SELECT count(*) FROM facts').fetchone()[0]:,}")
 
 
 @app.command()
@@ -288,6 +316,41 @@ def fill() -> None:
             console.print(f"{before:,} pages to fetch from {s.wiki.source}")
             await syncmod.run_pipeline_for_changes(s, conn, client, ol)
             console.print(f"fill done: requests={client.requests}")
+
+    try:
+        run(go())
+    finally:
+        conn.close()
+
+
+@app.command()
+def history(
+    fields: bool = typer.Option(True, "--fields/--no-fields",
+                                help="Also read the old versions of character pages to see which fact changed"),
+) -> None:
+    """Read every page's edit history (who, when, how big; no text) from the real wiki, oldest first, then the guild,
+    race, gender and status of each character page's old versions. Resumable; run it again to catch up."""
+    from .wiki import history as hist
+    from .wiki import timeline
+    from .wiki.client import open_client
+
+    s = settings()
+    conn = db.connect(s)
+    source = s.wiki.delta_source or s.wiki.source
+    wiki_cfg = s.wiki.model_copy(update={"source": source, "fallback_source": None})
+
+    async def go() -> None:
+        async with open_client(wiki_cfg) as client:
+            console.print(f"reading edit history from {source}")
+            n = await hist.backfill(client, conn, list(s.wiki.namespaces),
+                                    lambda total, ts: console.print(f"{total:,} edits stored (up to {ts})"))
+            console.print(f"edit history done: {n:,} new edits, requests={client.requests}")
+            if fields:
+                todo = len(timeline.pending_titles(conn))
+                console.print(f"{todo:,} character pages to read for guild/race/gender/status changes")
+                done = await timeline.fetch_all(
+                    client, conn, lambda d, t, title: console.print(f"{d:,} / {t:,}  {title}"))
+                console.print(f"character history done: {done:,} pages, requests={client.requests}")
 
     try:
         run(go())
@@ -723,6 +786,7 @@ def eval_cmd(
 def pipeline() -> None:
     """Unattended full build: discover -> crawl -> classify -> smw -> index -> titles. Safe to rerun."""
     from .index.classify import classify_all
+    from .index.enrich import enrich_all
     from .index.indexer import index_pages, rebuild_titles
     from .llm.ollama import Ollama
     from .wiki.client import open_client
@@ -741,6 +805,7 @@ def pipeline() -> None:
             console.print("[bold]smw[/bold]", await smw_pages(s, conn, client, ol))
             build_catalog(conn)
             console.print("[bold]index[/bold]", await index_pages(s, conn, ol))
+            console.print("[bold]enrich[/bold]", enrich_all(conn))
             rebuild_titles(conn)
             conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
         console.print("pipeline complete")

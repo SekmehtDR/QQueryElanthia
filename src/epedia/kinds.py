@@ -3,6 +3,8 @@ weights that connect them. No imports, so config, db, search and prompts can all
 
 from __future__ import annotations
 
+import re
+
 QUESTION_KINDS = (
     "item", "crafting", "place", "character", "lore", "creature", "mechanics", "event_news", "meta", "general",
 )
@@ -38,3 +40,42 @@ DEFAULT_KIND_WEIGHTS["general"] = {"script": 0.9, "pc": 0.8}
 # A related page may be offered after an answer only if its kind is at least this favoured for the question kind.
 OFFER_MIN_WEIGHT = 1.0
 OFFER_EXCLUDED_PAGE_KINDS = frozenset({"log", "soft_redirect", "disambig", "category", "meta", "script"})
+
+
+# ----------------------------------------------------------------------------------------------- kind rules
+# One declarative table of what each kind of page is and how a question points at it. The name resolver, the clarifying
+# question and (later) the planner prompt read this instead of carrying their own word lists.
+
+# page kind -> the word a person uses for it ("the spell Sidasas Sedra", "the weapon Svidaw sis")
+KIND_LABEL = {
+    "spell": "spell", "item": "item", "recipe": "crafted item", "material": "crafting material", "crafting": "crafting page",
+    "guide": "guide", "creature": "creature", "pc": "character", "npc": "character", "gm": "staff member", "place": "place",
+    "shop": "shop", "skill": "skill", "command": "command", "guild": "guild", "race": "race", "mechanics": "game mechanic",
+    "lore": "lore page", "event": "event", "news": "news post", "general": "page",
+}
+
+# page kinds that are the same sort of thing to a reader: two names in one group are not a real conflict
+KIND_GROUP = {
+    "spell": "spell", "creature": "creature", "pc": "character", "npc": "character", "gm": "character",
+    "place": "place", "shop": "place", "skill": "skill", "command": "skill", "guild": "skill", "race": "race",
+    "item": "thing", "recipe": "thing", "material": "thing", "crafting": "thing", "guide": "thing",
+    "mechanics": "thing", "lore": "thing", "general": "thing", "event": "event", "news": "event",
+}
+
+# words in a question that say which group it is about
+INTENT_WORDS = {
+    "spell": r"spells?|cast(?:s|ing)?|prep(?:are|aring)?|incantations?|metaspells?|mana|ritual|invoke",
+    "creature": r"creatures?|monsters?|kill(?:s|ing)?|hunt(?:s|ing)?|bestiary|spawns?|critters?",
+    "character": r"who|characters?|players?|npcs?|person|lives|member of",
+    "place": r"where|located|directions?|town|city|shops?|vendors?|map",
+    "skill": r"skills?|train(?:s|ing)?|ranks?|commands?|verbs?|guild",
+    "thing": r"weapons?|armou?r|items?|wield(?:s|ing)?|wear(?:s|ing)?|stats?|forge[sd]?|crafted?|recipes?|worth|price|"
+             r"sells?|buy|materials?",
+    "event": r"events?|festival|news|when is|prizes?",
+}
+INTENT_RES = {g: re.compile(r'\b(?:' + w + r')\b', re.I) for g, w in INTENT_WORDS.items()}
+
+
+def intent_groups(question: str) -> set[str]:
+    """Kind groups a question points at through its own words; empty when it names no kind."""
+    return {g for g, rx in INTENT_RES.items() if rx.search(question)}

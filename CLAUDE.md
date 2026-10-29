@@ -105,6 +105,20 @@ data/         wiki.db and logs (git-ignored)
   tunnel's forwarding headers (`cf-connecting-ip`, `x-forwarded-for`, ...); a tunnel always connects from loopback, so
   the peer address proves nothing. Anything admin (Index, jobs, status, clear) must call `guard()`/`local_only()`; chats
   are scoped by `sessions.owner` (`local` or a per-browser cookie id). Never bind `web.host` beyond 127.0.0.1 to share.
+- **Edit history** (`wiki/history.py`, `wiki/timeline.py`): `revisions` holds metadata only; `field_values` holds the
+  infobox facts of old character versions. The trust rules live in `timeline.judge` and are the thing to change if
+  Fennick trusts too much or too little. `epedia history` is the one bulk read (about 1,400 + ~3,900 requests to the
+  real wiki, resumable): ask the owner before running it. Never fetch history while answering a question.
+- **Typed facts** (`index/extract/`, `index/enrich.py`, table `facts`): structured data is read from indexed chunks by
+  small registered extractors, never by asking the model. The chunker folds tiny sections into a neighbour, so an
+  extractor must also read the heading line above a table (`extract.tables`). Answers that compare things (materials,
+  the hunting ladder) are written by code from facts; the rules they apply name the page that states them and
+  `epedia doctor` checks the wording is still there. `epedia doctor` should stay clean after any index change.
+- **Names and kinds** (`retrieval/resolve.py`, `kinds.py`): the kind rules live in one declarative table; extend
+  `INTENT_WORDS`/`KIND_GROUP` there rather than adding word lists elsewhere. Resolution is skipped for stop words and the
+  game's own name (`titles.STOP_NAMES`); `Title:` and `Post:` pages are never names.
+- **Edit tool traps:** this harness corrupts a backslash-b or backslash-n typed inside Python heredoc strings (backspace,
+  literal newline). After scripted edits scan for control characters; build such regexes with `chr(92)` or use the Edit tool.
 - Pass large JSON to child processes on stdin (Windows command lines are limited to ~32k characters).
 - A non-breaking space does not glue text to an inline badge; wrap the pair in a `nowrap` span (`render.js`).
 - Check the page's script with `node --check` after editing `static/index.html` (a duplicate `const` once broke

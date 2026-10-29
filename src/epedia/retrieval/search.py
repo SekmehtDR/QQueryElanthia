@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from ..config import RetrievalCfg
 from ..util import page_url
-from .titles import normalize, query_as_title, tokens
+from .titles import GAME_WORDS, normalize, query_as_title, tokens
 
 STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "of", "to", "in", "on", "for", "and", "or", "do", "does",
@@ -148,6 +148,8 @@ def title_matches(conn: sqlite3.Connection, query: str) -> tuple[dict[int, str],
             ttoks = tokens(r["title_norm"])
             if len(r["title_norm"]) < 4 or not ttoks or r[0] in exact:
                 continue
+            if set(ttoks) <= GAME_WORDS and len(qtoks) > len(ttoks):
+                continue
             # Words like "skill" or "command" are page-type labels, not part of what the user asks about.
             core = [t for t in ttoks if t not in GENERIC_TITLE_WORDS] or ttoks
             if all(t in qset for t in core):
@@ -168,10 +170,14 @@ def search(
     mode: str = "hybrid",
     prior_chunk_ids: list[int] | None = None,
     kind: str | None = None,
+    avoid_pages: set[int] | None = None,
+    topic_pages: dict[int, float] | None = None,
 ) -> list[Hit]:
     """kind: what the question is about (crafting, place, ...); favours matching page kinds via cfg.kind_weights.
     prior_chunk_ids: chunks the previous answer cited. They stay candidates and get a modest boost, so a
-    follow-up ("what about its weight?") keeps working from the same pages instead of starting from scratch."""
+    follow-up ("what about its weight?") keeps working from the same pages instead of starting from scratch.
+    avoid_pages: pages the question did not mean (a same-named page of another kind); never returned.
+    topic_pages: page_id -> weight for the family of pages around a topic the question names; they are favoured."""
     k_final = k_final or cfg.k_final
     fts_ids = fts_search(conn, query, cfg.k_fts) if mode in ("hybrid", "fts") else []
     vec_ids = vec_search(conn, qvec, cfg.k_vec) if (mode in ("hybrid", "vec") and qvec) else []
@@ -210,6 +216,8 @@ def search(
 
     hits: list[Hit] = []
     for r in rows:
+        if avoid_pages and r["page_id"] in avoid_pages:
+            continue
         label = "exact" if r["page_id"] in exact else ("partial" if r["page_id"] in partial else "")
         score, weight = score_chunk(
             scores[r["chunk_id"]], cfg, question_kind=kind, ns=r["ns"], page_kind=r["page_kind"],
@@ -217,6 +225,8 @@ def search(
             title_label=label, partial_weight=partial.get(r["page_id"], 0.0),
             in_prior=r["chunk_id"] in prior,
         )
+        if topic_pages and r["page_id"] in topic_pages:
+            score *= 1.0 + cfg.topic_boost * topic_pages[r["page_id"]]
         hits.append(
             Hit(
                 chunk_id=r["chunk_id"], page_id=r["page_id"], ns=r["ns"], title=r["title"],

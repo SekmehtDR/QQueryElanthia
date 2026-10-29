@@ -33,6 +33,7 @@ MODES = {
     "full": ("Full refresh", ["sync", "--full-scan"]),
     "reindex": ("Re-index", ["index", "--reembed-all"]),
     "fill": ("Fill from mirror", ["fill"]),
+    "history": ("Fetch edit history", ["history"]),
 }
 STALE_AFTER_SECONDS = 180  # a re-index that has not reported for this long is taken to have been interrupted
 
@@ -316,6 +317,24 @@ def index_info(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
 
 
 URL_SAFE = ":/(),!*'"
+
+
+def live_progress(conn: sqlite3.Connection, since: str, recent: int = 8) -> dict[str, Any]:
+    """What a running job has done so far: pages fetched and indexed since it started, and the latest few.
+
+    A run is only written to the sync log when it ends, so the page reads the pipeline's own timestamps instead."""
+    try:
+        fetched = conn.execute("SELECT count(*) FROM page_html WHERE fetched_at >= ?", (since,)).fetchone()[0]
+        # Fetched by this job and now indexed: `updated_at` alone also moves for classify, smw and error bookkeeping.
+        indexed = conn.execute(
+            "SELECT count(*) FROM pages p JOIN page_html h ON h.page_id = p.page_id WHERE h.fetched_at >= ? "
+            "AND p.indexed_revid IS NOT NULL AND p.indexed_revid IS p.fetched_revid", (since,)).fetchone()[0]
+        latest = conn.execute(
+            "SELECT p.title, h.fetched_at FROM page_html h JOIN pages p ON p.page_id = h.page_id "
+            "WHERE h.fetched_at >= ? ORDER BY h.fetched_at DESC LIMIT ?", (since, recent)).fetchall()
+    except sqlite3.OperationalError:
+        return {"fetched": 0, "indexed": 0, "latest": []}
+    return {"fetched": fetched, "indexed": indexed, "latest": [{"title": r[0], "at": r[1]} for r in latest]}
 
 
 def index_changes(conn: sqlite3.Connection, settings: Settings, sync_id: int, limit: int = 2000) -> dict[str, Any] | None:

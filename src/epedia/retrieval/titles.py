@@ -40,3 +40,29 @@ def query_as_title(query: str) -> str:
 
 def tokens(text: str) -> list[str]:
     return [t for t in re.split(r"[^0-9a-z']+", text.lower()) if t]
+
+
+# Words that start or fill a question and are not the name of anything, so a lookup of them alone is skipped.
+STOP_NAMES = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "of", "to", "in", "on", "for", "and", "or", "do", "does", "did",
+    "how", "what", "who", "where", "when", "which", "why", "can", "could", "would", "should", "will", "i", "you", "me",
+    "my", "it", "its", "with", "at", "by", "from", "that", "this", "be", "as", "about", "tell", "get", "much", "many",
+    "best", "good", "better", "any", "some", "there", "have", "has", "use", "make", "need", "want", "know", "give",
+    "spell", "spells", "weapon", "weapons", "item", "items", "cast", "creature", "monster", "skill", "guild", "place",
+    "work", "works", "mean", "means", "thing", "things", "kind", "type", "like", "than", "then", "also", "just",
+    "dragonrealms", "mud", "elanthia", "elanthipedia", "game", "wiki",
+})
+
+# Names of the game itself: a page called this is not what a question that merely mentions the game is about.
+GAME_WORDS = frozenset({"dragonrealms", "mud", "elanthia", "elanthipedia"})
+
+
+_GAME_TAIL = re.compile(r"\s+(?:in|of|for|on|within)\s+(?:the\s+)?(?:(?:MUD|game|text game)\s+)?(?:DragonRealms|Dragon Realms|"
+                        r"Elanthia|Elanthipedia)\s*(\?*)$", re.IGNORECASE)
+
+
+def strip_game_name(question: str) -> str:
+    """'How does crafting work in MUD DragonRealms?' -> 'How does crafting work?'. Every page of the wiki is about the
+    game, so naming it only drags the pages called DragonRealms and MUD into the results."""
+    out = _GAME_TAIL.sub(lambda m: m.group(1), question.strip())
+    return out or question

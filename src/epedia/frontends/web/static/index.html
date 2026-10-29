@@ -127,6 +127,12 @@
   .idx-log { margin:6px var(--gutter) 8px; padding:8px 10px; background:var(--bg); border:1px solid var(--line); border-radius:8px; max-height:9.5em; overflow:auto;
     font:.75rem/1.45 ui-monospace, Consolas, monospace; color:var(--muted); white-space:pre-wrap; word-break:break-word; }
   .idx-log[hidden] { display:none; }
+  .idx-setting { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:4px var(--gutter) 6px; }
+  .idx-setting label { color:var(--muted); }
+  .idx-setting input { width:4.5em; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:3px 6px; font:inherit; }
+  .idx-setting button { border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:3px 14px; font:inherit; font-size:.9rem; cursor:pointer; }
+  .idx-setting button:hover { border-color:var(--accent); color:var(--accent); }
+  .idx-setting .dim { color:var(--muted); }
   .idx-link { border:0; background:none; padding:0; margin-left:4px; font:inherit; color:var(--accent); cursor:pointer; text-decoration:underline; }
   .idx-changes { margin:6px var(--gutter) 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
   .idx-changes[hidden] { display:none; }
@@ -269,12 +275,19 @@
       <button id="idxdelta" type="button" class="idx-primary" title="Fetch only what changed on the wiki since the last update, then refresh just those pages">Start delta</button>
       <button id="idxfill" type="button" title="Fetch the pages that are missing or out of date from the mirror (with Elanthipedia as the fallback), then index them. Delta update only fetches what it finds changed.">Fill</button>
       <button id="idxfull" type="button" title="Re-walk the whole wiki, compare every page and refresh everything that differs (slower, but thorough)">Start full</button>
+      <button id="idxhist" type="button" title="Read every page's edit history (who, when, how big; no text) from Elanthipedia, so answers can say how steady a page is. One-off; later updates keep it current.">Fetch history</button>
       <button id="idxreindex" type="button" title="Re-read every stored page with the current text rules and refresh the search index (no wiki traffic; takes hours)">Re-index</button>
       <button id="idxclear" type="button" class="idx-stop" title="Empty the search index so a new one can be built. Keeps the downloaded pages; rebuild with Re-index">Clear index</button>
       <button id="idxstop" type="button" class="idx-stop" hidden title="Stop the running job. Safe: the next run picks up where this one left off">Stop</button>
       <span id="idxstate" class="idx-state" role="status"></span>
     </div>
     <dl class="idx-info" id="idxinfo"></dl>
+  </div>
+  <div class="idx-setting" id="idxsetting">
+    <label for="histn">Edits of page history Fennick sees</label>
+    <input id="histn" type="number" min="0" max="100" step="1" inputmode="numeric">
+    <button id="histsave" type="button">Save</button>
+    <span class="dim" id="histnote"></span>
   </div>
   <pre class="idx-log" id="idxlog" hidden></pre>
   <div class="idx-changes" id="idxchanges" hidden></div>
@@ -758,7 +771,7 @@ function renderIndex(j) {
   const job = j.job || {};
   const delta = document.getElementById('idxdelta'), full = document.getElementById('idxfull'), stop = document.getElementById('idxstop');
   const reindex = j.reindex, outsideRun = !!(reindex && reindex.state === 'running' && !job.running);  // e.g. started from the command line
-  delta.disabled = full.disabled = document.getElementById('idxreindex').disabled = document.getElementById('idxfill').disabled = !!job.running || outsideRun;
+  delta.disabled = full.disabled = document.getElementById('idxreindex').disabled = document.getElementById('idxfill').disabled = document.getElementById('idxhist').disabled = !!job.running || outsideRun;
   document.getElementById('idxclear').disabled = !!job.running || outsideRun || !j.chunks;
   document.getElementById('idxreindex').classList.toggle('idx-primary', !j.chunks && j.pending_index > 0 && !job.running && !outsideRun);  // an empty index: the way forward
   stop.hidden = !(job.running || outsideRun);  // a re-index started elsewhere can be stopped here too
@@ -783,8 +796,20 @@ function renderIndex(j) {
   if (!log.hidden) { log.textContent = job.log.slice(-8).join('\n'); log.scrollTop = log.scrollHeight; }
   const waiting = (j.pending_crawl || j.pending_index)
     ? `${(j.pending_crawl || 0).toLocaleString()} to fetch · ${(j.pending_index || 0).toLocaleString()} to index` : '<span class="dim">nothing</span>';
+  if (j.history_edits !== undefined) {
+    const inp = document.getElementById('histn');
+    if (document.activeElement !== inp) inp.value = j.history_edits;  // never overwrite what is being typed
+    document.getElementById('histnote').textContent = j.history_stored
+      ? `${j.history_stored.toLocaleString()} edits stored · 0 turns it off`
+      : 'No history stored yet: click Fetch history · 0 turns it off';
+  }
+  const lv = j.live;  // a running job: what it has done so far (the run is only logged when it ends)
+  const perMin = lv && job.elapsed_s > 20 ? Math.round(lv.fetched / (job.elapsed_s / 60)) : 0;
+  const liveRow = lv ? `<dt>This run</dt><dd><span class="run">●</span> ${lv.fetched.toLocaleString()} fetched · ${lv.indexed.toLocaleString()} indexed` +
+    (perMin ? ` <span class="dim">· about ${perMin}/min</span>` : '') +
+    (lv.latest.length ? `<div class="dim">Latest: ${lv.latest.map(p => esc(p.title)).join(' · ')}</div>` : '') + '</dd>' : '';
   document.getElementById('idxinfo').innerHTML =
-    reindexRow(j.reindex) +
+    liveRow + reindexRow(j.reindex) +
     `<dt>Last delta update</dt><dd>${runLine(j.last_delta)}</dd>` +
     `<dt>Last full refresh</dt><dd>${runLine(j.last_full)}</dd>` +
     `<dt>Newest wiki edit seen</dt><dd>${when(j.newest_edit_seen) || '<span class="dim">unknown</span>'}</dd>` +
@@ -811,6 +836,13 @@ async function indexAction(path, body) {
 }
 document.getElementById('idxdelta').addEventListener('click', () => indexAction('/api/index/start', { mode: 'delta' }));
 document.getElementById('idxfill').addEventListener('click', () => indexAction('/api/index/start', { mode: 'fill' }));
+document.getElementById('idxhist').addEventListener('click', () => indexAction('/api/index/start', { mode: 'history' }));
+document.getElementById('histsave').addEventListener('click', async () => {
+  const n = parseInt(document.getElementById('histn').value, 10);
+  if (isNaN(n)) return;
+  await indexAction('/api/settings/history', { history_edits: n });
+  flash('<span class="ok">Saved.</span> New answers use ' + Math.max(0, Math.min(100, n)) + ' edits.', 6);
+});
 document.getElementById('idxfull').addEventListener('click', () => {
   if (confirm('Start a full refresh?\n\nIt re-checks every page on the wiki against your copy and refreshes whatever differs, ' +
               'reading from the source shown under "Reading from". ' +

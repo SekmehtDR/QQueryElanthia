@@ -47,7 +47,8 @@ def test_modes_map_to_the_commands_a_person_would_type():
     assert m.command("delta")[:3] == [sys.executable, "-m", "epedia.cli"]
     with pytest.raises(ValueError):
         m.command("everything")
-    assert set(MODES) == {"delta", "full", "reindex", "fill"}
+    assert set(MODES) == {"delta", "full", "reindex", "fill", "history"}
+    assert JobManager(Settings()).command("history")[-1] == "history"
     assert JobManager(Settings()).command("fill")[-1] == "fill"
     assert JobManager(Settings()).command("reindex")[-2:] == ["index", "--reembed-all"]
 
@@ -404,3 +405,22 @@ def test_a_re_index_started_outside_the_page_can_be_stopped_from_it(tmp_path, mo
         assert c.get("/api/index/info").json()["reindex"]["state"] == "interrupted"  # shown as stopped at once
         # nothing left running: another stop does nothing
         assert "external_stopped" not in c.post("/api/index/stop", headers=LOCAL).json()
+
+
+def test_live_progress_counts_only_what_happened_since_the_job_started():
+    from epedia.jobs import live_progress
+
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE pages (page_id INTEGER PRIMARY KEY, title TEXT, fetched_revid INT, indexed_revid INT, updated_at TEXT)")
+    c.execute("CREATE TABLE page_html (page_id INT, fetched_at TEXT)")
+    rows = [(1, "Old", 5, 5, "2026-10-28T10:00:00Z"), (2, "New fetched", 7, None, "2026-10-28T12:01:00Z"),
+            (3, "New indexed", 8, 8, "2026-10-28T12:02:00Z")]
+    c.executemany("INSERT INTO pages VALUES (?,?,?,?,?)", rows)
+    c.executemany("INSERT INTO page_html VALUES (?,?)", [(r[0], r[4]) for r in rows])
+    # indexed long ago, only touched by another stage during this job: not this job's work
+    c.execute("INSERT INTO pages VALUES (4, 'Touched', 3, 3, '2026-10-28T12:03:00Z')")
+    c.execute("INSERT INTO page_html VALUES (4, '2026-10-28T09:00:00Z')")
+    live = live_progress(c, "2026-10-28T12:00:00Z")
+    assert (live["fetched"], live["indexed"]) == (2, 1)
+    assert [p["title"] for p in live["latest"]] == ["New indexed", "New fetched"]
+    assert live_progress(sqlite3.connect(":memory:"), "2026-10-28T12:00:00Z")["latest"] == []  # no tables yet
