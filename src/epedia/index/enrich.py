@@ -20,7 +20,7 @@ def enrich_all(conn: sqlite3.Connection, force: bool = False) -> dict[str, Any]:
     stats = {"pages": 0, "facts": 0}
     suspect: list[str] = []
     for ex in REGISTRY:
-        for title in ex.titles:
+        for title in (ex.pages(conn) if ex.pages else ex.titles):
             page = conn.execute(
                 "SELECT page_id, fetched_revid, indexed_revid, enriched_revid FROM pages WHERE title=? AND is_redirect=0",
                 (title,)).fetchone()
@@ -31,7 +31,7 @@ def enrich_all(conn: sqlite3.Connection, force: bool = False) -> dict[str, Any]:
                 continue
             chunks = [(r["section_path"], r["text"]) for r in conn.execute(
                 "SELECT section_path, text FROM chunks WHERE page_id=? ORDER BY ord", (page["page_id"],))]
-            facts = ex.run(chunks)
+            facts = ex.run(chunks, title) if ex.pages else ex.run(chunks)
             had = conn.execute("SELECT count(*) FROM facts WHERE page_id=? AND domain=?",
                                (page["page_id"], ex.domain)).fetchone()[0]
             if had and len(facts) < had / 2:

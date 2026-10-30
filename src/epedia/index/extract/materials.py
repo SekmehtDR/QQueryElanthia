@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from . import Fact, number, register, tables
+from . import Fact, number, register, register_pages, tables
 
 TITLE = "Category:Crafting materials"
 
@@ -57,3 +57,35 @@ def extract(chunks: list[tuple[str, str]]) -> list[Fact]:
                         continue
                     facts.append((name, grp, attr, number(row[i]), row[i].strip(), section))
     return facts
+
+
+# The "<Material> at a Glance" box at the top of each material's own page; a table or plain lines, depending on the page.
+GLANCE = {"material type": "type", "colors": "colors", "rarity": "rarity", "cultural relevance": "culture",
+          "innate qualities": "innate", "required for alterations": "alterations"}
+_GLANCE_ROW = re.compile(r"^(?:\|\s*\|\s*)?(" + "|".join(GLANCE) + r")(?:\s*[|:]\s*|\s+)(.*?)[\s|]*$", re.I)
+_TYPE = {"metals": "metal", "woods": "wood", "leather": "leather", "bone": "bone", "stone": "stone", "fabric": "cloth"}
+
+
+def _material_pages(conn) -> list[str]:
+    return [r[0] for r in conn.execute("SELECT DISTINCT entity FROM facts WHERE domain='material' ORDER BY entity")]
+
+
+@register_pages("material_page", _material_pages)
+def glance(chunks: list[tuple[str, str]], title: str) -> list[Fact]:
+    """Colours, rarity, cultural ties and innate qualities from the box on a material's own page (the category tables
+    give only the numbers). Only the lines right after the "at a Glance" heading count, so prose below cannot."""
+    found: dict[str, str] = {}
+    for section, text in chunks[:2]:
+        lines = text.splitlines()
+        start = next((i for i, ln in enumerate(lines) if "at a glance" in ln.lower()), None)
+        if start is None:
+            continue
+        for ln in lines[start + 1:]:
+            if not ln.strip():
+                break
+            m = _GLANCE_ROW.match(ln.strip())
+            if m and m[2].strip() and GLANCE[m[1].lower()] not in found:
+                found[GLANCE[m[1].lower()]] = m[2].strip()
+        matter = _TYPE.get(found.get("type", "").split(",")[0].strip().lower(), "")
+        return [(title, matter, attr, None, value, section) for attr, value in found.items()]
+    return []

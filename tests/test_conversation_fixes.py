@@ -256,3 +256,32 @@ def test_the_answer_prompt_says_how_to_credit_talk_and_user_pages():
     assert '"Talk:" page' in prompts.PERSONA_BLOCK and "name who signed" in prompts.PERSONA_BLOCK
     assert '"Talk:" page' in prompts.NEUTRAL_ANSWER_SYSTEM
     assert "Dandin" not in prompts.PERSONA_BLOCK  # an example name would be copied, and would pass the name check
+
+
+# ------------------------------------------------------------------------------------------------ "give me all ..."
+
+@pytest.mark.parametrize("q,yes", [
+    ("Give me all metals that are blue or partially blue", True), ("list every creature in the Crossing", True),
+    ("Give me all that are blue in color", True), ("Is there a complete list of spells?", True),
+    ("list of hunting areas", True), ("Who is Binu?", False), ("Is that all?", False),
+    ("Tell me everything about Binu", False), ("Can I hunt at all at circle 5?", False),
+])
+def test_questions_asking_for_everything_are_recognised(q, yes):
+    assert capabilities.wants_all(q) is yes
+
+
+def test_a_model_written_list_for_all_says_it_is_partial(conn):
+    model = Model(["Here are some:\n- Binu [1]\n- Musk hog [2]", "Binu is a Human Necromancer [1]."])
+    s = Settings()
+    s.retrieval.offer_related = False
+    a = Assistant(s, conn, model)
+    sid = memory.new_session(conn, "web")
+    answer = run(a, sid, "Give me all players and hogs")[-1].answer
+    assert "so there are likely more" in answer and "pages I could read" in answer
+    single = run(a, memory.new_session(conn, "web"), "Who is Binu?")[-1].answer
+    assert "likely more" not in single  # not a list question
+
+
+def test_the_partial_list_note_counts_pages():
+    assert "the one page I could read" in capabilities.partial_list(1, True)
+    assert "the 4 pages retrieved" in capabilities.partial_list(4, False)

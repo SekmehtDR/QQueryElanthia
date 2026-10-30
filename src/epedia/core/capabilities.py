@@ -119,6 +119,30 @@ def is_rejection(message: str) -> bool:
     return len(message.split()) <= REJECTION_WORDS and bool(REJECTION.search(message))
 
 
+# "Give me all metals that are blue": the model sees only the handful of pages the search returned, so any list it writes
+# for "all"/"every" is partial. Code says so, and how to ask for a fuller one (the log had a list of blue *things*).
+WANTS_ALL = re.compile(
+    r"\b(?:list|name|give me|show me|tell me|what are|which are)\s+(?:me\s+)?(?:all|every)\b|"
+    r"\ball (?:of )?(?:the |your )?(?:[a-z'-]+ )?[a-z'-]+s\b|\bevery (?:single )?[a-z'-]+\b|"
+    r"\b(?:full|complete|whole|entire) list\b|\blist (?:of |all )?(?:the )?(?:[a-z'-]+ ){0,2}[a-z'-]+s\b",
+    re.I,
+)
+NOT_ALL = re.compile(r"\b(?:at all|all in all|all right|is that all|that's all|everything about)\b", re.I)
+PARTIAL_LIST = ("Mind you, that list comes from the {pages} I could read for this question, so there are likely more. "
+                "Asking about one kind of thing at a time, by the trait you care about (say, \"which metals are blue?\"), "
+                "gets a fuller answer.")
+PARTIAL_LIST_PLAIN = ("Note: this list comes from the {pages} retrieved for this question and is probably incomplete; "
+                      "a narrower question (one kind of thing and one trait) returns a fuller one.")
+
+
+def wants_all(question: str) -> bool:
+    return bool(WANTS_ALL.search(question)) and not NOT_ALL.search(question)
+
+
+def partial_list(pages: int, persona: bool) -> str:
+    return (PARTIAL_LIST if persona else PARTIAL_LIST_PLAIN).replace("{pages}", "one page" if pages == 1 else f"{pages} pages")
+
+
 # With a conversation under way, a message is about Fennick himself only if it greets, thanks, or plainly asks about
 # him; anything else that says "you" ("are you going to try again?") is about the conversation's subject.
 ABOUT_ME = re.compile(

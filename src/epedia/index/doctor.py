@@ -67,9 +67,10 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     add("no orphan chunks", orphans == 0, f"{orphans:,} orphans" if orphans else "")
     empty = _one(conn, "SELECT count(*) FROM chunks WHERE text IS NULL OR length(trim(text)) = 0")
     add("no empty chunks", empty == 0, f"{empty:,} empty" if empty else "")
+    # A File page is often just the image, and talk and user pages are often blank: only articles are expected to have text.
     nochunk = _one(
-        conn, "SELECT count(*) FROM pages p WHERE is_redirect=0 AND indexed_revid IS NOT NULL AND "
-              "page_kind NOT IN ('soft_redirect') AND NOT EXISTS (SELECT 1 FROM chunks k WHERE k.page_id=p.page_id)")
+        conn, "SELECT count(*) FROM pages p WHERE is_redirect=0 AND indexed_revid IS NOT NULL AND page_kind NOT IN "
+              "('soft_redirect', 'file', 'talk', 'user', 'site') AND NOT EXISTS (SELECT 1 FROM chunks k WHERE k.page_id=p.page_id)")
     add("indexed pages have chunks", nochunk < 100, f"{nochunk:,} indexed pages with no chunks (stubs are normal)")
 
     # Link graph coverage for the pages that carry knowledge (generic items are mostly bare).

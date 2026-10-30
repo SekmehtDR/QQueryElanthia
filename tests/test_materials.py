@@ -37,6 +37,18 @@ CHUNKS = [("Forging materials > Common metals", METALS), ("Forging materials > S
            "|---|---|---|---|---|---|---|---|---|---|\n| Barghest bone | 80 | 85 | 15 | 50 | 50 | 80 | 45 | 5.40 |  |\n"
            "| Badger bone | 40 | 45 | 45 | 40 | 45 | 40 | 45 | 3.25 |  |\n")]
 GUIDE = ("Metallurgy > Mixing Metals to Adjust Density/Weight (part 1)", "Weapon templates \"cap\" at 7.5 density.")
+# Each material's own page opens with an "at a Glance" box, as a table on most pages and as plain lines on a few.
+GLANCES = {
+    "Telothian": "| Telothian at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Metals |\n|  | Colors | Purple |\n"
+                 "|  | Rarity | Auction-Tier |\n\nA deep purple metal. Rarity: whatever the auction says.",
+    "Haralun": "Haralun at a Glance\nMaterial Type Metals\nColors: Blue, Black\nRarity: Rare\n\nA dark metal.",
+    "Bronze": "| Bronze at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Metals |\n|  | Colors | Indigo |\n"
+              "|  | Rarity | Common |\n",
+    "Steel (HCS)": "| Steel (HCS) at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Metals, Steels |\n"
+                   "|  | Colors | Unknown |\n|  | Rarity | Common |\n",
+    "Oak": "| Oak at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Woods |\n|  | Colors | Blue |\n"
+           "|  | Rarity | Common |\n",
+}
 
 
 @pytest.fixture
@@ -52,6 +64,11 @@ def conn(tmp_path):
                   " VALUES (1, 5, ?, 'category', 'Category:Crafting materials', ?, ?, 1, ?)", (i, sec, text, str(i)))
     c.execute("INSERT INTO chunks(page_id, revid, ord, kind, title, section_path, text, token_est, content_hash)"
               " VALUES (2, 6, 0, 'guide', 'Forging guide', ?, ?, 1, 'g')", GUIDE)
+    for pid, (title, text) in enumerate(GLANCES.items(), start=10):
+        c.execute("INSERT INTO pages(page_id, ns, title, title_norm, latest_revid, fetched_revid, indexed_revid, is_redirect,"
+                  " page_kind, updated_at) VALUES (?, 0, ?, ?, 3, 3, 3, 0, 'material', 'x')", (pid, title, title.lower()))
+        c.execute("INSERT INTO chunks(page_id, revid, ord, kind, title, section_path, text, token_est, content_hash)"
+                  " VALUES (?, 3, 0, 'material', ?, '', ?, 1, ?)", (pid, title, text, f"m{pid}"))
     enrich_all(c)
     yield c
     c.close()
@@ -149,6 +166,62 @@ def test_describing_words_are_not_missing_materials(conn):
     for q in ("what's the strongest metal for a greatsword?", "best common metal for a sword", "best light metal for a dagger"):
         answer = materials.passage(conn, q, "https://x")[0]["answer"]
         assert not answer.startswith("I don't have"), q
+
+
+def test_the_glance_box_is_read_in_both_layouts_and_nothing_below_it():
+    from epedia.index.extract.materials import glance
+
+    tel = {a: v for _e, _g, a, _n, v, _s in glance([("", GLANCES["Telothian"])], "Telothian")}
+    assert tel == {"type": "Metals", "colors": "Purple", "rarity": "Auction-Tier"}  # the prose "Rarity:" is not read
+    har = glance([("", GLANCES["Haralun"])], "Haralun")
+    assert {a: v for _e, _g, a, _n, v, _s in har} == {"type": "Metals", "colors": "Blue, Black", "rarity": "Rare"}
+    assert har[0][:2] == ("Haralun", "metal")
+    assert glance([("", "No box here.\nColors: Red")], "X") == []
+
+
+def test_enrich_reads_every_material_page_listed_in_the_tables(conn):
+    rows = conn.execute("SELECT entity FROM facts WHERE domain='material_page' AND attribute='colors'").fetchall()
+    assert {r[0] for r in rows} == set(GLANCES)
+    assert enrich_all(conn)["pages"] == 0  # keyed by revision like the tables
+    conn.execute("UPDATE pages SET fetched_revid=4, indexed_revid=4 WHERE title='Haralun'")
+    assert enrich_all(conn)["pages"] == 1
+
+
+def test_colour_questions_are_recognised():
+    ask = materials.wants_colour("Give me all metals that are blue or partially blue")
+    assert ask.colours == ["blue"] and ask.matters == {"metal"}
+    assert materials.wants_colour("Take a look at the metal item types, give me all that are blue in color").matters == {"metal"}
+    assert materials.wants_colour("which rare leathers are black").rarity == "Rare"
+    assert materials.wants_colour("what materials are green").matters == set()  # every kind
+    assert materials.wants_colour("what metals are silver colored").colours == ["silver"]
+    for q in ("which metals are silver", "which shop sells blue metal shields?", "What is blue gold?",
+              "what is the best metal for a sword", "what stone is the black obelisk made of?", "What color is glaes?"):
+        assert materials.wants_colour(q) is None, q
+
+
+def test_metals_by_colour_are_listed_by_code_each_cited_to_its_own_page(conn):
+    out = materials.passage(conn, "Give me all metals that are blue or partially blue", "https://x")
+    answer = out[0]["answer"]
+    assert answer.index("Only blue:") < answer.index("**Bronze**") < answer.index("Blue with other colours:")  # indigo
+    assert "**Haralun** (rare): blue, black [2]" in answer
+    assert "Oak" not in answer and "Telothian" not in answer  # a wood, and a purple metal
+    assert [p["title"] for p in out] == ["Bronze", "Haralun"] and all(p["chunk_id"] for p in out)
+    assert 'listed only as "various" or "unknown"' in answer and "Steel (HCS)" in answer.split("(OOC)")[1]
+
+
+def test_no_material_of_that_colour_is_said_plainly(conn):
+    answer = materials.passage(conn, "are there any orange metals?", "https://x")[0]["answer"]
+    assert answer.startswith("None of the metals in my notes is listed as orange.")
+    assert "blue" in answer.split("come in:")[1]
+
+
+def test_a_colour_question_skips_the_planner(conn):
+    from epedia.core.assistant import Assistant
+
+    a = Assistant.__new__(Assistant)
+    a.conn, a.s = conn, Settings()
+    plan = a._early_plan("Which metals are blue?", "", [])
+    assert plan and plan.kind == "crafting" and plan.prebuilt[0]["answer"].startswith("Going by")
 
 
 def test_a_layout_change_does_not_wipe_the_facts_already_known(conn):

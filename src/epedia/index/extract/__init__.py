@@ -7,6 +7,7 @@ of those pages has a newer revision than its facts. A new kind of structured dat
 from __future__ import annotations
 
 import re
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -18,7 +19,8 @@ Fact = tuple[str, str, str, float | None, str, str]
 class Extractor:
     domain: str
     titles: tuple[str, ...]
-    run: Callable[[list[tuple[str, str]]], list[Fact]]  # [(section_path, text)] of the page -> facts
+    run: Callable[..., list[Fact]]  # [(section_path, text)] of the page -> facts (a per-page one also gets the title)
+    pages: Callable[[sqlite3.Connection], list[str]] | None = None  # titles listed from the database instead
 
 
 REGISTRY: list[Extractor] = []
@@ -27,6 +29,15 @@ REGISTRY: list[Extractor] = []
 def register(domain: str, titles: tuple[str, ...]):
     def deco(fn: Callable[[list[tuple[str, str]]], list[Fact]]):
         REGISTRY.append(Extractor(domain, titles, fn))
+        return fn
+    return deco
+
+
+def register_pages(domain: str, pages: Callable[[sqlite3.Connection], list[str]]):
+    """An extractor for many pages of one kind (each material's own page): `pages` lists their titles from facts
+    already read, so it must be registered after the extractor that reads those, and it is called as fn(chunks, title)."""
+    def deco(fn: Callable[[list[tuple[str, str]], str], list[Fact]]):
+        REGISTRY.append(Extractor(domain, (), fn, pages))
         return fn
     return deco
 

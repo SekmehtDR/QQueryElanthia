@@ -203,6 +203,7 @@ Event = Retrieval | Token | Revise | Done
 
 # A citation in a final answer: by the model [2], matched by code [2*], or not borne out by its passage [2?].
 ANY_CITE = re.compile(r"\[(\d+)[*?]?\]")
+LIST_LINE = re.compile(r"^[ \t]*(?:[-*•]|\d+[.)])\s.*\n(?:.*\n)*?[ \t]*(?:[-*•]|\d+[.)])\s", re.M)  # two list items
 
 # A link to an Elanthipedia page pasted into a message ("check the correct article: https://.../Elanthian_time"): the
 # page is read directly instead of searching for the words of its address.
@@ -789,6 +790,12 @@ class Assistant:
         note = verify.honesty_note(checked, self.s.persona.enabled, uncited=plan.kind != "meta")
         if note:
             tail = "\n\n" + note
+            yield Token(tail)
+            answer += tail
+        if (plan.kind != "meta" and plan.mode != "fiction" and LIST_LINE.search(answer)
+                and (capabilities.wants_all(user_message) or capabilities.wants_all(plan.standalone_question))):
+            pages = len({p["title"] for p in passages if not p["title"].endswith(": recent edits")})
+            tail = "\n\n" + capabilities.partial_list(pages, self.s.persona.enabled)
             yield Token(tail)
             answer += tail
         notes = self._edit_notes(passages, plan.standalone_question, answer)
