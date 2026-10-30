@@ -322,6 +322,21 @@ ROUTER_SCHEMA = {
 }
 
 
+def fit_messages(system: str, hist: list[dict[str, str]], user: str, num_ctx: int,
+                 reserve: int) -> tuple[list[dict[str, str]], int]:
+    """(history that fits, tokens still over) for an answer prompt of `num_ctx` tokens with `reserve` left for the reply.
+
+    The context window is a hard limit: past it the model silently forgets the start of the prompt, which is where the
+    persona and the rules are. Older turns go first (the passages are the evidence); whatever is still over is returned
+    so the caller can pack fewer passages."""
+    fixed = token_estimate(system) + token_estimate(user) + reserve
+    kept = list(hist)
+    while kept and fixed + sum(token_estimate(m["content"]) for m in kept) > num_ctx:
+        kept = kept[2:] if len(kept) > 1 else []  # drop the oldest exchange (a question and its answer) together
+    over = fixed + sum(token_estimate(m["content"]) for m in kept) - num_ctx
+    return kept, max(0, over)
+
+
 def format_passages(passages: list[dict], budget_tokens: int, today: "date | None" = None) -> tuple[str, int]:
     """Number passages [1..n] until the token budget is used; returns (text, count_used).
 

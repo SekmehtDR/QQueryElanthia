@@ -114,6 +114,21 @@ class Ollama:
                 **({"temperature": temperature} if temperature is not None else {}),
             },
         }
+        attempts = 2 if self.cfg.retry_before_first_token else 1
+        for attempt in range(attempts):
+            started = False
+            try:
+                async for content in self._stream_once(payload):
+                    started = True
+                    yield content
+                return
+            except (OllamaError, httpx.TransportError) as exc:
+                if started or attempt == attempts - 1:
+                    raise exc if isinstance(exc, OllamaError) else OllamaError(f"chat failed: {exc!r}") from exc
+                log.warning("chat failed before the first token (%s); trying once more", exc.__class__.__name__)
+                await asyncio.sleep(1.0)
+
+    async def _stream_once(self, payload: dict[str, Any]) -> AsyncIterator[str]:
         async with self._client.stream("POST", "/api/chat", json=payload) as r:
             if r.status_code != 200:
                 body = (await r.aread()).decode("utf-8", "replace")
@@ -121,7 +136,10 @@ class Ollama:
             async for line in r.aiter_lines():
                 if not line:
                     continue
-                msg = json.loads(line)
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise OllamaError(f"chat returned a line that is not JSON: {line[:200]}") from exc
                 if "error" in msg:
                     raise OllamaError(msg["error"])
                 content = msg.get("message", {}).get("content", "")
@@ -147,11 +165,17 @@ class Ollama:
             "keep_alive": self.cfg.keep_alive,
             "options": {"num_ctx": num_ctx or min(self.cfg.num_ctx, 8192), "temperature": 0},
         }
-        r = await self._client.post("/api/chat", json=payload)
+        try:
+            r = await self._client.post("/api/chat", json=payload)
+        except httpx.TransportError as exc:  # Ollama not running, or it dropped the connection: the caller falls back
+            raise OllamaError(f"chat failed: {exc!r}") from exc
         if r.status_code != 200:
             raise OllamaError(f"chat HTTP {r.status_code}: {r.text[:300]}")
-        content = r.json().get("message", {}).get("content", "")
         try:
-            return json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise OllamaError(f"model returned non-JSON: {content[:200]}") from exc
+            content = r.json().get("message", {}).get("content", "")
+            data = json.loads(content)
+        except (json.JSONDecodeError, AttributeError) as exc:
+            raise OllamaError(f"model returned non-JSON: {r.text[:200]}") from exc
+        if not isinstance(data, dict):
+            raise OllamaError(f"model returned JSON that is not an object: {content[:200]}")
+        return data

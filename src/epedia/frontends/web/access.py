@@ -88,6 +88,32 @@ class LoginLimiter:
         self._fails.pop(ip, None)
 
 
+class TurnLimiter:
+    """At most `per_hour` questions per visitor in any hour, so one person cannot keep the only GPU busy for everyone.
+    0 means no limit. Kept in memory: a restart forgives everyone, which is fine for a courtesy limit."""
+
+    def __init__(self, per_hour: int, window: float = 3600.0):
+        self.per_hour, self.window = per_hour, window
+        self._asked: dict[str, list[float]] = {}
+
+    def allow(self, who: str) -> bool:
+        """Count a question from `who` and say whether it may be answered."""
+        if self.per_hour <= 0:
+            return True
+        now = time.monotonic()
+        recent = [t for t in self._asked.get(who, []) if now - t < self.window]
+        if len(recent) >= self.per_hour:
+            self._asked[who] = recent
+            return False
+        self._asked[who] = [*recent, now]
+        return True
+
+    def wait_minutes(self, who: str) -> int:
+        """Minutes until `who` may ask again (at least 1)."""
+        recent = self._asked.get(who) or [time.monotonic()]
+        return max(1, int((self.window - (time.monotonic() - min(recent))) // 60) + 1)
+
+
 LOGIN_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fennick · sign in</title>

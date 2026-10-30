@@ -113,7 +113,7 @@ def test_a_deleted_or_foreign_chat_id_in_a_message_starts_a_fresh_conversation(t
     c.close()
     with TestClient(create_app(s), base_url="https://testserver") as client:
         client.post("/login", json={"code": CODE}, headers=TUNNEL)
-        text = client.post("/api/chat", json={"session_id": mine, "message": "hello"}, headers=TUNNEL).text
+        text = client.post("/api/chat", json={"session_id": mine, "message": "hello"}, headers={**TUNNEL, "X-QQE": "1"}).text
         assert text.startswith("event: session") and mine not in text  # a visitor cannot write into the owner's chat
 
 
@@ -122,7 +122,8 @@ def test_long_messages_are_refused(tmp_path, monkeypatch):
     s.web.max_message_chars = 50
     with TestClient(create_app(s), base_url="https://testserver") as client:
         client.post("/login", json={"code": CODE}, headers=TUNNEL)
-        assert client.post("/api/chat", json={"session_id": "x", "message": "y" * 51}, headers=TUNNEL).status_code == 413
+        assert client.post("/api/chat", json={"session_id": "x", "message": "y" * 51},
+                           headers={**TUNNEL, "X-QQE": "1"}).status_code == 413
 
 
 def test_proxy_headers_make_a_request_non_local_and_plain_loopback_local():

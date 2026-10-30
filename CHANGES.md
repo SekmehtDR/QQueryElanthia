@@ -1,7 +1,43 @@
 # Changes
 
-Latest version: **1.0.0** (2026-10-22). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.1.0** (2026-10-29). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.1.0: a guide who does not make things up (in progress, 2026-10-29)
+
+Work on making Fennick a robust conversation agent (see the plan's analysis of the real conversation log: invented
+creatures, narrated "let me check" actions, drift in long chats, fan fiction). Phase 0, the foundation:
+
+### New
+
+- **Every turn is recorded** in a new `turns` table: how long the planner, the search and the first word took, what the
+  planner decided, and the error if it failed. It is written even when the model is down or the reader closes the page
+  mid-answer (`aborted by the reader`), so the owner can see what went wrong. Messages now store the `[n]` they cite and
+  their turn. Schema version 3 (`db._migrate_v3`, additive).
+- **Visitors through the tunnel may ask 40 questions an hour** (`[web] visitor_turns_per_hour`, 0 = no limit); the 41st
+  gets a friendly in-voice "try again in about N minutes". The owner at the computer is never limited.
+
+### Fixes
+
+- **A question is never lost.** It is saved before the planner runs; before, a failed or abandoned answer left no trace at
+  all. A half-written answer that failed is kept in the transcript (mode `error`) but never fed back to the model.
+- **A dropped connection to Ollama is handled.** Transport errors become `OllamaError` (the planner falls back to a plain
+  search instead of crashing the turn), and an answer that fails before its first word is tried once more
+  (`[ollama] retry_before_first_token`); never after words were shown. The CLI `chat` reports a model error and keeps
+  the conversation instead of exiting.
+- **The prompt always fits the model's context window.** Older turns are dropped first, then passages from the bottom of
+  the list (`prompts.fit_messages`, `[ollama] answer_reserve_tokens`).
+- **`/api/chat` now needs the page's `X-QQE` header** like every other state-changing call, so another site cannot make a
+  visitor's browser spend the GPU. The Origin check also accepts a tunnel's `X-Forwarded-Host`.
+- **The clock and the crafting tables skip the planner** on a first message (about 1.5 to 9 seconds saved), and a
+  crafting table built while planning is reused by retrieval instead of being built twice.
+- The page shows a refusal's own text (the hourly limit) instead of raw JSON.
+
+### Internals
+
+- `core/turns.py` (`Turn.start/mark/finish/fail`), `memory.add_message` returns the new id, `memory.note_plan`;
+  `Assistant.answer_stream` is a recorder around `_answer`; `Done.turn_id`, SSE `done.turn_id`; `access.TurnLimiter`.
+  14 new tests (`tests/test_turns.py`); 291 in all.
 
 ## 1.0.0: Fennick, a storyteller's guide (2026-10-22)
 

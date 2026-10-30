@@ -570,12 +570,13 @@ async function runAsk(text, signal) {
   };
   const settle = () => { if (frame) { cancelAnimationFrame(frame); frame = 0; } };
   try {
-    const r = await fetch('/api/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, signal,
+    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-QQE': '1' }, signal,
       body: JSON.stringify({ session_id: sessionId, message: text }) });
     if (!r.ok || !r.body) {  // a 4xx/5xx or a proxy page is not an event stream: say so instead of waiting forever
       let detail = '';
-      try { detail = (await r.text()).slice(0, 200); } catch (e) { /* no body */ }
-      throw new Error('the server answered ' + r.status + (detail ? ': ' + detail : ''));
+      try { detail = (await r.text()).slice(0, 400); } catch (e) { /* no body */ }
+      try { detail = JSON.parse(detail).detail || detail; } catch (e) { /* not JSON: keep the text */ }
+      throw new Error(r.status === 429 ? detail : 'the server answered ' + r.status + (detail ? ': ' + detail : ''));
     }
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = '', finished = false;
@@ -624,7 +625,7 @@ async function runAsk(text, signal) {
     }
   } catch (e) {
     settle(); mouth.stop();
-    if (!signal.aborted) showError(body, String(e), text);  // a cancelled run is intentional: say nothing
+    if (!signal.aborted) showError(body, (e && e.message) || String(e), text);  // a cancelled run is intentional: say nothing
   }
   settle(); mouth.stop();
 }

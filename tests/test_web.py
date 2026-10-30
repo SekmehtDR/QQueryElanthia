@@ -191,7 +191,7 @@ def test_page_survives_http_errors_malformed_events_and_dropped_streams(client):
 
 
 def test_chat_endpoint_rejects_an_empty_message_with_a_json_error(client):
-    r = client.post("/api/chat", json={"session_id": "s", "message": "   "})
+    r = client.post("/api/chat", json={"session_id": "s", "message": "   "}, headers={"X-QQE": "1"})
     assert r.status_code == 400  # the page now shows this as an error with a retry button
 
 

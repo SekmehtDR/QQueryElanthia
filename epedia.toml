@@ -46,6 +46,8 @@ embed_dim = 768
 chat_model = "qwen3:8b"
 num_ctx = 16384
 keep_alive = "30m"
+retry_before_first_token = true   # an answer that fails before its first word is tried once more
+answer_reserve_tokens = 1500      # context kept free for the answer when checking the prompt fits num_ctx
 
 [chunking]
 target_tokens = 450
@@ -89,3 +91,4 @@ enabled = true     # false restores the plain, neutral answer style
 [web]
 host = "127.0.0.1"
 port = 8765
+visitor_turns_per_hour = 40   # questions per hour for each visitor through the tunnel (0 = no limit; the owner is never limited)

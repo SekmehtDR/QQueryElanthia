@@ -58,9 +58,10 @@ def history(conn: sqlite3.Connection, session_id: str, turns: int) -> list[dict[
     """Last `turns` user/assistant exchanges, with old [n] citation markers removed (numbering is per answer).
 
     Only messages after the session's context boundary count: a person who set the topic aside gets a clean slate
-    while the transcript stays visible."""
+    while the transcript stays visible. The partial text of an answer that failed is shown, never remembered."""
     rows = conn.execute(
-        "SELECT role, content FROM messages WHERE session_id=? AND msg_id>? ORDER BY msg_id DESC LIMIT ?",
+        "SELECT role, content FROM messages WHERE session_id=? AND msg_id>? AND coalesce(mode, '') != 'error' "
+        "ORDER BY msg_id DESC LIMIT ?",
         (session_id, _context_from(conn, session_id), turns * 2),
     ).fetchall()
     out = []
@@ -132,12 +133,16 @@ def add_message(
     kind: str | None = None,
     sources: list[dict] | None = None,
     related: list[str] | None = None,
-) -> None:
-    conn.execute(
-        "INSERT INTO messages(session_id, role, content, standalone_q, mode, kind, sources, related, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    cited: list[int] | None = None,
+    turn_id: int | None = None,
+) -> int:
+    """Store one message and return its id."""
+    cur = conn.execute(
+        "INSERT INTO messages(session_id, role, content, standalone_q, mode, kind, sources, related, cited, turn_id, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (session_id, role, content, standalone_q, mode, kind, json.dumps(sources) if sources else None,
-         json.dumps(related) if related else None, utcnow_iso()),
+         json.dumps(related) if related else None, json.dumps(cited) if cited is not None else None, turn_id,
+         utcnow_iso()),
     )
     conn.execute("UPDATE sessions SET updated_at=? WHERE session_id=?", (utcnow_iso(), session_id))
     if role == "user":  # the first question names the conversation in the Past chats list
@@ -145,6 +150,12 @@ def add_message(
             "UPDATE sessions SET title=? WHERE session_id=? AND title IS NULL",
             (re.sub(r"\s+", " ", content).strip()[:TITLE_CHARS], session_id),
         )
+    return cur.lastrowid
+
+
+def note_plan(conn: sqlite3.Connection, msg_id: int, standalone_q: str, mode: str, kind: str) -> None:
+    """Fill in what the planner made of a question that was saved before planning (so a failed turn keeps it)."""
+    conn.execute("UPDATE messages SET standalone_q=?, mode=?, kind=? WHERE msg_id=?", (standalone_q, mode, kind, msg_id))
 
 
 def set_topic(conn: sqlite3.Connection, session_id: str, topic: str | None) -> None:

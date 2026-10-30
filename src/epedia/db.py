@@ -11,7 +11,7 @@ import sqlite_vec
 
 from .config import Settings
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -257,6 +257,7 @@ def migrate(conn: sqlite3.Connection, settings: Settings) -> None:
             f"embedding FLOAT[{settings.ollama.embed_dim}])"
         )
     _migrate_v2(conn)
+    _migrate_v3(conn)
     if get_state(conn, "schema_version") != str(SCHEMA_VERSION):
         set_state(conn, "schema_version", str(SCHEMA_VERSION))
     if get_state(conn, "embed_model") is None:
@@ -301,6 +302,40 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
           PRIMARY KEY (from_page_id, to_page_id)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS ix_links_to ON page_links(to_page_id);
+        """
+    )
+
+
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    """One row per answered (or failed) turn: timings, what the planner decided, how well the answer was grounded, and
+    the reader's verdict. Written even when the turn fails, so nothing a person asked is lost from the record."""
+    _ensure_column(conn, "messages", "cited", "TEXT")  # JSON list of the [n] the answer cites
+    _ensure_column(conn, "messages", "turn_id", "INTEGER")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS turns (
+          turn_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id       TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+          user_msg_id      INTEGER,
+          assistant_msg_id INTEGER,
+          started_at       TEXT NOT NULL,
+          planner_ms       INTEGER,
+          retrieve_ms      INTEGER,
+          ttft_ms          INTEGER,
+          total_ms         INTEGER,
+          plan_json        TEXT,
+          grounding_json   TEXT,
+          verify_json      TEXT,
+          regenerated      INTEGER NOT NULL DEFAULT 0,
+          error            TEXT,
+          frontend         TEXT,
+          owner            TEXT,
+          feedback         INTEGER,
+          feedback_reason  TEXT,
+          feedback_at      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_turns_session ON turns(session_id, turn_id);
+        CREATE INDEX IF NOT EXISTS ix_turns_feedback ON turns(feedback) WHERE feedback IS NOT NULL;
         """
     )
 

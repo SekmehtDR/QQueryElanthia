@@ -196,7 +196,7 @@ def test_an_unknown_session_id_starts_a_fresh_conversation_and_says_so(tmp_path,
     s = Settings()
     s.db.path = str(tmp_path / "t.db")
     with TestClient(create_app(s)) as client:
-        text = client.post("/api/chat", json={"session_id": "stale-id", "message": "hello"}).text
+        text = client.post("/api/chat", json={"session_id": "stale-id", "message": "hello"}, headers=LOCAL).text
         assert text.startswith("event: session")
         new_id = text.split('"session_id": "')[1].split('"')[0]
         assert new_id != "stale-id" and client.get(f"/api/sessions/{new_id}/messages").status_code == 200

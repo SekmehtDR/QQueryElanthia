@@ -687,7 +687,7 @@ def chat(session: Optional[str] = typer.Option(None, help="Resume a session id")
     """Interactive conversation with memory. Commands: /new, /quit."""
     from .core.assistant import Assistant
     from .core.memory import new_session
-    from .llm.ollama import Ollama
+    from .llm.ollama import Ollama, OllamaError
 
     s = settings()
     conn = db.connect(s)
@@ -715,7 +715,11 @@ def chat(session: Optional[str] = typer.Option(None, help="Resume a session id")
                     sid = new_session(conn, "cli")
                     console.print("[dim]new conversation[/dim]")
                     continue
-                await _stream_answer(assistant, sid, q)
+                try:
+                    await _stream_answer(assistant, sid, q)
+                except OllamaError as exc:  # the question is saved and the turn records the error; keep the conversation
+                    console.print(f"\n[red]The model failed: {exc}[/red] [dim](ask again, or check that Ollama is running)[/dim]",
+                                  highlight=False)
 
     run(go())
     console.print(f"[dim]session: {sid}[/dim]")

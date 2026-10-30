@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -22,7 +23,7 @@ from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
 from ..wiki import timeline
-from . import disciplines, hunting, materials, memory
+from . import disciplines, hunting, materials, memory, turns
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -169,6 +170,7 @@ class Done:
     sources: list[Source]
     related: list[str] = field(default_factory=list)
     topic: str | None = None
+    turn_id: int | None = None  # the turn's record (core/turns.py), for feedback on this answer
 
 
 Event = Retrieval | Token | Done
@@ -185,6 +187,7 @@ class Plan:
     clarify: str = ""  # a question to ask instead of answering, when the message has no subject to work with
     material: str = ""  # text the person pasted with the question (a Discord post, an in-game message)
     qvec: list[float] | None = None  # the question's embedding, filled in by retrieval
+    prebuilt: list[dict] | None = None  # passages code already wrote while planning (a crafting table): reused, not rebuilt
 
 
 class Assistant:
@@ -303,7 +306,8 @@ class Assistant:
         if hunting.HUNT_FIT.search(plan.standalone_question):
             return True
         row = session_id and self.conn.execute(
-            "SELECT content FROM messages WHERE session_id=? AND role='assistant' ORDER BY msg_id DESC LIMIT 1",
+            "SELECT content FROM messages WHERE session_id=? AND role='assistant' AND coalesce(mode, '') != 'error' "
+            "ORDER BY msg_id DESC LIMIT 1",
             (session_id,),
         ).fetchone()
         return bool(row) and row["content"] == hunting.NEED_RANKS
@@ -324,7 +328,8 @@ class Assistant:
         if not session_id:
             return []
         row = self.conn.execute(
-            "SELECT sources FROM messages WHERE session_id=? AND role='assistant' ORDER BY msg_id DESC LIMIT 1",
+            "SELECT sources FROM messages WHERE session_id=? AND role='assistant' AND coalesce(mode, '') != 'error' "
+            "ORDER BY msg_id DESC LIMIT 1",
             (session_id,),
         ).fetchone()
         if not row or not row["sources"]:
@@ -387,7 +392,7 @@ class Assistant:
             if p:
                 passages.append(p)
                 k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
-        mats = materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+        mats = plan.prebuilt or materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
         if mats:
             passages = list(mats)  # replaces an items-tool lookup too: the ranking is the whole evidence
             k = 0
@@ -522,20 +527,52 @@ class Assistant:
     async def answer_stream(
         self, session_id: str, user_message: str, *, kind_override: str | None = None
     ) -> AsyncIterator[Event]:
+        """Answer one message. The question is saved before anything can fail, and the turn is recorded however it
+        ends (answered, failed, or abandoned by the reader), so nothing a person asked disappears."""
         memory.new_session(self.conn, session_id=session_id)
-        hist = memory.history(self.conn, session_id, self.s.chat.history_turns)
-        plan = await self.plan(hist, user_message, session_id)
-        if kind_override in QUESTION_KINDS:
-            plan.kind = kind_override
-        if CLOCK_QUESTION.search(split_message(user_message)[0]):
+        hist = memory.history(self.conn, session_id, self.s.chat.history_turns)  # read before this message is saved
+        user_id = memory.add_message(self.conn, session_id, "user", user_message)
+        turn = turns.Turn.start(self.conn, session_id, user_id)
+        said: list[str] = []
+        try:
+            async for ev in self._answer(turn, hist, user_message, kind_override):
+                if isinstance(ev, Retrieval):
+                    turn.mark("retrieve")
+                elif isinstance(ev, Token):
+                    turn.mark("ttft")
+                    said.append(ev.text)
+                elif isinstance(ev, Done):
+                    ev.turn_id = turn.turn_id
+                yield ev
+        except BaseException as exc:  # GeneratorExit too: the reader closed the page mid-answer
+            if not turn.closed:
+                partial = "".join(said).strip()
+                msg_id = memory.add_message(  # shown in the transcript, never remembered (memory.history skips it)
+                    self.conn, session_id, "assistant", partial, mode="error", turn_id=turn.turn_id) if partial else None
+                turn.fail("aborted by the reader" if isinstance(exc, (GeneratorExit, asyncio.CancelledError)) else exc,
+                          assistant_msg_id=msg_id)
+            raise
+
+    async def _answer(self, turn: turns.Turn, hist: list[dict[str, str]], user_message: str,
+                      kind_override: str | None) -> AsyncIterator[Event]:
+        session_id = turn.session_id
+        asked, pasted = split_message(user_message)
+        early = self._early_plan(asked, pasted, hist)
+        if early is not None and early.mode == "clock":
             # What day or time it is needs no wiki: answer from the clock, in code, so it is always exactly right.
-            plan.mode = "clock"
+            plan = turn.plan = early
             answer = clock_answer(self.s.persona.enabled)
             yield Retrieval([], plan.standalone_question, "clock", "meta", [])
             yield Token(answer)
-            self._persist(session_id, user_message, answer, plan, [], [])
+            self._persist(turn, answer, plan, [], [])
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
             return
+        plan = early or await self.plan(hist, user_message, session_id)
+        turn.mark("planner")
+        turn.plan = plan
+        memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
+        if kind_override in QUESTION_KINDS:
+            plan.kind = kind_override
         if (not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
                 and not self._hunt_ranks(plan, user_message)):
             plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
@@ -548,7 +585,7 @@ class Assistant:
             yield Retrieval([], plan.standalone_question, "clarify", plan.kind, [])
             yield Token(plan.clarify)
             plan.mode = "clarify"
-            self._persist(session_id, user_message, plan.clarify, plan, [], [])
+            self._persist(turn, plan.clarify, plan, [], [])
             yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id))
             return
         passages, extras = await self.retrieve_with_extras(plan, session_id)
@@ -561,7 +598,16 @@ class Assistant:
                 passages = [{**p, "text": keep_ahead_lines(p["text"], date.today())} for p in ahead] + undated
             elif over:
                 over_only, passages = True, over_answer(over, date.today(), self.s.persona.enabled)[1]
-        text, used = prompts.format_passages(passages, self.s.chat.context_token_budget, date.today())
+        budget = self.s.chat.context_token_budget
+        text, used = prompts.format_passages(passages, budget, date.today())
+        system = self._answer_system(plan, text, hist)
+        # The whole prompt must fit the context window, or the model silently loses its rules: older turns go first,
+        # then passages from the bottom of the list.
+        hist, over = prompts.fit_messages(system, hist, plan.standalone_question, self.s.ollama.num_ctx,
+                                          self.s.ollama.answer_reserve_tokens)
+        if over and used > 1:
+            text, used = prompts.format_passages(passages, max(1000, budget - over), date.today())
+            system = self._answer_system(plan, text, hist)
         passages = passages[:used]
         related = self._related_pages(plan.kind, passages, extras, memory.seen_titles(self.conn, session_id), plan.qvec)
         sources = [
@@ -573,7 +619,7 @@ class Assistant:
         if over_only:
             answer = over_answer(passages, date.today(), self.s.persona.enabled)[0]
             yield Token(answer)
-            self._persist(session_id, user_message, answer, plan, sources, [])
+            self._persist(turn, answer, plan, sources, [], cited=[1])
             yield Done(answer, [1], sources, [], memory.get_topic(self.conn, session_id))
             return
 
@@ -581,7 +627,7 @@ class Assistant:
             answer = (prompts.NO_PASSAGES_ANSWER if self.s.persona.enabled
                       else "The wiki doesn't seem to cover that.")
             yield Token(answer)
-            self._persist(session_id, user_message, answer, plan, [], [])
+            self._persist(turn, answer, plan, [], [])
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
             return
 
@@ -592,13 +638,11 @@ class Assistant:
             if note:
                 answer += "\n\n" + note
             yield Token(answer)
-            self._persist(session_id, user_message, answer, plan, sources, [])
-            cited = sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer) if 1 <= int(n) <= len(sources)})
-            yield Done(answer, cited or [1], sources, [], memory.get_topic(self.conn, session_id))
+            cited = sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer) if 1 <= int(n) <= len(sources)}) or [1]
+            self._persist(turn, answer, plan, sources, [], cited=cited)
+            yield Done(answer, cited, sources, [], memory.get_topic(self.conn, session_id))
             return
 
-        system = prompts.build_answer_system(plan.kind, text, self.name, persona=self.s.persona.enabled,
-                                             continuing=bool(hist), pasted=plan.material, today=now_text())
         # Earlier turns always come along, as they would in a conversation with a person: what was just said shapes
         # how the next question is understood, whether or not the planner flagged it as a follow-up.
         messages = [{"role": "system", "content": system}, *hist,
@@ -623,7 +667,7 @@ class Assistant:
             yield Token(tail)
             answer += tail
         cited = sorted({int(n) for n in re.findall(r"\[(\d+)\*?\]", answer) if 1 <= int(n) <= len(sources)})
-        self._persist(session_id, user_message, answer, plan, sources, related)
+        self._persist(turn, answer, plan, sources, related, cited=cited)
         real = [s for s in sources if not s.title.endswith(": recent edits")]
         top = (real[cited[0] - 1] if cited and cited[0] <= len(real) else real[0]).title if real else ""
         topic = plan.topic or re.sub(r"^[A-Za-z]+:(?=\S)", "", top)  # a planner label, else the main page cited
@@ -631,14 +675,35 @@ class Assistant:
             memory.set_topic(self.conn, session_id, topic)
         yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id))
 
-    def _persist(self, sid: str, user_message: str, answer: str, plan: Plan, sources: list[Source],
-                 related: list[str]) -> None:
-        memory.add_message(self.conn, sid, "user", user_message, standalone_q=plan.standalone_question,
-                           mode=plan.mode, kind=plan.kind)
-        memory.add_message(
-            self.conn, sid, "assistant", answer, standalone_q=plan.standalone_question, mode=plan.mode,
-            kind=plan.kind, sources=[s.__dict__ for s in sources], related=related,
+    def _answer_system(self, plan: Plan, passages_text: str, hist: list[dict[str, str]]) -> str:
+        return prompts.build_answer_system(plan.kind, passages_text, self.name, persona=self.s.persona.enabled,
+                                           continuing=bool(hist), pasted=plan.material, today=now_text())
+
+    def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
+        """A plan made by code, without the planner model, for messages code answers on its own: what time it is,
+        and (with no conversation to resolve and nothing pasted) the crafting tables. Saves the planner call."""
+        if CLOCK_QUESTION.search(asked):
+            return Plan(asked, mode="clock", kind="meta")
+        if hist or pasted:
+            return None
+        question = strip_game_name(asked.strip()) or asked
+        base = self.s.wiki.base_url
+        ready = materials.passage(self.conn, question, base)
+        if not ready and (disc := disciplines.passage(self.conn, question, base)):
+            ready = [disc]
+        return Plan(question, kind="crafting", prebuilt=ready) if ready else None
+
+    def _persist(self, turn: turns.Turn, answer: str, plan: Plan, sources: list[Source], related: list[str],
+                 cited: list[int] | None = None) -> int:
+        """Save the answer (the question was saved when the turn began) and close the turn's record."""
+        memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
+        msg_id = memory.add_message(
+            self.conn, turn.session_id, "assistant", answer, standalone_q=plan.standalone_question, mode=plan.mode,
+            kind=plan.kind, sources=[s.__dict__ for s in sources], related=related, cited=cited or [],
+            turn_id=turn.turn_id,
         )
+        turn.finish(msg_id, plan)
+        return msg_id
 
     async def ask(self, session_id: str, message: str, *, kind_override: str | None = None) -> Done:
         done: Done | None = None

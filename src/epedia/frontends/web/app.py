@@ -88,6 +88,7 @@ class StartRequest(BaseModel):
 def create_app(settings: Settings) -> FastAPI:
     state: dict = {"locks": {}, "active": set()}  # session id -> lock; client ids with an answer in progress
     limiter = access.LoginLimiter()
+    questions = access.TurnLimiter(settings.web.visitor_turns_per_hour)
     turns = asyncio.Semaphore(max(1, settings.web.max_concurrent))  # answers written at once; the rest queue
 
     @asynccontextmanager
@@ -159,7 +160,9 @@ def create_app(settings: Settings) -> FastAPI:
         if request.headers.get("x-qqe") != "1":
             raise HTTPException(403, "missing X-QQE header")
         origin = request.headers.get("origin")
-        if origin and urlparse(origin).netloc != request.headers.get("host", ""):
+        # A tunnel may pass on the public name in X-Forwarded-Host and the local one in Host; either is this page.
+        names = {request.headers.get("host", ""), request.headers.get("x-forwarded-host", "")} - {""}
+        if origin and urlparse(origin).netloc not in names:
             raise HTTPException(403, "cross-site request refused")
 
     def guard(request: Request) -> None:
@@ -363,6 +366,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/api/chat")
     async def chat(request: Request, req: ChatRequest) -> StreamingResponse:
+        csrf(request)  # an answer costs a minute of the GPU: another site must not be able to make a visitor's browser ask
         if not req.message.strip():
             raise HTTPException(400, "empty message")
         if len(req.message) > settings.web.max_message_chars:
@@ -370,6 +374,9 @@ def create_app(settings: Settings) -> FastAPI:
         owner = access.owner_of(request)
         if owner in state["active"]:
             raise HTTPException(429, "still answering your last question")
+        if not access.is_local(request) and not questions.allow(owner):
+            raise HTTPException(429, f"That's a lot of questions for one hour, and {settings.persona.name} shares one "
+                                     f"lantern with everyone. Try again in about {questions.wait_minutes(owner)} minutes.")
 
         async def events():
             def sse(name: str, data: dict) -> str:
@@ -393,7 +400,7 @@ def create_app(settings: Settings) -> FastAPI:
                         elif isinstance(ev, Done):
                             # `answer` is the final text, including tags added for lines the model left uncited
                             yield sse("done", {"cited": ev.cited, "related": ev.related, "answer": ev.answer,
-                                               "topic": ev.topic})
+                                               "topic": ev.topic, "turn_id": ev.turn_id})
             except Exception as exc:  # surface model/db problems in the UI instead of a dropped stream
                 yield sse("error", {"message": str(exc)})
             finally:

@@ -92,6 +92,11 @@ class OllamaCfg(BaseModel):
     chat_model: str = "qwen3:8b"
     num_ctx: int = 16384
     keep_alive: str = "30m"
+    # An answer that fails before its first word (the model was loading, a dropped connection) is tried once more.
+    # Never after a word has been shown: the reader would see the answer start twice.
+    retry_before_first_token: bool = True
+    # Room kept free in the context window for the answer itself, when checking that the prompt fits.
+    answer_reserve_tokens: int = 1500
 
 
 class ChunkingCfg(BaseModel):
@@ -155,6 +160,8 @@ class WebCfg(BaseModel):
     max_message_chars: int = 6000  # longest message accepted (a pasted post fits)
     # While the server runs it starts a delta update this often (minutes); 0 turns it off. Nothing runs when it is not.
     auto_sync_minutes: int = 60
+    # Questions a visitor through the tunnel may ask per hour (one GPU is shared); 0 means no limit. The owner is never limited.
+    visitor_turns_per_hour: int = 40
 
     @field_validator("auto_sync_minutes")
     @classmethod
