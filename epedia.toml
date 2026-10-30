@@ -83,6 +83,7 @@ related_k = 3
 history_turns = 4
 context_token_budget = 6000
 temperature = 0.2
+regenerate = "fabrication"   # rewrite once a draft that names what no passage has, or fakes a lookup; "off" to never
 
 [persona]
 name = "Fennick"   # a Halfling Bard who keeps a satchel of notes copied from Elanthipedia

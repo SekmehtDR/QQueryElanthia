@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sqlite3
 import sys
 from typing import Optional
@@ -453,6 +454,72 @@ def classify(
     console.print(f"page_links: {conn.execute('SELECT count(*) FROM page_links').fetchone()[0]:,}")
 
 
+@app.command("feedback")
+def feedback_cmd(
+    turn: Optional[int] = typer.Argument(None, help="A turn id from the list: show its conversation and full record"),
+    all_votes: bool = typer.Option(False, "--all", help="List thumbs-up too, not only thumbs-down"),
+    since: Optional[str] = typer.Option(None, help="Only votes on or after this date (YYYY-MM-DD)"),
+    limit: int = typer.Option(30, help="How many to list"),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON, for processing the bad answers elsewhere"),
+) -> None:
+    """Review the answers people voted on (thumbs down by default), with why, what the checks found, and the turn id
+    to look at one in its conversation."""
+    import json as _json
+
+    from .core import feedback
+
+    conn = db.connect(settings(), readonly=True)
+    if turn is not None:
+        got = feedback.conversation(conn, turn)
+        if got is None:
+            console.print(f"[red]no turn {turn}[/red]")
+            raise typer.Exit(1)
+        if as_json:
+            console.print(_json.dumps(got, ensure_ascii=False, indent=2, default=str), markup=False, highlight=False)
+            return
+        for m in got["messages"]:
+            who = "you" if m["role"] == "user" else "answer"
+            mark = f"  \\[{m['feedback']}]" if m.get("feedback") else ""  # escaped: Rich would read [down] as a style
+            console.print(f"\n[bold]{who}[/bold]{mark}", highlight=False)
+            console.print(m["content"], markup=False, highlight=False)
+            if m["role"] == "user" and m.get("standalone_q") and m["standalone_q"] != m["content"]:
+                console.print(f"[dim]  planned as: {m['standalone_q']} ({m.get('kind')}, {m.get('mode')})[/dim]",
+                              highlight=False)
+        t = got["turn"]
+        console.print(f"\n[bold]turn {turn}[/bold]: vote {t['feedback'] or '-'}"
+                      f"{'; ' + ', '.join(feedback.REASONS.get(r, r) for r in t['reasons']) if t['reasons'] else ''}"
+                      f"{'; note: ' + t['note'] if t['note'] else ''}", markup=False, highlight=False)
+        for key in ("grounding", "verify"):
+            if t.get(key):
+                console.print(f"{key}: {_json.dumps(t[key], ensure_ascii=False)}", markup=False, highlight=False)
+        console.print(f"times (ms): planner {t['planner_ms']}, retrieve {t['retrieve_ms']}, first word {t['ttft_ms']}, "
+                      f"total {t['total_ms']}; rewritten: {bool(t['regenerated'])}; error: {t['error'] or '-'}",
+                      markup=False, highlight=False)
+        return
+    rows = feedback.votes(conn, None if all_votes else "down", since, limit)
+    if as_json:
+        console.print(_json.dumps(rows, ensure_ascii=False, indent=2, default=str), markup=False, highlight=False)
+        return
+    if not rows:
+        console.print("no votes yet" if all_votes else "no thumbs-down yet")
+        return
+    for r in rows:
+        who = "you" if r["owner"] == "local" else "visitor"
+        why = ", ".join(feedback.REASONS.get(x, x) for x in r["reasons"])
+        c = r["checks"] or {}
+        flags = [f"{len(c.get('unknown_entities') or [])} unknown names" if c.get("unknown_entities") else "",
+                 f"{len(c.get('unsupported') or [])} unsupported lines" if c.get("unsupported") else "",
+                 "rewritten" if r["regenerated"] else ""]
+        console.print(f"\n[bold]#{r['turn_id']}[/bold] {r['feedback']}  {r['feedback_at'][:16]}  {who}  "
+                      f"({r['kind']}, {r['mode']})", highlight=False)
+        console.print(f"  Q: {r['question'][:200]}", markup=False, highlight=False)
+        if why or r["note"]:
+            console.print(f"  why: {why}{' | ' if why and r['note'] else ''}{r['note']}", markup=False, highlight=False)
+        if any(flags):
+            console.print(f"  [dim]checks: {', '.join(f for f in flags if f)}[/dim]", highlight=False)
+    console.print(f"\n[dim]{len(rows)} shown. `feedback <turn id>` shows one in its conversation.[/dim]", highlight=False)
+
+
 @app.command()
 def show(
     title: str = typer.Argument(..., help='Page title, e.g. "Barbarian" or "Weapon:Broadsword (1)"'),
@@ -641,7 +708,7 @@ def _render_sources(sources, cited: list[int]) -> None:
 async def _stream_answer(
     assistant, session_id: str, message: str, show_plan: bool = True, kind: str | None = None
 ) -> None:
-    from .core.assistant import Done, Retrieval, Token
+    from .core.assistant import Done, Retrieval, Revise, Token
 
     async for ev in assistant.answer_stream(session_id, message, kind_override=kind):
         if isinstance(ev, Retrieval):
@@ -649,8 +716,14 @@ async def _stream_answer(
                 console.print(f"[dim]({ev.kind}, {ev.mode}) searching: {ev.standalone_q}[/dim]", highlight=False)
         elif isinstance(ev, Token):
             console.print(ev.text, end="", markup=False, highlight=False)
+        elif isinstance(ev, Revise):
+            what = "named things no page has" if ev.reason == "names" else "pretended to look something up"
+            console.print(f"\n\n[dim](that draft {what}; writing it again)[/dim]\n", highlight=False)
         elif isinstance(ev, Done):
             console.print()
+            if re.search(r"\[\d+\?\]", ev.answer):  # the stream showed the raw draft; these marks are only in the final
+                console.print("\n[dim]checked answer:[/dim]", highlight=False)
+                console.print(ev.answer, markup=False, highlight=False)
             _render_sources(ev.sources, ev.cited)
             if ev.related:
                 console.print("\n[dim]related: " + "; ".join(ev.related) + "[/dim]", highlight=False)

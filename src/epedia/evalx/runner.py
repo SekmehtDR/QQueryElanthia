@@ -196,11 +196,12 @@ async def run_scripts(settings: Settings, conn: sqlite3.Connection, ollama: Olla
                 said.append(turn["q"])
                 rows.append({"script": script["name"], "turn": i, "q": turn["q"], "mode": got.mode,
                              "answer": got.done.answer, "problems": _turn_problems(turn, got, truth),
-                             "seconds": got.seconds})
+                             "seconds": got.seconds, "revised": got.done.revised})
         finally:
             memory.delete_session(conn, sid)
     passed = sum(1 for r in rows if not r["problems"])
     return rows, {"script_turns": float(len(rows)), "script_turn_pass": passed / max(len(rows), 1),
+                  "answers_revised": sum(1 for r in rows if r["revised"]) / max(len(rows), 1),
                   "scripts_clean": float(sum(1 for s in scripts if all(not r["problems"] for r in rows
                                                                          if r["script"] == s["name"])))}
 

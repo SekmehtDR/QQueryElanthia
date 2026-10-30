@@ -79,7 +79,8 @@ def test_each_visitor_has_private_chats_the_owner_and_other_visitors_cannot_see(
     s = make(tmp_path)
     c = connect(s)
     mine = memory.new_session(c, "web", owner="local")
-    memory.add_message(c, mine, "user", "my private question")
+    msg = memory.add_message(c, mine, "user", "my private question")
+    memory.note_plan(c, msg, "my private question?", "search", "general")
     c.close()
     app = create_app(s)
     with TestClient(app, base_url="https://testserver") as a, TestClient(app, base_url="https://testserver") as b:
@@ -89,14 +90,73 @@ def test_each_visitor_has_private_chats_the_owner_and_other_visitors_cannot_see(
         conn = connect(s)
         memory.add_message(conn, sid, "user", "visitor A asks something")
         conn.close()
-        assert [r["title"] for r in a.get("/api/sessions", headers=TUNNEL).json()] == ["visitor A asks something"]
-        assert b.get("/api/sessions", headers=TUNNEL).json() == []  # visitor B sees nothing of A's
-        assert b.get(f"/api/sessions/{sid}/messages", headers=TUNNEL).status_code == 404
-        assert b.get(f"/api/sessions/{mine}/messages", headers=TUNNEL).status_code == 404  # nor the owner's
+        # through the tunnel the page is a plain chat: no Past chats or recent questions at all, not even one's own
+        for cl in (a, b):
+            assert cl.get("/api/sessions", headers=TUNNEL).status_code == 403
+            assert cl.get("/api/recent-questions", headers=TUNNEL).status_code == 403
+        assert a.get(f"/api/sessions/{sid}/messages", headers=TUNNEL).status_code == 403
+        assert b.get(f"/api/sessions/{mine}/messages", headers=TUNNEL).status_code == 403  # nor the owner's
         assert b.delete(f"/api/sessions/{sid}", headers={**TUNNEL, "X-QQE": "1"}).status_code == 404
         assert a.delete(f"/api/sessions/{sid}", headers={**TUNNEL, "X-QQE": "1"}).status_code == 200
         owner_view = a.get("/api/sessions")  # the same client, now without tunnel headers: the owner at the computer
         assert owner_view.status_code == 200 and [r["title"] for r in owner_view.json()] == ["my private question"]
+        assert a.get("/api/recent-questions").json() == {"questions": ["my private question?"]}
+
+
+def test_delete_all_clears_past_chats_and_only_from_this_computer(tmp_path):
+    s = make(tmp_path)
+    c = connect(s)
+    for _ in range(3):
+        memory.add_message(c, memory.new_session(c, "web", owner="local"), "user", "mine")
+    visitor = memory.new_session(c, "web", owner="someone-else")
+    cli = memory.new_session(c, "cli")
+    c.close()
+    with TestClient(create_app(s), base_url="https://testserver") as cl:
+        assert cl.delete("/api/sessions").status_code == 403  # no X-QQE: another site cannot wipe them
+        cl.post("/login", json={"code": CODE}, headers=TUNNEL)
+        assert cl.delete("/api/sessions", headers={**TUNNEL, **LOCAL}).status_code == 403  # nor a visitor
+        rebound = {"X-QQE": "1", "Host": "evil.example:8765", "Origin": "http://evil.example:8765"}
+        assert cl.delete("/api/sessions", headers=rebound).status_code == 403  # nor a page rebound to 127.0.0.1
+        assert cl.delete("/api/sessions", headers=LOCAL).json() == {"deleted": 3}
+        assert cl.get("/api/sessions").json() == []
+    c = connect(s)
+    left = {r[0] for r in c.execute("SELECT session_id FROM sessions")}
+    assert left == {visitor, cli}  # what Past chats does not show is not deleted by it
+    assert c.execute("SELECT count(*) FROM messages").fetchone()[0] == 0
+    c.close()
+
+
+def test_recent_questions_are_those_in_past_chats_newest_first_and_go_with_deleted_chats(tmp_path):
+    s = make(tmp_path)
+    c = connect(s)
+
+    def asked(sid, text, standalone, mode="search", kind="general"):
+        msg = memory.add_message(c, sid, "user", text)
+        memory.note_plan(c, msg, standalone, mode, kind)
+
+    one = memory.new_session(c, "web", owner="local")
+    asked(one, "How do I start forging?", "How do I start forging?", kind="crafting")
+    asked(one, "What tools do I need for it?", "What tools do I need for forging?", kind="crafting")
+    asked(one, "hi fennick", "hi fennick", kind="meta")  # small talk
+    asked(one, "what time is it", "what time is it", mode="clock")
+    asked(one, "Who is Zarnak?", "Who is Zarnak?", mode="declined")
+    asked(one, "are you sure?", "What tools do I need for forging?", mode="recheck")
+    two = memory.new_session(c, "web", owner="local")
+    asked(two, "how do i START forging", "How do I start  forging?")  # asked again: shown once, as asked last
+    asked(two, "x" * 200, "x" * 200)  # a pasted essay
+    visitor = memory.new_session(c, "web", owner="someone-else")
+    asked(visitor, "Is a visitor's question shown?", "Is a visitor's question shown?")
+    cli = memory.new_session(c, "cli")
+    asked(cli, "From the terminal", "From the terminal?")  # the page shows what was asked on the page
+    # the owner's Past chats only: not visitors' (hidden from Past chats), not the terminal's
+    assert memory.recent_user_questions(c, "local") == ["How do I start forging?", "What tools do I need for forging?"]
+    assert memory.recent_user_questions(c, "local", limit=1) == ["How do I start forging?"]
+    memory.delete_session(c, two)
+    memory.delete_session(c, one)  # purged chats take their questions with them
+    assert memory.recent_user_questions(c, "local") == []
+    c.close()
+    with TestClient(create_app(s), base_url="https://testserver") as cl:
+        assert cl.get("/api/recent-questions").json() == {"questions": []}  # the page then says nobody has asked
 
 
 def test_a_deleted_or_foreign_chat_id_in_a_message_starts_a_fresh_conversation(tmp_path, monkeypatch):

@@ -174,6 +174,57 @@ def fake_actions(answer: str) -> list[str]:
     return [unit.strip() for _, _, unit in _split_units(answer) if FAKE_ACTION.search(unit)]
 
 
+def strip_fake_actions(answer: str) -> str:
+    """The answer without the lines that pretend to look something up. Such a line carries no fact (a line that cites a
+    passage is kept: it says something the passage backs)."""
+    edits: list[tuple[int, int, str]] = []
+    for s, e, unit in _split_units(answer):
+        m = FAKE_ACTION.search(unit)
+        if not m or re.search(r"\[\d+[*?]?\]", unit):
+            continue
+        # "Let me re-read the passages: the sword weighs 10 stones." keeps what follows the pretence
+        rest = re.split(r"[:;,–—]\s+|\s+and\s+(?=the\b|it\b|they\b|he\b|she\b)", unit[m.end():], maxsplit=1)
+        tail = rest[1].strip() if len(rest) > 1 else ""
+        keep = tail and len(unit_words(tail)) >= MIN_CONTENT_TOKENS and not FAKE_ACTION.search(tail)
+        edits.append((s, e, unit[:len(unit) - len(unit.lstrip())] + tail[:1].upper() + tail[1:] if keep else ""))
+    out = answer
+    for start, end, text in sorted(edits, reverse=True):
+        out = out[:start] + text + out[end:]
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"^[ \t]*(?:[-*•]|\d+[.)])?[ \t]*$", "", out, flags=re.M)  # a list item left empty
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+# One closing note, written by code, for what a reader most needs to know about how well the answer is backed. Measured
+# on the stored answers (2026-10-29): a note on every [n?] or every half-uncited answer would sit under two answers in
+# three; the marks themselves explain single lines, so a note is kept for names, figures and answers that rest on nothing.
+UNCITED_NOTE_SHARE = 0.8
+HONESTY_NOTES = {
+    "names": ("One caution: I can't find {names} anywhere in the pages I had for this, so don't take my word on {them}.",
+              "Note: {names} {do} not appear in the pages this answer was written from; treat {them} as unverified."),
+    "numbers": ("One caution: a figure marked with a ? doesn't match the page it cites, so trust the page's own number.",
+                "Note: a figure marked [n?] does not match its cited page; check the page."),
+    "uncited": ("One caution: most of this isn't tied to a single page in my notes, so check the pages before relying on it.",
+                "Note: most of this answer could not be tied to a cited page; check the pages before relying on it."),
+}
+
+
+def honesty_note(v: Verification, persona: bool = True) -> str:
+    """The note for the most important problem left in an answer, or ''."""
+    style = 0 if persona else 1
+    if v.unknown_entities:
+        names = [f"“{n}”" for n in v.unknown_entities[:3]]
+        shown = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " or " + names[-1]
+        one = len(names) == 1
+        return (HONESTY_NOTES["names"][style].replace("{names}", shown).replace("{them}", "it" if one else "them")
+                .replace("{do}", "does" if one else "do"))
+    if v.numbers_bad:
+        return HONESTY_NOTES["numbers"][style]
+    if v.factual_units >= UNCITED_FACTUAL_MIN and v.ratio_uncited >= UNCITED_NOTE_SHARE:
+        return HONESTY_NOTES["uncited"][style]
+    return ""
+
+
 def run(answer: str, passages: list[dict], question: str = "", message: str = "", context: str = "") -> Verification:
     """All checks at once. `passages` are the numbered passages (dicts with title and text), in prompt order;
     `context` is what the user said earlier in the conversation."""

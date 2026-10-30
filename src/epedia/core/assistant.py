@@ -23,7 +23,7 @@ from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
 from ..wiki import timeline
-from . import disciplines, grounding, hunting, materials, memory, turns, verify
+from . import capabilities, disciplines, grounding, hunting, materials, memory, turns, verify
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -34,6 +34,7 @@ OFFER_CHUNKS_PER_PAGE = 6  # only a page's opening chunks are compared: enough t
 OFFER_CLOSE_MARGIN = 0.06  # an offer must be about as close to the question as the closest candidate...
 OFFER_MAX_DISTANCE = 0.45  # ...and close in absolute terms (cosine distance); otherwise nothing is offered
 MIN_OFFER_INLINKS = 8  # a page must be linked from at least this many pages to be offered as a thread to pull on
+RECHECK_PRIOR = 8  # "are you sure?": passages of the last answer re-read (its cited ones first), before fresh results
 
 
 @dataclass
@@ -178,6 +179,13 @@ class Token:
 
 
 @dataclass
+class Revise:
+    """The draft streamed so far is withdrawn and a second one follows (it named things no passage has, or pretended to
+    look something up). Front ends clear what they showed."""
+    reason: str  # "names" or "lookup"
+
+
+@dataclass
 class Done:
     answer: str
     cited: list[int]
@@ -187,9 +195,13 @@ class Done:
     turn_id: int | None = None  # the turn's record (core/turns.py), for feedback on this answer
     by_code: bool = False  # written by code (clock, a table, a clarifying question, a decline), not by the model
     verification: dict | None = None  # core/verify.py on the model's answer, against the passages it was given
+    revised: bool = False  # the first draft was withdrawn and rewritten
 
 
-Event = Retrieval | Token | Done
+Event = Retrieval | Token | Revise | Done
+
+# A citation in a final answer: by the model [2], matched by code [2*], or not borne out by its passage [2?].
+ANY_CITE = re.compile(r"\[(\d+)[*?]?\]")
 
 
 @dataclass
@@ -205,6 +217,7 @@ class Plan:
     qvec: list[float] | None = None  # the question's embedding, filled in by retrieval
     prebuilt: list[dict] | None = None  # passages code already wrote while planning (a crafting table): reused, not rebuilt
     signals: dict = field(default_factory=dict)  # how well retrieval matched (recorded on the turn, see core/grounding.py)
+    names: list[str] = field(default_factory=list)  # for a declined story: the wiki pages the request named
 
 
 class Assistant:
@@ -249,8 +262,10 @@ class Assistant:
             kind = data.get("kind") if data.get("kind") in QUESTION_KINDS else "general"
             if mode == "items":
                 kind = "item"
-            if kind == "meta" and not META_CUES.search(message):
-                kind = "general"  # the 8B planner sometimes files "Who is <name>?" as small talk; that needs a search
+            if kind == "meta" and (not META_CUES.search(message) or (hist and capabilities.is_challenge(message))):
+                # the 8B planner sometimes files "Who is <name>?" as small talk, and "are you sure?" about the last
+                # answer (when that answer could not be re-read by rule) as a question about Fennick: both need a search
+                kind = "general"
             # The 8B planner resolves "it" correctly but often forgets to say follow_up: a question it had to rewrite
             # using the conversation is a follow-up whatever the flag says.
             rewritten = _norm(q) != _norm(message)
@@ -306,7 +321,7 @@ class Assistant:
             return []
         q = f" {re.sub(r'[^a-z0-9]+', ' ', question.casefold())} "
         top = list(dict.fromkeys(p["title"] for p in passages if p.get("chunk_id")))[:pages]
-        cited = {int(n) for n in re.findall(r"\[(\d+)\*?\]", answer)}
+        cited = {int(n) for n in ANY_CITE.findall(answer)}
         relied = [passages[i - 1]["title"].removesuffix(": recent edits") for i in sorted(cited) if 1 <= i <= len(passages)]
         out: list[str] = []
         for title in dict.fromkeys([*top, *relied]):
@@ -340,24 +355,27 @@ class Assistant:
         ).fetchall()
         return "\n".join(f"- {r['prop']}: {r['value_type']}, {r['d'] or r['sample_values'] or ''}"[:160] for r in rows)
 
-    def _prior_sources(self, session_id: str | None) -> list[dict]:
-        """Sources of the last assistant turn in this session, in their original order."""
+    def _prior_sources(self, session_id: str | None, cited_first: bool = False) -> list[dict]:
+        """Sources of the last assistant turn in this session, in their original order, or with the ones that answer
+        cited first (what "are you sure?" is about)."""
         if not session_id:
             return []
         row = self.conn.execute(
-            "SELECT sources FROM messages WHERE session_id=? AND role='assistant' AND coalesce(mode, '') != 'error' "
+            "SELECT sources, cited FROM messages WHERE session_id=? AND role='assistant' AND coalesce(mode, '') != 'error' "
             "ORDER BY msg_id DESC LIMIT 1",
             (session_id,),
         ).fetchone()
         if not row or not row["sources"]:
             return []
         try:
-            return json.loads(row["sources"])
+            sources = json.loads(row["sources"])
+            cited = set(json.loads(row["cited"] or "[]")) if cited_first else set()
         except (ValueError, TypeError):
             return []
+        return sorted(sources, key=lambda s: s.get("n") not in cited) if cited else sources
 
-    def _prior_chunk_ids(self, session_id: str | None) -> list[int]:
-        return [s["chunk_id"] for s in self._prior_sources(session_id) if s.get("chunk_id")]
+    def _prior_chunk_ids(self, session_id: str | None, cited_first: bool = False) -> list[int]:
+        return [s["chunk_id"] for s in self._prior_sources(session_id, cited_first) if s.get("chunk_id")]
 
     def _prior_titles(self, session_id: str | None) -> list[str]:
         seen: list[str] = []
@@ -366,10 +384,10 @@ class Assistant:
                 seen.append(s["title"])
         return seen[:6]
 
-    def _prior_passages(self, session_id: str | None, limit: int = 5) -> list[dict]:
+    def _prior_passages(self, session_id: str | None, limit: int = 5, cited_first: bool = False) -> list[dict]:
         """The previous answer's own passages, so a follow-up is answered from (and cites) the same pages."""
         out: list[dict] = []
-        for cid in self._prior_chunk_ids(session_id)[:limit]:
+        for cid in self._prior_chunk_ids(session_id, cited_first)[:limit]:
             r = self.conn.execute(
                 "SELECT c.chunk_id, c.title, c.section_path, c.anchor, c.text FROM chunks c WHERE c.chunk_id=?",
                 (cid,),
@@ -416,7 +434,10 @@ class Assistant:
         elif (disc := disciplines.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)):
             passages = [disc]  # the Crafting page's own list is the whole evidence
             k = 0
-        prior: list[dict] = self._prior_passages(session_id) if plan.follow_up and k else []
+        # A re-check reads every page the last answer cited, first; an ordinary follow-up brings its opening passages.
+        recheck = plan.mode == "recheck"
+        prior: list[dict] = (self._prior_passages(session_id, RECHECK_PRIOR if recheck else 5, cited_first=recheck)
+                             if plan.follow_up and k else [])
         passages.extend(prior)
         have = {p["chunk_id"] for p in prior}
         extra_k = self.s.retrieval.related_k if self.s.retrieval.offer_related else 0
@@ -456,8 +477,8 @@ class Assistant:
         last_sync = (last[0] or "never")[:10] if last else "never"
         blurb = (prompts.META_BLURB.replace("{name}", self.name).replace("{pages}", f"{pages:,}")
                  .replace("{last_sync}", last_sync))
-        out = [{"title": "About this assistant", "section": "", "url": self.s.wiki.base_url, "text": blurb,
-                "chunk_id": None}]
+        out = [{"title": "About this assistant", "section": "", "url": self.s.wiki.base_url,
+                "text": blurb + "\n\n" + capabilities.capabilities_text(self.name), "chunk_id": None}]
         for title in ("Elanthipedia:About", "Main Page"):
             r = self.conn.execute(
                 "SELECT c.chunk_id, c.title, c.section_path, c.anchor, c.text FROM chunks c "
@@ -559,6 +580,8 @@ class Assistant:
                 elif isinstance(ev, Token):
                     turn.mark("ttft")
                     said.append(ev.text)
+                elif isinstance(ev, Revise):
+                    said.clear()  # the withdrawn draft is not what a failed turn should keep
                 elif isinstance(ev, Done):
                     ev.turn_id = turn.turn_id
                 yield ev
@@ -585,12 +608,23 @@ class Assistant:
             self._persist(turn, answer, plan, [], [])
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
-        plan = early or await self.plan(hist, user_message, session_id)
+        # A story request and "are you sure?" are recognised by rule: the planner turned the one into a story and filed
+        # the other as a question about Fennick himself.
+        plan = (early or self._fiction_plan(asked) or self._recheck_plan(asked, hist, session_id)
+                or await self.plan(hist, user_message, session_id))
         turn.mark("planner")
         turn.plan = plan
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         if kind_override in QUESTION_KINDS:
             plan.kind = kind_override
+        if plan.mode == "fiction" and not plan.names:
+            # Nothing in it the wiki knows: the decline is the whole answer, and no model is asked.
+            answer = capabilities.decline_fiction([], self.s.persona.enabled)
+            yield Retrieval([], plan.standalone_question, "fiction", plan.kind, [])
+            yield Token(answer)
+            self._persist(turn, answer, plan, [], [])
+            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
+            return
         gate = grounding.Gate()
         if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt:
             # Something the wiki never mentions cannot be answered from it: say so in code, without the model, so it
@@ -605,10 +639,11 @@ class Assistant:
                 self._persist(turn, answer, plan, [], [], grounding=gate.as_dict())
                 yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
                 return
-        if (not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
+        asks = plan.mode in ("search", "items")  # a re-check or a declined story has nothing to clarify
+        if (asks and not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
                 and not self._hunt_ranks(plan, user_message)):
             plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
-        if not plan.clarify and plan.kind != "meta":
+        if asks and not plan.clarify and plan.kind != "meta":
             named = resolve.resolve(self.conn, plan.standalone_question)
             if named is not None and named.ambiguous:
                 plan.clarify = resolve.clarify(named)  # one name, different kinds of page, and nothing to choose between
@@ -656,7 +691,8 @@ class Assistant:
             return
 
         if not passages:
-            answer = (prompts.NO_PASSAGES_ANSWER if self.s.persona.enabled
+            answer = (capabilities.decline_fiction([], self.s.persona.enabled) if plan.mode == "fiction"
+                      else prompts.NO_PASSAGES_ANSWER if self.s.persona.enabled
                       else "The wiki doesn't seem to cover that.")
             yield Token(answer)
             self._persist(turn, answer, plan, [], [])
@@ -677,21 +713,49 @@ class Assistant:
 
         # Earlier turns always come along, as they would in a conversation with a person: what was just said shapes
         # how the next question is understood, whether or not the planner flagged it as a follow-up.
-        messages = [{"role": "system", "content": system}, *hist,
-                    {"role": "user", "content": plan.standalone_question}]
-        chunks: list[str] = []
-        async for tok in self.ollama.chat_stream(messages, temperature=self.s.chat.temperature):
-            chunks.append(tok)
-            yield Token(tok)
-        raw = re.sub(r"\[n(\d+)\]", r"[\1]", re.sub(r"\s*\[n\]", "", "".join(chunks)))  # "[n]" / "[n4]" copied from the prompt
-        answer = soften_refusal(strip_closing_offer(raw.strip()))
-        # Lines the model left uncited get a "[n*]" tag where one passage clearly matches (see core/attribution.py).
-        # The streamed text is the raw draft; the final text, with these tags, is what Done carries and what is saved.
-        answer = attribute(answer, [p["text"] for p in passages]).text
-        # Checked against the very passages it was written from (recorded on the turn; core/verify.py). What the user
-        # said earlier and today's date are known too: names and numbers from them are not inventions.
+        user_turn = plan.standalone_question
+        if plan.mode == "recheck":
+            user_turn = f"{asked.strip()} (This is about my last question: {plan.standalone_question})"
+        messages = [{"role": "system", "content": system}, *hist, {"role": "user", "content": user_turn}]
+        lead = ""
+        if plan.mode == "fiction":  # the decline leads, in code; the model answers what the wiki says about the names
+            lead = capabilities.decline_fiction(plan.names, self.s.persona.enabled) + "\n\n"
+            yield Token(lead)
+        # What the user said earlier and today's date are known: names and numbers from them are not inventions.
         said = " ".join(m["content"] for m in hist if m["role"] == "user")
-        checked = verify.run(answer, passages, plan.standalone_question, user_message, f"{said} {now_text()}")
+        context = f"{said} {now_text()}"
+        policy = self.s.chat.regenerate == "fabrication" and plan.kind != "meta"
+        recheck = plan.mode == "recheck"
+        revised = False
+        temperature = self.s.chat.temperature
+        while True:
+            chunks: list[str] = []
+            async for tok in self.ollama.chat_stream(messages, temperature=temperature):
+                chunks.append(tok)
+                yield Token(tok)
+            answer = self._clean_draft("".join(chunks), passages)
+            # Checked against the very passages it was written from (core/verify.py), and recorded on the turn.
+            checked = verify.run(answer, passages, plan.standalone_question, user_message, context)
+            if recheck:  # "I checked the passages again" is true of a re-check: not a pretended look-up there
+                checked.fake_actions = []
+            if revised or not policy or not checked.fabricated:
+                break
+            # It named things no passage has, or pretended to look something up: withdraw the draft and write it once
+            # more, at temperature 0, told exactly what it got wrong. Nothing else is worth a second draft.
+            revised = True
+            yield Revise("names" if checked.unknown_entities else "lookup")
+            if lead:
+                yield Token(lead)
+            strict = prompts.strict_addendum(checked.unknown_entities, bool(checked.fake_actions))
+            messages = [{"role": "system", "content": f"{system}\n\n{strict}"}, *messages[1:]]
+            temperature = 0.0
+        # The final text: unsupported citations marked [n?], pretended look-ups removed, and one note on what is left.
+        answer = lead + (checked.text if recheck else verify.strip_fake_actions(checked.text) or checked.text)
+        note = verify.honesty_note(checked, self.s.persona.enabled) if plan.kind != "meta" else ""
+        if note:
+            tail = "\n\n" + note
+            yield Token(tail)
+            answer += tail
         notes = self._edit_notes(passages, plan.standalone_question, answer)
         if notes:
             tail = "\n\n" + " ".join(notes)
@@ -702,19 +766,61 @@ class Assistant:
             tail = "\n\n" + offer
             yield Token(tail)
             answer += tail
-        cited = sorted({int(n) for n in re.findall(r"\[(\d+)\*?\]", answer) if 1 <= int(n) <= len(sources)})
-        self._persist(turn, answer, plan, sources, related, cited=cited, verification=checked.as_dict())
+        cited = sorted({int(n) for n in ANY_CITE.findall(answer) if 1 <= int(n) <= len(sources)})
+        # The record is of the final draft as the model wrote it (code then removed any pretended look-up from the text).
+        record = {**checked.as_dict(), "revised": revised}
+        self._persist(turn, answer, plan, sources, related, cited=cited, verification=record, regenerated=revised)
         real = [s for s in sources if not s.title.endswith(": recent edits")]
         top = (real[cited[0] - 1] if cited and cited[0] <= len(real) else real[0]).title if real else ""
         topic = plan.topic or re.sub(r"^[A-Za-z]+:(?=\S)", "", top)  # a planner label, else the main page cited
         if topic and plan.kind != "meta":
             memory.set_topic(self.conn, session_id, topic)
         yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id),
-                   verification=checked.as_dict())
+                   verification=record, revised=revised)
+
+    @staticmethod
+    def _clean_draft(raw: str, passages: list[dict]) -> str:
+        """The model's draft tidied: "[n]" / "[n4]" copied from the prompt, a closing offer of its own, a stray
+        'nothing on that' line; then lines it left uncited get a "[n*]" tag where one passage clearly matches
+        (core/attribution.py). The streamed text is the raw draft; this is what Done carries and what is saved."""
+        raw = re.sub(r"\[n(\d+)\]", r"[\1]", re.sub(r"\s*\[n\]", "", raw))
+        answer = soften_refusal(strip_closing_offer(raw.strip()))
+        return attribute(answer, [p["text"] for p in passages]).text
+
+    def _fiction_plan(self, asked: str) -> Plan | None:
+        """A request for a story, a poem or roleplay: declined, and answered with what the wiki says about the names in
+        it that it has pages for."""
+        if not capabilities.FICTION.search(asked):
+            return None
+        titles: list[str] = []
+        groups: set[str] = set()
+        for name in grounding.names_in(asked):
+            res = resolve.resolve(self.conn, name)
+            pick = (res.chosen or res.candidates) if res else []
+            if pick and pick[0].title not in titles:
+                titles.append(pick[0].title)
+                groups.add(pick[0].group)
+        shown = [re.sub(r"^[A-Za-z]+:(?=\S)", "", t) for t in titles[:3]]
+        question = f"Tell me about {capabilities.names_list(shown)}." if shown else asked
+        kind = "character" if groups == {"character"} else "lore"
+        return Plan(question, mode="fiction", kind=kind, names=shown)
+
+    def _recheck_plan(self, asked: str, hist: list[dict[str, str]], session_id: str) -> Plan | None:
+        """'Are you sure?' after an answer: the same question again, read against that answer's own pages plus fresh
+        ones (see RECHECK in llm/prompts.py). Not after an answer code wrote without searching."""
+        if not hist or not capabilities.is_challenge(asked):
+            return None
+        last = memory.last_question(self.conn, session_id)
+        # Only an answer written from searched passages can be re-read. An items table is rebuilt by the planner (its
+        # passage is not stored), and a story decline has nothing to check.
+        if last is None or last["kind"] == "meta" or last["answer_mode"] not in ("search", "recheck"):
+            return None
+        return Plan(last["standalone_q"], mode="recheck", kind=last["kind"] or "general", follow_up=True)
 
     def _answer_system(self, plan: Plan, passages_text: str, hist: list[dict[str, str]]) -> str:
         return prompts.build_answer_system(plan.kind, passages_text, self.name, persona=self.s.persona.enabled,
-                                           continuing=bool(hist), pasted=plan.material, today=now_text())
+                                           continuing=bool(hist), pasted=plan.material, today=now_text(),
+                                           recheck=plan.mode == "recheck")
 
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,
@@ -732,7 +838,7 @@ class Assistant:
 
     def _persist(self, turn: turns.Turn, answer: str, plan: Plan, sources: list[Source], related: list[str],
                  cited: list[int] | None = None, grounding: dict | None = None,
-                 verification: dict | None = None) -> int:
+                 verification: dict | None = None, regenerated: bool = False) -> int:
         """Save the answer (the question was saved when the turn began) and close the turn's record."""
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         msg_id = memory.add_message(
@@ -740,7 +846,8 @@ class Assistant:
             kind=plan.kind, sources=[s.__dict__ for s in sources], related=related, cited=cited or [],
             turn_id=turn.turn_id,
         )
-        turn.finish(msg_id, plan, grounding=grounding or plan.signals or None, verify=verification)
+        turn.finish(msg_id, plan, grounding=grounding or plan.signals or None, verify=verification,
+                    regenerated=regenerated)
         return msg_id
 
     async def ask(self, session_id: str, message: str, *, kind_override: str | None = None) -> Done:

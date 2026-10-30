@@ -129,7 +129,10 @@ def hair_and_hat(d: ImageDraw.ImageDraw) -> None:
         d.line((x, y, x + 36, y + 24), fill=FEATHER_DARK, width=4)
 
 
-def render(open_mouth: bool) -> Image.Image:
+LARGE = 512  # the About page's portrait, big enough to see the feather and the lute strings
+
+
+def render(open_mouth: bool, size: int = FINAL) -> Image.Image:
     base = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(base)
     background(d)
@@ -144,14 +147,15 @@ def render(open_mouth: bool) -> Image.Image:
     ring = ImageDraw.Draw(out)
     ring.ellipse((24, 24, S - 24, S - 24), outline=GOLD, width=22)  # medallion rim
     ring.ellipse((46, 46, S - 46, S - 46), outline="#7a5a33", width=5)
-    return out.resize((FINAL, FINAL), Image.LANCZOS)
+    return out.resize((size, size), Image.LANCZOS)
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     render(False).save(OUT / "fennick.png", optimize=True)
     render(True).save(OUT / "fennick_talk.png", optimize=True)
-    print(f"wrote {OUT / 'fennick.png'} and {OUT / 'fennick_talk.png'}")
+    render(False, LARGE).save(OUT / "fennick_large.png", optimize=True)
+    print(f"wrote {OUT / 'fennick.png'}, {OUT / 'fennick_talk.png'} and {OUT / 'fennick_large.png'}")
 
 
 if __name__ == "__main__":

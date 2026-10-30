@@ -18,13 +18,16 @@ function inlineMd(t, sources, streaming) {
     const k = t.indexOf('**');
     if (k !== -1) t = t.slice(0, k) + '<b>' + t.slice(k + 2) + '</b>';
   }
-  // [n] was cited by the model; [n*] was matched to its passage automatically afterwards (drawn dashed).
-  return t.replace(/\[(\d+)(\*?)\]/g, (m, n, auto) => {
+  // [n] was cited by the model; [n*] was matched to its passage automatically afterwards (drawn dashed); [n?] cites a
+  // passage that does not clearly say what the line says (drawn dotted, with a question mark).
+  return t.replace(/\[(\d+)([*?]?)\]/g, (m, n, mark) => {
     const s = sources && sources[+n - 1];
     if (!s) return m;
     const tip = s.title + (s.section ? ' — ' + s.section : '') + (s.snippet ? '\n' + s.snippet : '') +
-      (auto ? '\n(matched to this source automatically: the line closely overlaps it)' : '');
-    return `<a class="cite${auto ? ' auto' : ''}" href="#" data-n="${n}" title="${escapeHtml(tip)}">${n}</a>`;
+      (mark === '*' ? '\n(matched to this source automatically: the line closely overlaps it)' : '') +
+      (mark === '?' ? '\n(this page does not clearly say what the line says: check it before relying on it)' : '');
+    const cls = mark === '*' ? ' auto' : mark === '?' ? ' doubt' : '';
+    return `<a class="cite${cls}" href="#" data-n="${n}" title="${escapeHtml(tip)}">${n}${mark === '?' ? '?' : ''}</a>`;
   }).replace(
     // Keep the word before a badge, the badge(s) and the punctuation after them on one line: a non-breaking space
     // does not glue to an inline badge, so the group goes in a nowrap span. The word is limited to plain text

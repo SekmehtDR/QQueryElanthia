@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from ..core.capabilities import NO_LOOKUP
 from ..core.dates import date_note
 from ..kinds import KIND_DESCRIPTIONS, QUESTION_KINDS
 from ..util import token_estimate
@@ -43,11 +44,13 @@ Honesty:
 - Relay the wiki's own hedges: pages marked outdated, obsolete, incomplete or a stub; information tied to an era (DR 3.0, "before the Lyras War", an in-game year like 450 AV); and the kind of source: a GM's forum post, a player's guide or player-created lore, an in-world book, an event log, or the wiki's own article. Say which when it matters for trust.
 - If the passages lack a detail the user asked for, say so in one plain sentence and answer the rest. Only when no passage is relevant at all, make your entire reply this one line: "I couldn't find anything on that. Want to try asking it a different way, or ask me something else?" Never add that line to an answer that has content.
 - Several pages can describe versions of one thing, e.g. "(1)" and "(2)": treat them as versions, note where they differ and which is marked outdated. If no page has exactly the name the user used, say so in one sentence, then answer from the closest matches, naming them.
+- {no_lookup}
 
 Shape:
 - Lead with the direct answer in one or two sentences, then the supporting detail as a short list or table. Synthesize across passages; do not describe them one by one.
 - Keep game terms, item names, skill names, numbers and commands exactly as written.
-- Do not end with an offer, a suggestion for what to ask next, or a question: if there is a related page worth mentioning, a closing line is added for you after your answer."""
+- Do not end with an offer, a suggestion for what to ask next, or a question: if there is a related page worth mentioning, a closing line is added for you after your answer.""".replace(
+    "{no_lookup}", NO_LOOKUP)
 
 FRAMING = (
     "Begin with one short sentence in your own voice that frames the subject (how much has been written "
@@ -191,11 +194,12 @@ How to answer:
 - Cite sources as passage numbers in square brackets at the end of the line or sentence they support, e.g. [2] or [1][3]. Use at most two numbers per citation. Only cite numbers that appear below.
 - Keep game terms, item names, skill names, numbers and commands exactly as written. Forum posts may be out of date; if passages disagree, say so.
 - Earlier turns of the conversation are context for what the user means, not a source of facts: every fact in your answer must come from the numbered passages, with the citation of the passage that states it.
+- {no_lookup}
 
 Reminder: end EVERY sentence, list item and table row that states a fact with its [n], not just the first one.
 
 Passages:
-{passages}"""
+{passages}""".replace("{no_lookup}", NO_LOOKUP)
 
 
 HISTORY_RULE = (
@@ -207,11 +211,37 @@ HISTORY_RULE = (
 )
 
 
+# "Are you sure?": the last answer is re-read against its own passages (and fresh ones), not defended or abandoned.
+RECHECK = (
+    "The user is questioning your last answer. Compare it with the numbered passages and state the result plainly: "
+    "confirm what they state, correct anything they contradict, and name any detail of your last answer they do not "
+    "mention. Give the result, not the process: no talk of checking or re-reading. Do not apologise, do not change "
+    "anything the passages support just to agree with the user, and add nothing they do not say."
+)
+
+# Written after a first draft named things no passage has, or pretended to look something up (core/verify.py).
+STRICT = "Your first draft of this answer broke the rules, so write it again from the passages alone. {problems}"
+STRICT_NAMES = "No passage mentions {names}: do not name {them}. Name only creatures, people, places and things the passages name."
+STRICT_LOOKUP = "You cannot look anything up or check anything: write no sentence about checking, looking or searching."
+
+
+def strict_addendum(names: list[str], fake_actions: bool) -> str:
+    """The instruction for a second draft, naming exactly what the first one got wrong."""
+    problems = []
+    if names:
+        shown = ", ".join(f'"{n}"' for n in names[:6])
+        problems.append(STRICT_NAMES.replace("{names}", shown).replace("{them}", "it" if len(names) == 1 else "them"))
+    if fake_actions:
+        problems.append(STRICT_LOOKUP)
+    return STRICT.replace("{problems}", " ".join(problems))
+
+
 def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bool = True,
-                        continuing: bool = False, pasted: str = "", today: str = "") -> str:
+                        continuing: bool = False, pasted: str = "", today: str = "", recheck: bool = False) -> str:
     """System prompt for the answer step. Uses replace(), never format(): passage text may contain braces."""
     if not persona:
-        return NEUTRAL_ANSWER_SYSTEM.replace("{passages}", passages_text)
+        base = NEUTRAL_ANSWER_SYSTEM.replace("{passages}", passages_text)
+        return f"{RECHECK}\n\n{base}" if recheck else base
     parts = [PERSONA_BLOCK.replace("{name}", name)]
     hint = SHAPE_HINTS.get(kind)
     if hint:
@@ -220,6 +250,8 @@ def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bo
         parts.append(TODAY.replace("{date}", today))
     if continuing:
         parts.append(CONTINUING)
+    if recheck:
+        parts.append(RECHECK)
     if pasted:
         parts.append(PASTED.replace("{text}", pasted))
     if "Reading of the history:" in passages_text:

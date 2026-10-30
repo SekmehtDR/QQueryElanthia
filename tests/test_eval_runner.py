@@ -72,13 +72,15 @@ def test_scripts_run_end_to_end_and_report_each_turns_problems(conn, tmp_path, m
     script.write_text(
         "- name: hogs\n  turns:\n"
         "    - q: Where do musk hogs live?\n      cited: true\n      answer_has: [crossing]\n      max_unknown: 0\n"
-        "    - q: Are you sure?\n      cited: true\n      max_unknown: 0\n", encoding="utf-8")
+        "    - q: What do they eat?\n      cited: true\n      max_unknown: 0\n", encoding="utf-8")
     model = Model(["Musk hogs live in the Crossing hog pens [1].",
-                   "Let me check that again. The Moonwraiths guard their pens."])
+                   "Let me check that again. The Moonwraiths guard their pens.",
+                   "Let me check once more. The Moonwraiths still guard their pens."])  # the rewrite fails too
     rows, m = asyncio.run(runner.run_scripts(Settings(), conn, model, script))
     assert rows[0]["problems"] == []
     second = " ".join(rows[1]["problems"])
     assert "no citation" in second and "Moonwraiths" in second and "pretends to look" in second
+    assert model.answers == [] and m["answers_revised"] == 0.5  # the second answer was rewritten once
     assert m["script_turn_pass"] == 0.5 and m["scripts_clean"] == 0.0
     assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 0  # nothing left behind
     assert conn.execute("SELECT count(*) FROM turns").fetchone()[0] == 0

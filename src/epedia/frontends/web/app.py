@@ -7,6 +7,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,8 +17,8 @@ from pydantic import BaseModel
 
 from ...buildinfo import build_info, git_commit
 from ...config import Settings
-from ...core import memory
-from ...core.assistant import Assistant, Done, Retrieval, Token
+from ...core import feedback, memory
+from ...core.assistant import Assistant, Done, Retrieval, Revise, Token
 from ...db import connect, get_state
 from ...index.reset import clear_index
 from ...jobs import (
@@ -51,11 +52,18 @@ CHIPS = [
     "Where do musk hogs live and how tough are they?",
     "What is the heaviest heavy edged weapon?",
 ]
+RECENT_QUESTIONS = 20  # the latest questions in the owner's Past chats, shown on the start screen instead of the starters
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+
+
+class FeedbackRequest(BaseModel):
+    vote: Literal["up", "down"] | None = None  # None takes a vote back
+    reasons: list[str] = []  # keys of core.feedback.REASONS, with a thumbs-down
+    note: str = ""
 
 
 class LoginRequest(BaseModel):
@@ -320,10 +328,11 @@ def create_app(settings: Settings) -> FastAPI:
         info = info if local else public_build(info)
         if not p.enabled:
             return {"enabled": False, "name": "QQueryElanthia", "tagline": "answers from the wiki",
-                    "greeting": "Ask a question about DragonRealms.", "chips": CHIPS, "build": info, "local": local}
+                    "greeting": "Ask a question about DragonRealms.", "chips": CHIPS, "build": info, "local": local,
+                    "feedback_reasons": feedback.REASONS}
         return {
             "enabled": True,
-            "local": local,  # the page hides the Index panel from visitors
+            "local": local,  # the page hides the Index panel, Past chats and recent questions from visitors
             "build": info,
             "name": p.name,
             "tagline": "a traveler's notes on Elanthia, from Elanthipedia",
@@ -331,18 +340,35 @@ def create_app(settings: Settings) -> FastAPI:
                          "write about Elanthia. Ask me about crafting, places, people, creatures, "
                          "the gods and wars, or what something's worth."),
             "chips": CHIPS,
+            "feedback_reasons": feedback.REASONS,  # what a thumbs-down offers to say
         }
 
     @app.post("/api/sessions")
     async def create_session(request: Request) -> dict:
         return {"session_id": memory.new_session(state["conn"], "web", owner=access.owner_of(request))}
 
+    # Past chats and recent questions are the owner's, at this computer: through the tunnel the page is a plain chat,
+    # like the Index panel, and these are refused there.
     @app.get("/api/sessions")
     async def list_sessions(request: Request) -> list[dict]:
+        local_only(request)
         return memory.list_sessions(state["conn"], "web", owner=access.owner_of(request))
+
+    # The start screen's questions are exactly those in the owner's Past chats, so "Delete all" (which clears Past chats)
+    # empties it too. Visitors' chats are in neither.
+    @app.delete("/api/sessions")
+    async def delete_all_sessions(request: Request) -> dict:
+        guard(request)  # irreversible: the Index panel's checks, Host header included (DNS rebinding)
+        return {"deleted": memory.delete_sessions(state["conn"], access.owner_of(request))}
+
+    @app.get("/api/recent-questions")
+    async def recent_questions(request: Request) -> dict:
+        local_only(request)
+        return {"questions": memory.recent_user_questions(state["conn"], access.owner_of(request), RECENT_QUESTIONS)}
 
     @app.get("/api/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str) -> dict:
+        local_only(request)
         if not memory.owned_by(state["conn"], session_id, access.owner_of(request)):
             raise HTTPException(404, "no such conversation")
         return {"messages": memory.messages(state["conn"], session_id),
@@ -363,6 +389,15 @@ def create_app(settings: Settings) -> FastAPI:
             raise HTTPException(404, "no such conversation")
         memory.delete_session(state["conn"], session_id)
         return {"deleted": True}
+
+    @app.post("/api/turns/{turn_id}/feedback")
+    async def turn_feedback(request: Request, turn_id: int, body: FeedbackRequest) -> dict:
+        """A thumbs up or down on one answer, by whoever had that conversation (a visitor on their own answers too)."""
+        csrf(request)
+        sid = feedback.turn_session(state["conn"], turn_id)
+        if sid is None or not memory.owned_by(state["conn"], sid, access.owner_of(request)):
+            raise HTTPException(404, "no such answer")
+        return feedback.record(state["conn"], turn_id, body.vote, body.reasons, body.note)
 
     @app.post("/api/chat")
     async def chat(request: Request, req: ChatRequest) -> StreamingResponse:
@@ -397,10 +432,12 @@ def create_app(settings: Settings) -> FastAPI:
                                                   "standalone_q": ev.standalone_q, "mode": ev.mode, "kind": ev.kind})
                         elif isinstance(ev, Token):
                             yield sse("token", {"text": ev.text})
+                        elif isinstance(ev, Revise):  # the page clears the draft it showed; a second one follows
+                            yield sse("revise", {"reason": ev.reason})
                         elif isinstance(ev, Done):
                             # `answer` is the final text, including tags added for lines the model left uncited
                             yield sse("done", {"cited": ev.cited, "related": ev.related, "answer": ev.answer,
-                                               "topic": ev.topic, "turn_id": ev.turn_id})
+                                               "topic": ev.topic, "turn_id": ev.turn_id, "revised": ev.revised})
             except Exception as exc:  # surface model/db problems in the UI instead of a dropped stream
                 yield sse("error", {"message": str(exc)})
             finally:

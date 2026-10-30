@@ -16,7 +16,8 @@ from ..util import utcnow_iso
 from .attribution import OFFER_LINE
 from .userinput import split_message
 
-_CITATION = re.compile(r"\s*\[\d+\*?\](?:\[\d+\*?\])*")  # "[2]" cited by the model, "[2*]" matched automatically
+# "[2]" cited by the model, "[2*]" matched automatically, "[2?]" a citation its passage does not bear out
+_CITATION = re.compile(r"\s*\[\d+[*?]?\](?:\[\d+[*?]?\])*")
 MAX_HISTORY_CHARS = 1500
 TITLE_CHARS = 60
 
@@ -87,6 +88,48 @@ def recent_questions(conn: sqlite3.Connection, session_id: str, n: int = 8) -> l
         (session_id, _context_from(conn, session_id), n),
     ).fetchall()
     return [r["standalone_q"] for r in reversed(rows)]
+
+
+def last_question(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
+    """The last question that was answered by searching (its standalone form and kind), with the answer's mode, after
+    the context boundary: what "are you sure?" is about."""
+    return conn.execute(
+        "SELECT u.standalone_q, u.kind, (SELECT a.mode FROM messages a WHERE a.session_id=u.session_id "
+        "AND a.role='assistant' AND a.msg_id>u.msg_id ORDER BY a.msg_id LIMIT 1) AS answer_mode "
+        "FROM messages u WHERE u.session_id=? AND u.msg_id>? AND u.role='user' AND u.standalone_q IS NOT NULL "
+        "ORDER BY u.msg_id DESC LIMIT 1",
+        (session_id, _context_from(conn, session_id)),
+    ).fetchone()
+
+
+RECENT_QUESTION_CHARS = 120  # longer ones are pasted posts or essays, not something to click again
+
+
+def recent_user_questions(conn: sqlite3.Connection, owner: str | None = None, limit: int = 20,
+                          frontend: str = "web") -> list[str]:
+    """The last `limit` distinct questions asked on the web page (by anyone, or only by `owner`), newest first, for the
+    owner's start screen. Each is the planner's standalone form ("What tools do I need for forging?", not "What tools do
+    I need for it?") so it makes sense on its own. Small talk, the clock, declined questions, stories and re-checks are
+    left out, as are chats deleted since."""
+    rows = conn.execute(
+        "SELECT m.standalone_q FROM messages m JOIN sessions s ON s.session_id = m.session_id "
+        "WHERE m.role='user' AND m.standalone_q IS NOT NULL AND s.frontend=? AND (? IS NULL OR coalesce(s.owner, 'local')=?) "
+        "AND coalesce(m.kind, '') != 'meta' AND coalesce(m.mode, '') NOT IN ('clock', 'declined', 'fiction', 'recheck') "
+        "ORDER BY m.msg_id DESC LIMIT ?",
+        (frontend, owner, owner, limit * 10),  # duplicates are common (the same question asked again): read ahead
+    ).fetchall()
+    out: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        q = re.sub(r"\s+", " ", r["standalone_q"]).strip()
+        key = re.sub(r"[^a-z0-9]+", " ", q.casefold()).strip()
+        if not key or key in seen or len(q) > RECENT_QUESTION_CHARS:
+            continue
+        seen.add(key)
+        out.append(q)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def last_pasted(conn: sqlite3.Connection, session_id: str) -> str:
@@ -178,6 +221,14 @@ def delete_session(conn: sqlite3.Connection, session_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def delete_sessions(conn: sqlite3.Connection, owner: str | None = None, frontend: str = "web") -> int:
+    """Every conversation on this front end (or only `owner`'s), for "Delete all" in Past chats; their messages and turn
+    records go with them, and so their questions leave the start screen. Returns how many conversations were deleted."""
+    cur = conn.execute("DELETE FROM sessions WHERE frontend=? AND (? IS NULL OR coalesce(owner, 'local')=?)",
+                       (frontend, owner, owner))
+    return cur.rowcount
+
+
 def list_sessions(conn: sqlite3.Connection, frontend: str = "web", limit: int = 50, owner: str | None = None) -> list[dict]:
     """Conversations that have at least one question, newest first, for the Past chats list. With `owner`, only that
     person's (visitors never see each other's, or the owner's)."""
@@ -193,9 +244,11 @@ def list_sessions(conn: sqlite3.Connection, frontend: str = "web", limit: int = 
 
 
 def messages(conn: sqlite3.Connection, session_id: str) -> list[dict]:
+    """The transcript; an answer carries its turn id and any thumbs up or down it was given (core/feedback.py)."""
     rows = conn.execute(
-        "SELECT role, content, standalone_q, mode, kind, sources, related FROM messages "
-        "WHERE session_id=? ORDER BY msg_id",
+        "SELECT m.role, m.content, m.standalone_q, m.mode, m.kind, m.sources, m.related, t.turn_id, t.feedback "
+        "FROM messages m LEFT JOIN turns t ON t.assistant_msg_id = m.msg_id "
+        "WHERE m.session_id=? ORDER BY m.msg_id",
         (session_id,),
     ).fetchall()
     return [

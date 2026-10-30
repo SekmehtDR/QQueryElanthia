@@ -6,7 +6,7 @@ import json
 import os
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -148,6 +148,9 @@ class ChatCfg(BaseModel):
     history_turns: int = 4
     context_token_budget: int = 6000
     temperature: float = 0.2
+    # A draft that names things no passage has, or pretends to look something up, is written once more (core/verify.py):
+    # "fabrication" (the default) or "off". Anything else the checks find is marked, never rewritten.
+    regenerate: Literal["fabrication", "off"] = "fabrication"
 
 
 class WebCfg(BaseModel):

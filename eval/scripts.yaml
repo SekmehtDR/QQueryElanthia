@@ -27,6 +27,7 @@
       cited: true
       max_unknown: 0
     - q: Are you sure?
+      mode: recheck
       cited: true
       answer_lacks: ["I apologize", "my mistake", "you're right"]
       max_unknown: 0
@@ -49,6 +50,7 @@
     - q: I heard he was once a warrior mage
       max_unknown: 0
     - q: are you sure?
+      mode: recheck
       max_unknown: 0
     - q: What does it mean for a spell to be signature?
       max_unknown: 0

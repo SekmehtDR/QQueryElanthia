@@ -100,6 +100,8 @@ def test_live_markdown_renders_inline_formatting_as_words_arrive():
                  "sources": [{"url": "http://x/a", "title": "A", "section": "Stats", "snippet": "Weight: 35 stones"}]},
         "auto": {"text": "Costs 287 Kronars [1*].",
                  "sources": [{"url": "http://x/a", "title": "A", "section": "", "snippet": ""}]},
+        "doubt": {"text": "Costs 999 Kronars [1?].",
+                  "sources": [{"url": "http://x/a", "title": "A", "section": "", "snippet": ""}]},
     })
     assert "<b>bold</b>" in out["bold"] and "<i>slanted</i>" in out["bold"] and "<code>code</code>" in out["bold"]
     assert out["stream_open"] == "<p>Hello <b>wor</b></p>"  # an unclosed ** is already bold, never raw asterisks
@@ -109,6 +111,9 @@ def test_live_markdown_renders_inline_formatting_as_words_arrive():
     assert out["cite"].count('class="cite"') == 1 and "[2]" in out["cite"]  # [2] has no source: left as text
     assert 'data-n="1"' in out["cite"] and "A — Stats\nWeight: 35 stones" in out["cite"]  # hover shows title + excerpt
     assert 'class="cite auto"' in out["auto"] and "matched to this source automatically" in out["auto"]
+    # a citation its page does not bear out: dotted, with the question mark kept and a tooltip saying why
+    assert 'class="cite doubt"' in out["doubt"] and ">1?</a>" in out["doubt"] and "check it before" in out["doubt"]
+    assert "[1?]" not in out["doubt"] and 'class="nb"' in out["doubt"]  # glued to its word like any badge
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -181,6 +186,33 @@ def test_page_polish_welcome_input_scroll_and_error_handling(client):
     assert "function showError(" in html and "Try again" in html and "function addActions(" in html and "Copy answer" in html
     assert 'name="color-scheme"' in html and 'rel="icon"' in html and ":focus-visible" in html
     assert ".sources:empty" in html  # empty note/sources sections take no space (the stray line under user bubbles)
+
+
+def test_page_has_an_about_fennick_page_with_his_story_and_how_he_works(client):
+    html = client.get("/").text
+    assert 'id="aboutbtn"' in html and html.index('id="vmob"') < html.index('id="aboutbtn"') < html.index('id="pastbtn"')
+    about = html[html.index('<dialog id="about"'):html.index("</dialog>")]
+    assert "<h2 id=\"about-title\">Hi, I'm Fennick!</h2>" in about  # it opens with his greeting
+    assert about.index("Where I come from") < about.index("Out of character")  # the story, then the OOC part
+    assert "Made by Sekmeht" in about and "Grounded in Elanthipedia, and nothing else." in about
+    assert "He can be wrong." in about and 'aria-label="Close"' in about
+    assert '/static/fennick_large.png' in about and 'width="200"' in about  # the bigger portrait
+    assert client.get("/static/fennick_large.png").status_code == 200
+    assert "about.showModal()" in html and "e.target === about" in html  # opens as a window; a click outside closes it
+
+
+def test_page_shows_recent_questions_and_a_delete_all_but_hides_both_from_visitors(client):
+    html = client.get("/").text
+    assert "fetch('/api/recent-questions')" in html and "'Others are asking:'" in html
+    # at this computer the owner's own questions replace the starters, and an empty history says so
+    assert "No questions have been asked yet. Ask one now!" in html
+    assert "const starters" not in html  # nothing filters the history against canned questions any more
+    start = html.index("function hintHtml(")
+    body = html[start:html.index("async function loadRecent(", start)]
+    assert body.index("persona.local !== false") < body.index("loadRecent(recent)") < body.index("persona.chips")
+    assert "getElementById('pastbtn').hidden = true" in html  # Past chats hidden through the tunnel, like Index
+    assert 'id="pastclear"' in html and "fetch('/api/sessions', { method: 'DELETE'" in html
+    assert "else if (r.ok) loadRecent();" in html  # a deleted chat's questions leave the start screen at once
 
 
 def test_page_survives_http_errors_malformed_events_and_dropped_streams(client):

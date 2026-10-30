@@ -108,6 +108,99 @@ creatures, narrated "let me check" actions, drift in long chats, fan fiction). P
 - `search.vec_search_dist`, `Hit.vec_dist`; `Plan.signals`; `grounding.Gate/assess/decline/names_in/in_wiki`;
   `faithfulness.check_done`. 8 new tests (`tests/test_grounding.py`); 316 in all.
 
+### Phase 3: acting on the checks, honest capabilities, stories declined, "are you sure?" re-checked
+
+- **A draft that names things no passage has, or pretends to look something up, is withdrawn and written once more**,
+  at temperature 0, with a code-written instruction naming exactly what to leave out. The page clears the draft
+  ("Fennick is checking his notes again") and shows the second; the terminal prints a dim note. It happens at most once
+  per answer; replayed on the 205 stored answers it would have fired on about one in seven (some 10 s each).
+  `[chat] regenerate = "off"` turns it off.
+- **Everything else is marked, not rewritten.** A citation its passage does not bear out becomes `[n?]`, drawn as a
+  dotted badge whose tooltip says to check it (and a legend entry); a "let me check" line is removed from the text; and
+  one closing note, written by code, covers the most important thing left: a name still in no passage ("One caution:
+  I can't find “X” anywhere in the pages I had for this..."), a figure that does not match its page, or an answer
+  almost wholly untied to any page. Measured on the stored answers, a note on every `[n?]` or every half-uncited answer
+  would have sat under two answers in three, so those cases rely on the marks.
+- **Stories, poems and roleplay are declined in voice** ("Spinning a tale of my own isn't something I do; my notes are
+  copied, not composed..."), recognised by rule before the planner. When the request names pages the wiki has, the
+  decline leads and the model answers what the wiki says about them; when it names none, the decline is the whole
+  answer and no model is asked. "Tell me the story of the Lyras War" is still a lore question.
+- **"Are you sure?" re-reads the evidence.** A short challenge after a searched answer skips the planner (which filed it
+  as a question about Fennick), asks the same question again with the last answer's cited pages first plus fresh
+  results, and tells the model to confirm what they support, correct what they contradict and not cave to please.
+- **Fennick says truthfully what he can and cannot do** (`core/capabilities.py`): the "about this assistant" passage
+  lists both, and both answer styles gain one rule: nothing can be looked up while writing, so never say you will check.
+
+- **Measured** (`eval --full`, against the Phase 1 baseline): must-decline questions declined **0.88** (was 0.48; all six
+  story requests and all eleven invented names now decline; three general-knowledge questions, sourdough, a leaky faucet
+  and quantum entanglement, are still answered); false refusals 0; script turns passing 78% (was 72%), 5 of 7
+  conversations clean (was 3), "are you sure?" re-checked instead of filed as small talk; answers naming something no
+  passage has 0% (was 9.3%), cited lines borne out 0.927 (was 0.798), figures not in their page 0 (was 44); 1 eval answer
+  in 54 rewritten; retrieval unchanged (hit@5 0.94, MRR 0.911); answer time p50 9.8 s, p90 16.1 s (was 10.8 / 14.6: the
+  rewrites). Part of the citation and figure gains is the measurement: since Phase 2 the eval reads the very passages each
+  answer was given, where the baseline re-read them from the index and missed the edit-history passage and code tables.
+- **Still failing, for Phase 4:** in the long Binu conversations the model carries "Warrior Mage" and an invented
+  "Warrior Necro-Mage" over from its own earlier answers when the new turn's passages lack them; the rewrite cannot
+  remove what the conversation keeps feeding it, so the closing note names them. Phase 4 replaces raw history with a
+  summary built from the database.
+
+### Start screen and Past chats
+
+- **"Others are asking:"** at this computer, the start screen shows the last 20 distinct questions from the chats in
+  Past chats in place of the fixed starter questions, each in the planner's standalone form ("What tools do I need for
+  forging?", not "...for it?"), so any can be asked again with one click. Small talk, the clock, declined questions,
+  story requests and re-checks are left out. With none, it says "No questions have been asked yet. Ask one now!"
+  Deleting a chat removes its questions at once. Visitors' chats are in neither list.
+- **Delete all chats**: a button at the foot of Past chats deletes every conversation listed there, after a
+  confirmation. Visitors' chats, which Past chats does not show, are left alone.
+- **Thumbs up or down under every answer.** A thumbs-down then offers four reasons to tick (wrong or made up, didn't
+  answer my question, lost track of the conversation, too long or hard to follow) and a line for anything else; a
+  second click on the same thumb takes the vote back. The vote is kept on the answer's turn record, so it stays with
+  its conversation, shows again when the chat is reopened, and goes when the chat is deleted. Visitors through the
+  tunnel can vote on their own answers, never on anyone else's.
+- **`qqueryelanthia feedback`** lists the thumbs-down answers, newest first: who asked (you or a visitor), the question,
+  the reasons and note, and what the checks found (names no page has, unsupported lines, a rewritten draft). `feedback
+  <turn id>` shows that answer in its conversation with its full record (the plan, retrieval signals, checks, timings);
+  `--all` adds thumbs-up, `--since` limits by date and `--json` prints everything for processing elsewhere.
+- **Visitors through the tunnel get a plain chat**: like the Index panel, Past chats and other people's questions are
+  hidden from them, and the server refuses the conversation list, a past conversation's messages and the question list.
+  They keep the fixed starter questions. (Their chats are still private; there was never a way to resume one across a
+  page reload.)
+- The Copy answer button also strips `[n?]` marks.
+- **About Fennick**: an "About" button beside Desktop and Mobile (or a click on his portrait) opens a page from his
+  notes over the chat, with a close button (Escape or a click outside also close it). It opens "Hi, I'm Fennick!" with
+  a larger portrait (`fennick_large.png`, 512 px, drawn by `tools/make_fennick.py` with the others), tells his origin
+  in character, then out of character: made by Sekmeht, grounded in Elanthipedia only, and how he can be wrong.
+- Polish: the thumbs-down note gets its own line; header buttons no longer wrap onto two lines in the mobile view.
+
+### Fixed in review (before release)
+
+- "Delete all chats" now passes the same checks as the Index controls, the Host header included, so a page that
+  re-resolves its own name to this computer cannot wipe the chats.
+- "Are you sure?" is a re-check only when it is the whole message or is followed by punctuation: "Is that true for
+  Paladins too?" and "Are you sure there's no other way?" ask something new. It is never a re-check after a declined
+  story or an item table (the table is rebuilt by the planner, which no longer files a challenge as small talk).
+- Story requests no longer catch hypotheticals about play ("Imagine I'm a Barbarian with 50 ranks, what should I
+  hunt?", "Pretend I am a new player"), "who would win" questions, or questions that merely mention fan fiction.
+- A re-check may say it checked the passages again (it did): that no longer forces a second draft or gets cut, and the
+  re-check prompt asks for the result, not the process.
+- Removing a pretended look-up keeps a fact in the same line ("Let me re-read the passages: the sword weighs 10 stones"
+  keeps the weight), and a sentence ending in a `[n?]` mark is split there like any other.
+- `qqueryelanthia feedback <turn>` shows the [up]/[down] marker (Rich was reading it as a style tag).
+
+### Internals
+
+- `memory.recent_user_questions`, `memory.delete_sessions`; `GET /api/recent-questions`, `DELETE /api/sessions` (both
+  local only; delete also needs the `X-QQE` header).
+- `core/feedback.py` (`record`, `votes`, `conversation`, `REASONS`); `POST /api/turns/{id}/feedback` (the `X-QQE` header
+  and ownership of the conversation required); `memory.messages` returns each answer's `turn_id` and `feedback`;
+  `/api/persona` carries the reasons. 5 new tests (`tests/test_feedback.py`).
+- `assistant.Revise` event (SSE `revise`), `Done.revised`, `turns.regenerated`; `verify.strip_fake_actions`,
+  `verify.honesty_note`; `prompts.strict_addendum`, `prompts.RECHECK`; `memory.last_question`; citations `[n?]` are
+  understood everywhere `[n]`/`[n*]` are (history stripping, sources, the transcript). `eval --full` reports
+  `answers_revised`. Tests: 381 in all (`tests/test_verify_policy.py`, `tests/test_feedback.py`, render, sharing and page
+  tests).
+
 ## 1.0.0: Fennick, a storyteller's guide (2026-10-22)
 
 The first full release: the whole of Elanthipedia, answered by a persona.

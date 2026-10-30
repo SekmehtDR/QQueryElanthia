@@ -20,8 +20,11 @@ REFUSAL = re.compile(
     r"my notes (?:don't|do not) (?:cover|mention|say|have)|no (?:mention|record) of",
     re.I,
 )
-# Paragraphs code appends after the model's answer (edit notes, the related-page offer): not the model's words.
-_CODE_TAIL = re.compile(r"^(?:That said, my notes|Mind you,)")
+# Paragraphs code writes around the model's answer (edit notes, honesty notes, the story decline; the related-page offer
+# is OFFER_LINE): not the model's words.
+_CODE_TAIL = re.compile(r"^(?:That said, my notes|Mind you,|One caution: |Spinning a tale of my own|"
+                        r"I only answer from the wiki, so I don't write|Note: (?:a figure marked|most of this answer could "
+                        r"not|.{1,200} not appear in the pages this answer))")
 
 
 def is_refusal(answer: str) -> bool:
@@ -81,6 +84,7 @@ def aggregate(rows: list[dict]) -> dict[str, float]:
         "answers_with_unknown_names": sum(1 for r in rows if r["unknown_entities"]) / len(rows),
         "answers_with_fake_actions": sum(1 for r in rows if r["fake_actions"]) / len(rows),
         "numbers_bad": float(sum(r["numbers_bad"] for r in rows)),
+        "answers_revised": sum(1 for r in rows if r.get("revised")) / len(rows),  # first draft withdrawn and rewritten
     }
     secs = sorted(r["seconds"] for r in rows if r.get("seconds") is not None)
     if secs:

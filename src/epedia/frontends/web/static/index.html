@@ -28,6 +28,33 @@
   header button[aria-expanded="true"] { color:var(--accent); border-color:var(--accent); }
   header button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:5px 12px; cursor:pointer; font:inherit; font-size:.9rem; }
   header button:hover { color:var(--ink); border-color:var(--muted); }
+  /* About Fennick: a page from his notes, opened over the chat */
+  :root { --paper:#fbf5e6; --paper-ink:#3b2f22; --paper-edge:#d8c8a4; --paper-muted:#7a6a52; }
+  @media (prefers-color-scheme: dark) { :root { --paper:#2a241a; --paper-ink:#efe6d2; --paper-edge:#4a3f2c; --paper-muted:#b3a58a; } }
+  dialog#about { border:0; padding:0; background:transparent; color:var(--paper-ink); width:min(640px, calc(100vw - 32px)); max-height:calc(100dvh - 48px); }
+  dialog#about::backdrop { background:rgba(10, 8, 5, .62); backdrop-filter:blur(2px); }
+  dialog#about[open] { animation:about-in .18s ease-out; }
+  @keyframes about-in { from { opacity:0; transform:translateY(8px) scale(.98); } }
+  #about .sheet { position:relative; background:var(--paper); border:1px solid var(--paper-edge); border-radius:6px;
+    padding:30px 34px 24px; max-height:calc(100dvh - 48px); overflow-y:auto;
+    box-shadow:0 18px 50px rgba(0,0,0,.45), inset 0 0 60px color-mix(in srgb, var(--paper-edge) 45%, transparent);
+    font:16px/1.6 Georgia, "Iowan Old Style", "Palatino Linotype", serif; }
+  #about .about-x { position:absolute; top:10px; right:12px; width:34px; height:34px; border-radius:50%; border:1px solid var(--paper-edge);
+    background:transparent; color:var(--paper-muted); font-size:1.3rem; line-height:1; cursor:pointer; }
+  #about .about-x:hover { color:var(--paper-ink); border-color:var(--paper-muted); }
+  #about .about-portrait { display:block; margin:0 auto 12px; width:200px; height:200px; border-radius:50%;
+    box-shadow:0 6px 22px rgba(0,0,0,.35); }
+  #about h2 { text-align:center; margin:0; font-size:1.7rem; letter-spacing:.01em; }
+  #about .about-sub { text-align:center; margin:2px 0 18px; color:var(--paper-muted); font-style:italic; }
+  #about h3 { margin:20px 0 6px; font-size:1.08rem; border-bottom:1px solid var(--paper-edge); padding-bottom:4px; }
+  #about h3 .ooc { color:var(--paper-muted); font-weight:400; font-size:.9em; }
+  #about p { margin:0 0 .75em; }
+  #about ul { margin:0 0 .75em; padding-left:1.2em; font-family:system-ui, sans-serif; font-size:.94rem; }
+  #about li { margin:.35em 0; }
+  #about .cite-demo { display:inline-block; padding:0 6px; border:1px dotted var(--paper-muted); border-radius:999px; font-size:.75em; font-weight:700; color:var(--paper-muted); }
+  #about .about-foot { text-align:center; color:var(--paper-muted); font-style:italic; font-size:.9rem; margin:16px 0 0; }
+  html[data-view="mobile"] #about .sheet { padding:24px 18px 18px; }
+  html[data-view="mobile"] #about .about-portrait { width:150px; height:150px; }
   /* Desktop / Mobile switch */
   .viewtoggle { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   .viewtoggle button { border:0; border-radius:0; display:inline-flex; align-items:center; gap:6px; }
@@ -54,6 +81,7 @@
   a.cite { display:inline-block; min-width:1.5em; padding:0 6px; margin:0 1px; border-radius:999px; background:var(--accent); color:var(--bg);
     font-size:.72em; font-weight:700; line-height:1.6; text-align:center; text-decoration:none; vertical-align:text-top; cursor:pointer; }
   a.cite.auto { background:transparent; color:var(--accent); border:1px dashed var(--accent); line-height:1.4; }
+  a.cite.doubt { background:transparent; color:var(--muted); border:1px dotted var(--muted); line-height:1.4; }
   a.cite:hover, a.cite.hl { filter:brightness(1.25); box-shadow:0 0 0 2px var(--accent); }
   .sources { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); font-size:.85rem; color:var(--muted); }
   .src-used > summary { cursor:pointer; font-weight:700; color:var(--ink); margin-bottom:4px; }
@@ -77,6 +105,10 @@
   .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px; }
   .chip { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:999px; padding:6px 14px; font:inherit; font-size:.88rem; cursor:pointer; }
   .chip:hover { border-color:var(--accent); color:var(--accent); }
+  .recent { margin-top:12px; }
+  .recent-none { color:var(--muted); font-style:italic; }
+  .recent-label { color:var(--muted); }
+  .recent .chip { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.82rem; padding:4px 12px; }
   .related { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:.85rem; color:var(--muted); }
   .related .chip { padding:3px 10px; font-size:.82rem; }
   .msg .avatar { float:right; width:56px; height:56px; margin:-2px 0 8px 14px; border-radius:50%; box-shadow:0 2px 8px rgba(0,0,0,.35); }
@@ -157,6 +189,9 @@
   #past li.current .pick { border-color:var(--line); }
   #past .del { flex:0 0 auto; border:0; background:none; color:var(--muted); cursor:pointer; font:inherit; padding:6px 8px; border-radius:6px; }
   #past .del:hover { color:#d24a3a; }
+  #past .past-foot { padding:0 var(--gutter) 10px; text-align:right; }
+  #past .past-foot button { border:1px solid var(--line); background:none; color:var(--muted); border-radius:8px; padding:4px 12px; font:inherit; font-size:.82rem; cursor:pointer; }
+  #past .past-foot button:hover { border-color:#d24a3a; color:#d24a3a; }
   #topicbar { display:flex; align-items:center; gap:8px; padding:6px var(--gutter); border-bottom:1px solid var(--line); color:var(--muted); font-size:.82rem; }
   #topicbar[hidden] { display:none; }
   #topicbar b { color:var(--ink); font-weight:600; }
@@ -190,7 +225,8 @@
   .nb { white-space:nowrap; }  /* a citation badge and the punctuation after it never split across lines */
 
   /* Welcome screen: his portrait above the greeting and the starter questions. */
-  .hint .hero { width:96px; height:96px; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.4); margin:0 auto 14px; display:block; }
+  .hint .hero { width:96px; height:96px; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.4); margin:0 auto 14px; display:block; cursor:pointer; transition:transform .15s; }
+  .hint .hero:hover { transform:scale(1.05); }
   .hint .hero-name { font-weight:700; color:var(--ink); font-size:1.2rem; margin-bottom:6px; }
 
   /* Input row extras: keyboard hint, "jump to latest", answer actions, friendly errors. */
@@ -201,6 +237,16 @@
   .actions { margin-top:10px; display:flex; gap:8px; }
   .actions button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:999px; padding:3px 12px; font:inherit; font-size:.8rem; cursor:pointer; }
   .actions button:hover { color:var(--ink); border-color:var(--muted); }
+  .actions { flex-wrap:wrap; align-items:center; }
+  .actions button.vote { padding:3px 10px; }
+  .actions button.vote[aria-pressed="true"] { color:var(--accent); border-color:var(--accent); }
+  .actions .voted { color:var(--muted); font-size:.8rem; }
+  .why { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:4px; }
+  .why .why-q { flex-basis:100%; color:var(--muted); font-size:.8rem; }
+  .why button[aria-pressed="true"] { color:var(--accent); border-color:var(--accent); }
+  .why .why-row { flex-basis:100%; display:flex; gap:6px; max-width:560px; }
+  .actions button.vote { font-size:.95rem; line-height:1.2; }
+  .why input { flex:1 1 auto; min-width:0; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:4px 10px; font:inherit; font-size:.85rem; }
   .err { border-left:3px solid #d24a3a; padding:6px 12px; color:var(--ink); }
   .err button { margin-top:6px; background:var(--accent); color:var(--bg); border:0; border-radius:8px; padding:5px 14px; font:inherit; font-size:.85rem; cursor:pointer; }
   html[data-view="desktop"] .msg:not(.user) { max-width:min(100%, 1020px); }  /* a readable measure on wide screens */
@@ -221,7 +267,8 @@
   html[data-view="mobile"] .hint .hero { width:80px; height:80px; }
   html[data-view="mobile"] form { padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
   html[data-view="mobile"] header button, html[data-view="mobile"] form button { min-height:42px; }
-  html[data-view="mobile"] header button { padding:6px 12px; }
+  html[data-view="mobile"] header button { padding:6px 10px; white-space:nowrap; }
+  html[data-view="mobile"] header .controls { gap:6px; }
   html[data-view="mobile"] .viewtoggle button span.lbl { display:none; }  /* icons only: the row has to fit */
   html[data-view="mobile"] textarea { font-size:16px; min-height:46px; }  /* 16px stops iOS zooming into the field */
   html[data-view="mobile"] form button { padding:0 16px; }
@@ -261,12 +308,51 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg><span class="lbl">Mobile</span>
     </button>
   </div>
+  <button id="aboutbtn" type="button" aria-haspopup="dialog" aria-controls="about" title="Who Fennick is, and how he works">About</button>
   <button id="pastbtn" type="button" aria-expanded="false" aria-controls="past" title="Earlier conversations you can pick back up">Past chats</button>
   <button id="statusbtn" type="button" aria-expanded="false" aria-controls="status" title="Show or hide index details">Index</button>
   <button id="new" type="button" title="Start a fresh conversation">New chat</button>
   </div>
 </header>
-<div id="past"><ul id="pastlist"></ul></div>
+<dialog id="about" aria-labelledby="about-title">
+  <div class="sheet">
+    <button type="button" class="about-x" id="aboutclose" aria-label="Close">×</button>
+    <img class="about-portrait" src="/static/fennick_large.png" alt="Fennick, a Halfling Bard in a green feathered cap, with his lute" width="200" height="200">
+    <h2 id="about-title">Hi, I'm Fennick!</h2>
+    <p class="about-sub">Halfling, Bard, keeper of an alarmingly heavy satchel</p>
+
+    <h3>Where I come from</h3>
+    <p>I was born in Riverhaven, in Therengia, to a family of Halflings who held that any story worth telling was worth
+      telling twice, and louder the second time. I joined the Bards with high hopes and a borrowed lute, and learned two
+      things very quickly: I can play exactly four songs, and I cannot remember the words to any of them.</p>
+    <p>So I started writing things down. First the words. Then the names of everyone who asked me to stop singing.
+      Then, somewhere on the road between the Crossing and Ratha, everything: every shop, every creature, every god,
+      every recipe for a sword I will never be strong enough to lift. When I ran out of things to write, I found the
+      great book the adventurers keep about this world, Elanthipedia, and I have been copying it page by page ever since.</p>
+    <p>My satchel now weighs more than I do. I have read about far more of Elanthia than I have ever seen, and I'll be
+      the first to say so. Ask me where to hunt and I'll give you the whole ladder, page and line. Ask me whether I've
+      hunted there myself, and I'll suddenly remember an urgent appointment with a pie.</p>
+
+    <h3>Out of character <span class="ooc">(OOC)</span></h3>
+    <ul>
+      <li><b>Made by Sekmeht</b>, a DragonRealms player, for other players.</li>
+      <li><b>How he works:</b> a small program keeps an offline copy of Elanthipedia, over a hundred thousand pages, and
+        searches it by keywords and by meaning when you ask something. A language model running on that same computer
+        then writes the answer from the pages the search found, and only those, with a numbered badge on each line
+        pointing back to its page.</li>
+      <li><b>Grounded in Elanthipedia, and nothing else.</b> No connection to the game, no forums, no memories of his
+        own (the travels above are, sadly, fiction). If the wiki has nothing on something, he says so instead of
+        guessing, and he politely declines to make up stories. Code checks every answer: a name no page mentions sends
+        him back to write it again, and a line its page doesn't quite support gets a dotted <span class="cite-demo">1?</span>.</li>
+      <li><b>He can be wrong.</b> He can misread a page; the page itself can be outdated, because players write the
+        wiki; and his copy can lag a little behind the real one. Click any numbered badge to check the source yourself.
+        If an answer is off, a 👎 helps Sekmeht teach him better. Fennick takes it personally, but only for a minute.</li>
+    </ul>
+    <p class="about-foot">No Halflings were harmed in the making of this satchel.</p>
+  </div>
+</dialog>
+<div id="past"><ul id="pastlist"></ul>
+  <div class="past-foot" id="pastfoot" hidden><button type="button" id="pastclear" title="Delete every past conversation, and the questions they put on the start screen">Delete all chats</button></div></div>
 <div id="topicbar" hidden><span>Talking about:</span> <b id="topictext"></b>
   <button id="topicx" type="button" title="Set this topic aside: the chat stays, but Fennick stops carrying it into new questions" aria-label="Set this topic aside">×</button></div>
 <div id="status">
@@ -446,8 +532,10 @@ function showSources(d, sources, cited, related, finalText) {
     if (used.length) {
       html += `<details class="src-used"><summary>Sources used (${used.length})</summary>` + used.map(srcRow).join('');
       if (rest.length) html += `<details class="src-more"><summary>Also consulted (${rest.length})</summary>${rest.map(srcRow).join('')}</details>`;
-      if (/\[\d+\*\]/.test(finalText || '')) html += '<div class="src-legend"><span><a class="cite">1</a> cited by Fennick</span>' +
-        '<span><a class="cite auto">1</a> matched to its source automatically</span></div>';
+      const auto = /\[\d+\*\]/.test(finalText || ''), doubt = /\[\d+\?\]/.test(finalText || '');
+      if (auto || doubt) html += '<div class="src-legend"><span><a class="cite">1</a> cited by Fennick</span>' +
+        (auto ? '<span><a class="cite auto">1</a> matched to its source automatically</span>' : '') +
+        (doubt ? '<span><a class="cite doubt">1?</a> the page does not clearly say this: check it</span>' : '') + '</div>';
       html += '</details>';
     } else {  // nothing was tagged: say so, rather than implying every page below was used
       html += `<details class="src-used"><summary>Pages consulted (${sources.length})</summary>` +
@@ -476,18 +564,51 @@ function hintHtml(text) {
   if (persona && persona.enabled) {  // his portrait and name above the greeting
     const hero = document.createElement('img');
     hero.className = 'hero'; hero.src = '/static/fennick.png'; hero.alt = persona.name; hero.width = 96; hero.height = 96;
+    hero.title = 'About ' + persona.name; hero.onclick = () => document.getElementById('aboutbtn').click();
     const nm = document.createElement('div'); nm.className = 'hero-name'; nm.textContent = persona.name;
     wrap.append(hero, nm);
   }
   const p = document.createElement('p'); p.textContent = text; wrap.append(p);
+  if (persona && persona.local !== false) {
+    // At this computer the start screen offers the questions in Past chats, not canned ones.
+    const recent = document.createElement('div'); recent.className = 'recent'; recent.id = 'recent';
+    wrap.append(recent);
+    loadRecent(recent);
+  } else {
+    // Visitors through the tunnel never see anyone's history (the server refuses it): they get the starter questions.
+    const chips = document.createElement('div'); chips.className = 'chips';
+    ((persona && persona.chips) || []).forEach(c => {
+      const b = document.createElement('button');
+      b.className = 'chip'; b.type = 'button'; b.textContent = c; b.onclick = () => ask(c);
+      chips.append(b);
+    });
+    wrap.append(chips);
+  }
+  return wrap;
+}
+async function loadRecent(box) {
+  box = box || document.getElementById('recent');
+  if (!box) return;  // a conversation is on screen: nothing to refresh
+  let qs = [];
+  try {
+    const r = await fetch('/api/recent-questions');
+    if (r.ok) qs = (await r.json()).questions || [];
+  } catch (e) { /* offline: shown as none */ }
+  box.textContent = '';
+  if (!qs.length) {
+    const none = document.createElement('div'); none.className = 'recent-none';
+    none.textContent = 'No questions have been asked yet. Ask one now!';
+    box.append(none);
+    return;
+  }
+  const label = document.createElement('div'); label.className = 'recent-label'; label.textContent = 'Others are asking:';
   const chips = document.createElement('div'); chips.className = 'chips';
-  ((persona && persona.chips) || []).forEach(c => {
+  qs.forEach(q => {
     const b = document.createElement('button');
-    b.className = 'chip'; b.type = 'button'; b.textContent = c; b.onclick = () => ask(c);
+    b.className = 'chip'; b.type = 'button'; b.textContent = q; b.title = q; b.onclick = () => ask(q);
     chips.append(b);
   });
-  wrap.append(chips);
-  return wrap;
+  box.append(label, chips);
 }
 async function loadPersona() {
   try {
@@ -495,6 +616,7 @@ async function loadPersona() {
     document.getElementById('pname').textContent = persona.name;
     document.getElementById('ptag').textContent = persona.tagline;
     document.title = persona.enabled ? persona.name + ' · QQueryElanthia' : 'QQueryElanthia';
+    document.getElementById('aboutbtn').hidden = !persona.enabled;  // the page is about Fennick, not the plain style
     const b = persona.build;
     if (b) {  // read from the running server, not baked into the page
       const ver = document.getElementById('pver');
@@ -505,9 +627,11 @@ async function loadPersona() {
         'reading from the ' + b.source + ' wiki'].join('\n');
       ver.hidden = false;
     }
-    if (persona.local === false) {  // a visitor through a tunnel: no Index panel (the server refuses it anyway)
+    if (persona.local === false) {  // a visitor through a tunnel: no Index panel or Past chats (the server refuses both)
       document.getElementById('statusbtn').hidden = true;
       document.getElementById('status').classList.remove('show');
+      document.getElementById('pastbtn').hidden = true;
+      document.getElementById('past').classList.remove('show');
     }
     const hint = document.getElementById('hint');
     if (hint) hint.replaceWith(hintHtml(persona.greeting));
@@ -523,17 +647,72 @@ function showError(body, detail, question) {
   box.append(document.createElement('br'), retry);
   body.append(box);
 }
-// Actions under a finished answer.
-function addActions(msg, text) {
+// Actions under a finished answer: copy it, and a thumbs up or down kept with the conversation for later review.
+function addActions(msg, text, turn) {
   const bar = document.createElement('div'); bar.className = 'actions';
   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy answer';
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(text.replace(/\s*\[\d+\*?\]/g, '')); copy.textContent = 'Copied ✓'; }
+    try { await navigator.clipboard.writeText(text.replace(/\s*\[\d+[*?]?\]/g, '')); copy.textContent = 'Copied ✓'; }
     catch (e) { copy.textContent = 'Copy failed'; }
     setTimeout(() => { copy.textContent = 'Copy answer'; }, 1600);
   };
   bar.append(copy);
+  if (turn && turn.id) addVotes(bar, turn.id, turn.feedback || null);
   msg.querySelector('.sources').before(bar);
+}
+async function sendVote(turnId, vote, reasons, note) {
+  const r = await fetch('/api/turns/' + turnId + '/feedback', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-QQE': '1' },
+    body: JSON.stringify({ vote, reasons: reasons || [], note: note || '' }) });
+  if (!r.ok) throw new Error(r.status);
+}
+function addVotes(bar, turnId, current) {
+  const mk = (vote, face, label) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'vote'; b.dataset.vote = vote;
+    b.textContent = face; b.title = label; b.setAttribute('aria-label', label); return b;
+  };
+  const up = mk('up', '👍', 'Good answer'), down = mk('down', '👎', 'Not a good answer');
+  const said = document.createElement('span'); said.className = 'voted';
+  let state = current, why = null;
+  const show = () => {
+    up.setAttribute('aria-pressed', String(state === 'up')); down.setAttribute('aria-pressed', String(state === 'down'));
+  };
+  const flash = (t) => { said.textContent = t; setTimeout(() => { if (said.textContent === t) said.textContent = ''; }, 2500); };
+  const closeWhy = () => { if (why) { why.remove(); why = null; } };
+  const cast = async (vote) => {
+    const next = state === vote ? null : vote;  // a second click on the same thumb takes the vote back
+    try { await sendVote(turnId, next); } catch (e) { flash('Could not save that'); return; }
+    state = next; show(); closeWhy();
+    if (next === 'up') flash('Thanks!');
+    else if (next === 'down') openWhy();
+  };
+  const openWhy = () => {
+    why = document.createElement('div'); why.className = 'why';
+    const q = document.createElement('div'); q.className = 'why-q'; q.textContent = 'What went wrong? (optional)';
+    why.append(q);
+    const picked = new Set();
+    Object.entries((persona && persona.feedback_reasons) || {}).forEach(([key, label]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-pressed', 'false');
+      b.onclick = () => { picked.has(key) ? picked.delete(key) : picked.add(key); b.setAttribute('aria-pressed', String(picked.has(key))); };
+      why.append(b);
+    });
+    const note = document.createElement('input'); note.type = 'text'; note.maxLength = 500;
+    note.placeholder = 'Anything else? e.g. what you expected';
+    const send = document.createElement('button'); send.type = 'button'; send.textContent = 'Send';
+    send.onclick = async () => {
+      try { await sendVote(turnId, 'down', [...picked], note.value); } catch (e) { flash('Could not save that'); return; }
+      closeWhy(); flash('Thanks, noted.');
+    };
+    note.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send.click(); } });
+    const row = document.createElement('div'); row.className = 'why-row';
+    row.append(note, send);
+    why.append(row);
+    note.focus({ preventScroll: true });
+    bar.append(why);
+  };
+  up.onclick = () => cast('up'); down.onclick = () => cast('down');
+  show();
+  bar.append(up, down, said);
 }
 // One answer at a time: a starter chip clicked mid-stream must not start a second answer on top of the first.
 let runId = 0, runCtl = null;
@@ -602,11 +781,15 @@ async function runAsk(text, signal) {
           const label = data.kind && data.kind !== 'general' && data.kind !== 'meta' ? ' (' + data.kind.replace('_', ' ') + ')' : '';
           if (label || (data.standalone_q && data.standalone_q.trim() !== text.trim())) note.textContent = 'Searching' + label + ': ' + data.standalone_q;
         } else if (ev === 'token') { full += data.text; schedule(); mouth.token(); }
+        else if (ev === 'revise') {  // the draft named things no page has (or faked a lookup): it is withdrawn and rewritten
+          settle(); full = ''; body.innerHTML = '';
+          body.append(thinkingEl(who ? who + ' is checking his notes again' : 'Checking the pages again'));
+        }
         else if (ev === 'done') {
           settle(); mouth.stop();
           if (data.answer) full = data.answer;  // the final text, with tags added for lines the model left uncited
           paint(false); showSources(a, sources, data.cited, data.related, full);
-          if (full.trim()) addActions(a, full);
+          if (full.trim()) addActions(a, full, { id: data.turn_id });
           setTopic(data.topic);
           if (document.getElementById('past').classList.contains('show')) loadPast();
         }
@@ -659,6 +842,7 @@ async function loadPast() {
   const ul = document.getElementById('pastlist');
   try {
     const rows = await (await fetch('/api/sessions')).json();
+    document.getElementById('pastfoot').hidden = !rows.length;
     if (!rows.length) { ul.innerHTML = '<li class="empty">Nothing yet. Conversations you have appear here.</li>'; return; }
     ul.innerHTML = rows.map(r => `<li${r.session_id === sessionId ? ' class="current"' : ''}>` +
       `<button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">${esc(r.title || 'Untitled')}</span>` +
@@ -685,15 +869,24 @@ async function resumeChat(id) {
     if (m.role === 'user') { add('user', m.content); return; }
     const a = add('assistant', ''), sources = m.sources || [];
     a.querySelector('.body').innerHTML = renderMarkdown(m.content, sources, false);
-    const cited = [...new Set([...m.content.matchAll(/\[(\d+)\*?\]/g)].map(x => Number(x[1])))];
+    const cited = [...new Set([...m.content.matchAll(/\[(\d+)[*?]?\]/g)].map(x => Number(x[1])))];
     showSources(a, sources, cited, m.related || [], m.content);
     makeAvatar(a).stop();
-    if (m.content.trim()) addActions(a, m.content);
+    if (m.content.trim()) addActions(a, m.content, { id: m.turn_id, feedback: m.feedback });
   });
   setTopic(data.topic);
   setPastVisible(false);
   toEnd(true);
 }
+// About Fennick: a page from his notes. Closes with the ×, Escape (the dialog's own), or a click outside the page.
+const about = document.getElementById('about');
+document.getElementById('aboutbtn').addEventListener('click', () => {
+  if (typeof about.showModal === 'function') about.showModal(); else about.setAttribute('open', '');
+  about.querySelector('.sheet').scrollTop = 0;
+});
+document.getElementById('aboutclose').addEventListener('click', () => about.close());
+about.addEventListener('click', e => { if (e.target === about) about.close(); });  // the backdrop, not the page
+about.addEventListener('close', () => document.getElementById('aboutbtn').focus());
 document.getElementById('pastbtn').addEventListener('click', () =>
   setPastVisible(!document.getElementById('past').classList.contains('show')));
 document.getElementById('pastlist').addEventListener('click', async e => {
@@ -703,8 +896,17 @@ document.getElementById('pastlist').addEventListener('click', async e => {
     const id = del.dataset.del;
     const r = await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'X-QQE': '1' } });
     if (r.ok && id === sessionId) startFresh();
+    else if (r.ok) loadRecent();  // its questions go from the start screen with it
     loadPast();
   } else if (pick) resumeChat(pick.dataset.id);
+});
+document.getElementById('pastclear').addEventListener('click', async () => {
+  if (!confirm('Delete every past conversation for good? Their questions also leave the start screen.')) return;
+  try {
+    const r = await fetch('/api/sessions', { method: 'DELETE', headers: { 'X-QQE': '1' } });
+    if (r.ok) startFresh();  // the conversation on screen went too
+  } catch (e) { /* offline: nothing was deleted */ }
+  loadPast();
 });
 function fmtEta(min) { return min == null ? '' : ' · ETA ' + Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm'; }
 async function refreshStatus() {

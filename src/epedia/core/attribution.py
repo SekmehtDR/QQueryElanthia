@@ -18,7 +18,7 @@ CITED = re.compile(r"\[\d+\*?\]")
 _WORD = re.compile(r"[a-z0-9][a-z0-9'’-]*")
 # A sentence ends at . ! ? plus any citation tags the model put after the period ("... shop. [1] Next one"),
 # provided a new sentence follows. Keeping those tags with the sentence is what stops it looking uncited.
-_SENTENCE_END = re.compile(r"[.!?](?:\s*\[\d+\*?\])*(?=\s+[A-Z0-9(\"'*])")
+_SENTENCE_END = re.compile(r"[.!?](?:\s*\[\d+[*?]?\])*(?=\s+[A-Z0-9(\"'*])")
 OFFER_LINE = re.compile(  # the closing offer (current wording first, then the earlier wording)
     r"^(Want to hear about |If you're curious, I can |I can also tell you about |"
     r"If you like, I can|The chronicle has more on|There's a thread worth pulling on)"
