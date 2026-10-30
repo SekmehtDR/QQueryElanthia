@@ -1,9 +1,50 @@
 # Changes
 
-Latest version: **1.1.0** (2026-10-29). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.2.0** (2026-10-30). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
 
-## 1.1.0: a guide who does not make things up (in progress, 2026-10-29)
+## 1.2.0: materials by colour, partial lists, no more loops (2026-10-30)
+
+A visitor asked "Give me all metals that are blue or partially blue". Search can show the model only a handful of pages,
+so it listed blue *things* (a blue-flecked clay jar, a wax cylinder, a ring) and Blue gold twice, while the wiki states
+the answer exactly: every material's own page opens with an "at a Glance" box naming its colours.
+
+- **"Which metals (woods, leathers, cloths, stones, bones, materials) are blue?" is answered by code**: every material
+  whose box names the colour, split into "only blue" and "blue with other colours", with its rarity, each line cited to
+  that material's page. Shades count (azure, cobalt, indigo are blue); "common", "rare" or "quest" narrow the list;
+  materials listed only as "various" or "unknown" are named as possible; none at all says so and lists the colours they
+  do come in. A metal's name is a colour only when the question says so ("silver-coloured metals", not "which metals
+  are silver"), and a blue sword, where to buy blue metal or what something is made of are not this question. Like
+  the other crafting tables it skips the planner on a first message.
+- **A list the model writes for "all" or "every" says it is partial.** It only ever sees the pages one search returned,
+  so code adds: "Mind you, that list comes from the 4 pages I could read for this question, so there are likely more",
+  and how to ask for a fuller one (one kind of thing, by the trait you care about). Only when the answer is a list and
+  the question asked for everything ("give me all...", "list every...", "complete list"); not "is that all?" or "tell me
+  everything about Binu".
+- **`epedia doctor`** no longer counts File, talk, user and site pages without text as missing chunks (a File page is
+  often just its image); the check failed after every namespace was indexed.
+
+Internals: `extract.register_pages` registers an extractor over pages listed from the database (called with each
+page's title); `extract.materials.glance` reads the box into facts domain `material_page` (type, colors, rarity,
+culture, innate, alterations) for all 297 material pages; `materials.wants_colour`, `colour_passage`, `SHADES`;
+`capabilities.WANTS_ALL`, `wants_all`, `partial_list`, `assistant.LIST_LINE`. 17 new tests; 434 in all.
+
+### A draft that repeats itself
+
+The 8B model sometimes falls into a loop on a list: a visitor's answer had the same four items written out three
+times ("Blue gold: As mentioned...", "Blue gold: Again...") until the token limit.
+
+- **A repeated line is dropped** from the final answer: the same words again (citations aside), or a list item that
+  names something already listed and only refers back to it ("As mentioned", "Again"). Table rules, short labels
+  and repeated labels with different content are kept.
+- **After three repeats the stream is stopped** instead of running to the token limit; the page then shows the cleaned
+  answer, and the turn's record says `looped`.
+- **The version now changes with each update** (shown at the top of the page next to the commit).
+
+Internals: `verify.Repeats` (`repeat`, streaming `feed`), `verify.drop_repeats`, `verify.LOOP_REPEATS`; the answer
+stream is closed explicitly when cut off. 3 new tests; 437 in all.
+
+## 1.1.0: a guide who does not make things up (2026-10-29 to 2026-10-30)
 
 Work on making Fennick a robust conversation agent (see the plan's analysis of the real conversation log: invented
 creatures, narrated "let me check" actions, drift in long chats, fan fiction). Phase 0, the foundation:
@@ -248,32 +289,6 @@ and `prompts.RETRY`; `Plan.pinned`, `assistant.WIKI_LINK`; `memory.recent_source
 small talk; page kinds `talk`, `user`, `file` and `site`; `kinds.SITE_NAMESPACES`, `is_talk_ns`, `names_a_thing`;
 `progress.NS_NAMES` names every namespace (the terminal monitor shares it). 36 new tests
 (`tests/test_conversation_fixes.py`); 417 in all.
-
-### Materials by colour
-
-A visitor asked "Give me all metals that are blue or partially blue". Search can show the model only a handful of pages,
-so it listed blue *things* (a blue-flecked clay jar, a wax cylinder, a ring) and Blue gold twice, while the wiki states
-the answer exactly: every material's own page opens with an "at a Glance" box naming its colours.
-
-- **"Which metals (woods, leathers, cloths, stones, bones, materials) are blue?" is answered by code**: every material
-  whose box names the colour, split into "only blue" and "blue with other colours", with its rarity, each line cited to
-  that material's page. Shades count (azure, cobalt, indigo are blue); "common", "rare" or "quest" narrow the list;
-  materials listed only as "various" or "unknown" are named as possible; none at all says so and lists the colours they
-  do come in. A metal's name is a colour only when the question says so ("silver-coloured metals", not "which metals
-  are silver"), and a blue sword, where to buy blue metal or what something is made of are not this question. Like
-  the other crafting tables it skips the planner on a first message.
-- **A list the model writes for "all" or "every" says it is partial.** It only ever sees the pages one search returned,
-  so code adds: "Mind you, that list comes from the 4 pages I could read for this question, so there are likely more",
-  and how to ask for a fuller one (one kind of thing, by the trait you care about). Only when the answer is a list and
-  the question asked for everything ("give me all...", "list every...", "complete list"); not "is that all?" or "tell me
-  everything about Binu".
-- **`epedia doctor`** no longer counts File, talk, user and site pages without text as missing chunks (a File page is
-  often just its image); the check failed after every namespace was indexed.
-
-Internals: `extract.register_pages` registers an extractor over pages listed from the database (called with each
-page's title); `extract.materials.glance` reads the box into facts domain `material_page` (type, colors, rarity,
-culture, innate, alterations) for all 297 material pages; `materials.wants_colour`, `colour_passage`, `SHADES`;
-`capabilities.WANTS_ALL`, `wants_all`, `partial_list`, `assistant.LIST_LINE`. 17 new tests; 434 in all.
 
 ## 1.0.0: Fennick, a storyteller's guide (2026-10-22)
 

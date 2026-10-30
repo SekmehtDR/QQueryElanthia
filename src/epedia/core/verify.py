@@ -196,6 +196,58 @@ def strip_fake_actions(answer: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
+# The 8B model sometimes falls into a loop on a list: the log has the same four items written out three times, with
+# "As mentioned, ..." and "Again, ..." variants, until the token limit. A repeated line says nothing new, so code drops
+# it; three repeats mean the draft is looping and the stream is cut off there.
+LOOP_REPEATS = 3
+_MARKER = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+_LEAD = re.compile(r"^\*\*(.+?)\*\*")
+_BACKREF = re.compile(r"^(?:as (?:mentioned|noted|stated|said|before|above)|again|like before|same as (?:above|before))\b",
+                      re.I)
+
+
+class Repeats:
+    """Remembers the lines of a draft and says which ones repeat an earlier line (the same words, citations aside; a
+    table rule or a short label never counts), or are a list item naming something already listed that only refers
+    back to it."""
+
+    def __init__(self) -> None:
+        self.lines: set[str] = set()
+        self.leads: set[str] = set()
+        self.count = 0
+        self._buf = ""
+
+    def repeat(self, line: str) -> bool:
+        body = _MARKER.sub("", re.sub(r"\s*\[\d+[*?]?\]", "", line)).strip()
+        key = re.sub(r"\s+", " ", body).lower()
+        if len(re.findall(r"[a-z]{3,}", key)) < 3:
+            return False
+        seen = key in self.lines
+        self.lines.add(key)
+        m = _LEAD.match(body) if _MARKER.match(line) else None
+        if m and not seen:
+            lead = m[1].strip().lower()
+            seen = lead in self.leads and bool(_BACKREF.match(body[m.end():].lstrip(" –—-:")))
+            self.leads.add(lead)
+        self.count += seen
+        return seen
+
+    def feed(self, token: str) -> bool:
+        """Streaming: True once the draft has repeated itself LOOP_REPEATS times."""
+        self._buf += token
+        *done, self._buf = self._buf.split("\n")
+        for line in done:
+            self.repeat(line)
+        return self.count >= LOOP_REPEATS
+
+
+def drop_repeats(answer: str) -> str:
+    """The answer without lines that repeat an earlier one (see `Repeats`)."""
+    seen = Repeats()
+    kept = [line for line in answer.split("\n") if not seen.repeat(line)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip() if seen.count else answer
+
+
 # One closing note, written by code, for what a reader most needs to know about how well the answer is backed. Measured
 # on the stored answers (2026-10-29): a note on every [n?] or every half-uncited answer would sit under two answers in
 # three; the marks themselves explain single lines, so a note is kept for names, figures and answers that rest on nothing.

@@ -285,3 +285,49 @@ def test_a_model_written_list_for_all_says_it_is_partial(conn):
 def test_the_partial_list_note_counts_pages():
     assert "the one page I could read" in capabilities.partial_list(1, True)
     assert "the 4 pages retrieved" in capabilities.partial_list(4, False)
+
+
+# ------------------------------------------------------------------------------------------------ a draft that loops
+
+LOOPING = """Here's a list of them:
+
+- **Blue gold** – A rare alloy of gold and indium, described as cobalt blue [8].
+- **Blue-flecked clay jar** – While not a metal, this item is made of clay with blue flecks [3].
+- **Frosty blue ring** – A magical ring that has a blue appearance [4].
+- **Blue gold** – As mentioned, this is a metal that is blue in color [8].
+- **Blue gold** – Again, this is a metal that is blue in color [8].
+- **Blue-flecked clay jar** – While not a metal, this item is made of clay with blue flecks [3].
+- **Frosty blue ring** – A magical ring that has a blue appearance [4]."""
+
+
+def test_repeated_lines_and_back_references_are_dropped():
+    out = verify.drop_repeats(LOOPING)
+    assert out.count("**Blue gold**") == 1 and out.count("clay jar") == 1 and out.count("Frosty") == 1
+    assert out.startswith("Here's a list of them:")
+
+
+def test_what_only_looks_repeated_is_kept():
+    text = ("| Metal | Hardness |\n|---|---|\n| Iron | 70 |\n\n| Wood | Hardness |\n|---|---|\n| Oak | 80 |\n\n"
+            "**Ranger**\n- **Skills**: survival and archery first [1].\n**Bard**\n- **Skills**: lore and magic first [2].\n"
+            "- Yes [1]\n- Yes [2]")
+    assert verify.drop_repeats(text) == text
+
+
+def test_a_looping_stream_is_cut_off_and_cleaned(conn):
+    class Looping(Model):
+        def __init__(self):
+            super().__init__([])
+            self.sent = 0
+
+        async def chat_stream(self, messages, temperature=None, **k):
+            for line in LOOPING.split("\n") * 20:  # would run to the token limit
+                self.sent += 1
+                yield line + "\n"
+
+    model = Looping()
+    s = Settings()
+    s.retrieval.offer_related = False
+    a = Assistant(s, conn, model)
+    done = run(a, memory.new_session(conn, "web"), "Who is Binu?")[-1]
+    assert model.sent < 20  # stopped after the third repeat, not 200 lines later
+    assert done.answer.count("**Blue gold**") == 1 and done.verification["looped"] is True

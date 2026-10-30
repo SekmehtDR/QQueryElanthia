@@ -762,13 +762,23 @@ class Assistant:
         # a reply filed as a question about Fennick.
         policy = self.s.chat.regenerate == "fabrication"
         recheck = plan.mode == "recheck"
-        revised = False
+        revised = looped = False
         temperature = self.s.chat.temperature
         while True:
             chunks: list[str] = []
-            async for tok in self.ollama.chat_stream(messages, temperature=temperature):
-                chunks.append(tok)
-                yield Token(tok)
+            watch = verify.Repeats()
+            stream = self.ollama.chat_stream(messages, temperature=temperature)
+            try:
+                async for tok in stream:
+                    chunks.append(tok)
+                    yield Token(tok)
+                    if watch.feed(tok):  # writing the same list again and again: stop it (the repeats are dropped below)
+                        looped = True
+                        log.warning("the draft repeated itself %d times; stopped it", watch.count)
+                        break
+            finally:
+                if hasattr(stream, "aclose"):
+                    await stream.aclose()
             answer = self._clean_draft("".join(chunks), passages)
             # Checked against the very passages it was written from (core/verify.py), and recorded on the turn.
             checked = verify.run(answer, passages, plan.standalone_question, user_message, context)
@@ -810,7 +820,7 @@ class Assistant:
             answer += tail
         cited = sorted({int(n) for n in ANY_CITE.findall(answer) if 1 <= int(n) <= len(sources)})
         # The record is of the final draft as the model wrote it (code then removed any pretended look-up from the text).
-        record = {**checked.as_dict(), "revised": revised}
+        record = {**checked.as_dict(), "revised": revised, **({"looped": True} if looped else {})}
         self._persist(turn, answer, plan, sources, related, cited=cited, verification=record, regenerated=revised)
         real = [s for s in sources if not s.title.endswith(": recent edits")]
         top = (real[cited[0] - 1] if cited and cited[0] <= len(real) else real[0]).title if real else ""
@@ -825,7 +835,7 @@ class Assistant:
         """The model's draft tidied: "[n]" / "[n4]" copied from the prompt, a closing offer of its own, a stray
         'nothing on that' line; then lines it left uncited get a "[n*]" tag where one passage clearly matches
         (core/attribution.py). The streamed text is the raw draft; this is what Done carries and what is saved."""
-        raw = re.sub(r"\[n(\d+)\]", r"[\1]", re.sub(r"\s*\[n\]", "", raw))
+        raw = verify.drop_repeats(re.sub(r"\[n(\d+)\]", r"[\1]", re.sub(r"\s*\[n\]", "", raw)))
         answer = soften_refusal(strip_closing_offer(raw.strip()))
         return attribute(answer, [p["text"] for p in passages]).text
 
