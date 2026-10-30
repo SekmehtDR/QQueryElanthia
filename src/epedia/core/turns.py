@@ -72,8 +72,9 @@ def _json(value: Any) -> str | None:
     if value is None:
         return None
     if is_dataclass(value):
-        # the question's vector is 768 floats of noise, and prebuilt passages are already in the answer's sources
-        value = {k: v for k, v in asdict(value).items() if k not in ("qvec", "prebuilt")}
+        # the question's vector is 768 floats of noise, prebuilt passages are already in the answer's sources, and the
+        # retrieval signals have their own column
+        value = {k: v for k, v in asdict(value).items() if k not in ("qvec", "prebuilt", "signals")}
     return json.dumps(value, ensure_ascii=False, default=str)
 
 

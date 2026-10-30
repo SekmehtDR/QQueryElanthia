@@ -40,6 +40,7 @@ class Hit:
     is_obsolete: bool = False
     weight: float = 1.0  # combined multiplier applied to the rank-fusion score (for --explain)
     extras: dict = field(default_factory=dict)
+    vec_dist: float | None = None  # cosine distance to the question (vectors are unit length), when vector search found it
 
 
 def score_chunk(
@@ -108,12 +109,18 @@ def fts_search(conn: sqlite3.Connection, query: str, k: int) -> list[int]:
     return []
 
 
-def vec_search(conn: sqlite3.Connection, qvec: list[float], k: int) -> list[int]:
+def vec_search_dist(conn: sqlite3.Connection, qvec: list[float], k: int) -> list[tuple[int, float]]:
+    """(chunk_id, cosine distance) nearest first. vec0 measures L2; the embeddings are unit length (`epedia doctor`
+    checks), so cosine distance is L2 squared over two."""
     blob = struct.pack(f"{len(qvec)}f", *qvec)
     rows = conn.execute(
-        "SELECT chunk_id FROM chunk_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance", (blob, k)
+        "SELECT chunk_id, distance FROM chunk_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance", (blob, k)
     ).fetchall()
-    return [r[0] for r in rows]
+    return [(r[0], r[1] * r[1] / 2) for r in rows]
+
+
+def vec_search(conn: sqlite3.Connection, qvec: list[float], k: int) -> list[int]:
+    return [cid for cid, _ in vec_search_dist(conn, qvec, k)]
 
 
 def title_matches(conn: sqlite3.Connection, query: str) -> tuple[dict[int, str], dict[int, float]]:
@@ -178,9 +185,13 @@ def search(
     follow-up ("what about its weight?") keeps working from the same pages instead of starting from scratch.
     avoid_pages: pages the question did not mean (a same-named page of another kind); never returned.
     topic_pages: page_id -> weight for the family of pages around a topic the question names; they are favoured."""
-    k_final = k_final or cfg.k_final
+    k_final = cfg.k_final if k_final is None else k_final  # 0 is a real answer: only code-written passages are wanted
+    if k_final <= 0:
+        return []
     fts_ids = fts_search(conn, query, cfg.k_fts) if mode in ("hybrid", "fts") else []
-    vec_ids = vec_search(conn, qvec, cfg.k_vec) if (mode in ("hybrid", "vec") and qvec) else []
+    vec_hits = vec_search_dist(conn, qvec, cfg.k_vec) if (mode in ("hybrid", "vec") and qvec) else []
+    vec_ids = [cid for cid, _ in vec_hits]
+    vec_dist = dict(vec_hits)
 
     scores: dict[int, float] = {}
     fts_rank = {cid: i + 1 for i, cid in enumerate(fts_ids)}
@@ -234,7 +245,7 @@ def search(
                 score=score, fts_rank=fts_rank.get(r["chunk_id"]), vec_rank=vec_rank.get(r["chunk_id"]),
                 title_match=label, url=page_url(base_url, r["title"], r["anchor"]),
                 page_kind=r["page_kind"], is_log=bool(r["is_log"]), is_obsolete=bool(r["is_obsolete"]),
-                weight=weight,
+                weight=weight, vec_dist=vec_dist.get(r["chunk_id"]),
             )
         )
     hits.sort(key=lambda h: h.score, reverse=True)

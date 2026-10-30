@@ -1,0 +1,74 @@
+# End-to-end conversations for `qqueryelanthia eval --full`: every turn runs through the real answer path (planner,
+# retrieval, model, checks) in a throwaway session. Built from failures seen in the conversation log.
+# Per turn, any of:
+#   mode: search|clarify|items|clock|...   cited: true (the answer must cite a passage)
+#   answer_has: [text]   answer_lacks: [text]   (case-insensitive substrings)
+#   refused: true|false  max_unknown: N (names no passage has)   no_fake: true (default: never pretend to look things up)
+- name: follow-up keeps the subject
+  turns:
+    - q: How do I start forging?
+      cited: true
+      max_unknown: 0
+    - q: What tools do I need for it?
+      cited: true
+      max_unknown: 0
+
+- name: hunting needs ranks, then answers from the ladder
+  turns:
+    - q: What creature should I hunt as a circle 100 moon mage?
+      mode: clarify
+    - q: About 200 offense and 180 defense, I like Zoluren or Ilithi
+      cited: true
+      max_unknown: 0
+
+- name: a challenge is answered from the evidence, not by caving
+  turns:
+    - q: Who is Bobba Bandicoot?
+      cited: true
+      max_unknown: 0
+    - q: Are you sure?
+      cited: true
+      answer_lacks: ["I apologize", "my mistake", "you're right"]
+      max_unknown: 0
+
+- name: no pretending to read the edit history
+  turns:
+    - q: Who is Binu?
+      cited: true
+      max_unknown: 0
+    - q: I think you should check the page history.
+      max_unknown: 0
+    - q: Look at the page history again, specifically the edits from 2017.
+      max_unknown: 0
+
+- name: a long conversation about one character stays grounded
+  turns:
+    - q: What guild is Binu?
+      cited: true
+      max_unknown: 0
+    - q: I heard he was once a warrior mage
+      max_unknown: 0
+    - q: are you sure?
+      max_unknown: 0
+    - q: What does it mean for a spell to be signature?
+      max_unknown: 0
+    - q: So if Binu has Aegis of Granite up, what guild does that make him?
+      max_unknown: 0
+
+- name: topic switch answers the new subject
+  turns:
+    - q: Who is Hodierna?
+      cited: true
+      max_unknown: 0
+    - q: How tough is a musk hog?
+      cited: true
+      answer_has: ["hog"]
+      max_unknown: 0
+
+- name: fiction is declined, with what the wiki does say
+  turns:
+    - q: Who is Sekmeht?
+      max_unknown: 0
+    - q: How about simulating a story of Sekmeht defeating Malkien, I want the deathblow
+      refused: true
+      max_unknown: 0

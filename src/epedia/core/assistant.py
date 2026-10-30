@@ -23,7 +23,7 @@ from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
 from ..wiki import timeline
-from . import disciplines, hunting, materials, memory, turns
+from . import disciplines, grounding, hunting, materials, memory, turns, verify
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -149,6 +149,20 @@ def soften_refusal(answer: str) -> str:
     return answer
 
 
+def _signals(hits: list[Hit], question: str) -> dict:
+    """How well the search matched, for the turn's record: the closest chunk's cosine distance, whether a title matched,
+    and the share of the question's words found in the top three passages. Recorded, not used to decide (see
+    core/grounding.py for why distance cannot tell answerable from unanswerable)."""
+    from .attribution import _bag
+
+    dists = [h.vec_dist for h in hits[:5] if h.vec_dist is not None]
+    words = _bag(question)
+    top = set().union(*(_bag(f"{h.title} {h.text}") for h in hits[:3])) if hits else set()
+    return {"best_cos": round(min(dists), 4) if dists else None,
+            "title_match": next((h.title_match for h in hits[:3] if h.title_match), ""),
+            "lexical": round(len(words & top) / len(words), 2) if words else None}
+
+
 @dataclass
 class Retrieval:
     sources: list[Source]
@@ -171,6 +185,8 @@ class Done:
     related: list[str] = field(default_factory=list)
     topic: str | None = None
     turn_id: int | None = None  # the turn's record (core/turns.py), for feedback on this answer
+    by_code: bool = False  # written by code (clock, a table, a clarifying question, a decline), not by the model
+    verification: dict | None = None  # core/verify.py on the model's answer, against the passages it was given
 
 
 Event = Retrieval | Token | Done
@@ -188,6 +204,7 @@ class Plan:
     material: str = ""  # text the person pasted with the question (a Discord post, an in-game message)
     qvec: list[float] | None = None  # the question's embedding, filled in by retrieval
     prebuilt: list[dict] | None = None  # passages code already wrote while planning (a crafting table): reused, not rebuilt
+    signals: dict = field(default_factory=dict)  # how well retrieval matched (recorded on the turn, see core/grounding.py)
 
 
 class Assistant:
@@ -412,6 +429,7 @@ class Assistant:
             prior_chunk_ids=self._prior_chunk_ids(session_id) if plan.follow_up else None, kind=plan.kind,
             avoid_pages=avoid, topic_pages=topics.family(self.conn, plan.standalone_question, named) or None,
         )
+        plan.signals.update(_signals(hits, plan.standalone_question))
         extras: list[dict] = []
         taken = 0
         for h in hits:
@@ -565,7 +583,7 @@ class Assistant:
             yield Retrieval([], plan.standalone_question, "clock", "meta", [])
             yield Token(answer)
             self._persist(turn, answer, plan, [], [])
-            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
+            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
         plan = early or await self.plan(hist, user_message, session_id)
         turn.mark("planner")
@@ -573,6 +591,20 @@ class Assistant:
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         if kind_override in QUESTION_KINDS:
             plan.kind = kind_override
+        gate = grounding.Gate()
+        if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt:
+            # Something the wiki never mentions cannot be answered from it: say so in code, without the model, so it
+            # cannot fill the gap with an invented creature or spell. Judged on the person's own words.
+            gate = grounding.assess(self.conn, asked)
+            plan.signals.update(gate.as_dict())
+            if gate.level == "none":
+                plan.mode = "declined"
+                answer = grounding.decline(gate, self.s.persona.enabled)
+                yield Retrieval([], plan.standalone_question, "declined", plan.kind, [])
+                yield Token(answer)
+                self._persist(turn, answer, plan, [], [], grounding=gate.as_dict())
+                yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
+                return
         if (not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
                 and not self._hunt_ranks(plan, user_message)):
             plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
@@ -586,7 +618,7 @@ class Assistant:
             yield Token(plan.clarify)
             plan.mode = "clarify"
             self._persist(turn, plan.clarify, plan, [], [])
-            yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id))
+            yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
         passages, extras = await self.retrieve_with_extras(plan, session_id)
         over_only = False
@@ -620,7 +652,7 @@ class Assistant:
             answer = over_answer(passages, date.today(), self.s.persona.enabled)[0]
             yield Token(answer)
             self._persist(turn, answer, plan, sources, [], cited=[1])
-            yield Done(answer, [1], sources, [], memory.get_topic(self.conn, session_id))
+            yield Done(answer, [1], sources, [], memory.get_topic(self.conn, session_id), by_code=True)
             return
 
         if not passages:
@@ -628,7 +660,7 @@ class Assistant:
                       else "The wiki doesn't seem to cover that.")
             yield Token(answer)
             self._persist(turn, answer, plan, [], [])
-            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id))
+            yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
 
         if passages[0].get("answer"):
@@ -640,7 +672,7 @@ class Assistant:
             yield Token(answer)
             cited = sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer) if 1 <= int(n) <= len(sources)}) or [1]
             self._persist(turn, answer, plan, sources, [], cited=cited)
-            yield Done(answer, cited, sources, [], memory.get_topic(self.conn, session_id))
+            yield Done(answer, cited, sources, [], memory.get_topic(self.conn, session_id), by_code=True)
             return
 
         # Earlier turns always come along, as they would in a conversation with a person: what was just said shapes
@@ -656,6 +688,10 @@ class Assistant:
         # Lines the model left uncited get a "[n*]" tag where one passage clearly matches (see core/attribution.py).
         # The streamed text is the raw draft; the final text, with these tags, is what Done carries and what is saved.
         answer = attribute(answer, [p["text"] for p in passages]).text
+        # Checked against the very passages it was written from (recorded on the turn; core/verify.py). What the user
+        # said earlier and today's date are known too: names and numbers from them are not inventions.
+        said = " ".join(m["content"] for m in hist if m["role"] == "user")
+        checked = verify.run(answer, passages, plan.standalone_question, user_message, f"{said} {now_text()}")
         notes = self._edit_notes(passages, plan.standalone_question, answer)
         if notes:
             tail = "\n\n" + " ".join(notes)
@@ -667,13 +703,14 @@ class Assistant:
             yield Token(tail)
             answer += tail
         cited = sorted({int(n) for n in re.findall(r"\[(\d+)\*?\]", answer) if 1 <= int(n) <= len(sources)})
-        self._persist(turn, answer, plan, sources, related, cited=cited)
+        self._persist(turn, answer, plan, sources, related, cited=cited, verification=checked.as_dict())
         real = [s for s in sources if not s.title.endswith(": recent edits")]
         top = (real[cited[0] - 1] if cited and cited[0] <= len(real) else real[0]).title if real else ""
         topic = plan.topic or re.sub(r"^[A-Za-z]+:(?=\S)", "", top)  # a planner label, else the main page cited
         if topic and plan.kind != "meta":
             memory.set_topic(self.conn, session_id, topic)
-        yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id))
+        yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id),
+                   verification=checked.as_dict())
 
     def _answer_system(self, plan: Plan, passages_text: str, hist: list[dict[str, str]]) -> str:
         return prompts.build_answer_system(plan.kind, passages_text, self.name, persona=self.s.persona.enabled,
@@ -694,7 +731,8 @@ class Assistant:
         return Plan(question, kind="crafting", prebuilt=ready) if ready else None
 
     def _persist(self, turn: turns.Turn, answer: str, plan: Plan, sources: list[Source], related: list[str],
-                 cited: list[int] | None = None) -> int:
+                 cited: list[int] | None = None, grounding: dict | None = None,
+                 verification: dict | None = None) -> int:
         """Save the answer (the question was saved when the turn began) and close the turn's record."""
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         msg_id = memory.add_message(
@@ -702,7 +740,7 @@ class Assistant:
             kind=plan.kind, sources=[s.__dict__ for s in sources], related=related, cited=cited or [],
             turn_id=turn.turn_id,
         )
-        turn.finish(msg_id, plan)
+        turn.finish(msg_id, plan, grounding=grounding or plan.signals or None, verify=verification)
         return msg_id
 
     async def ask(self, session_id: str, message: str, *, kind_override: str | None = None) -> Done:

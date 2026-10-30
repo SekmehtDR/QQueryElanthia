@@ -39,6 +39,75 @@ creatures, narrated "let me check" actions, drift in long chats, fan fiction). P
   `Assistant.answer_stream` is a recorder around `_answer`; `Done.turn_id`, SSE `done.turn_id`; `access.TurnLimiter`.
   14 new tests (`tests/test_turns.py`); 291 in all.
 
+### Phase 1: a verifier, and an evaluation that measures truthfulness
+
+- **`core/verify.py` checks an answer against its passages, in code** (a few milliseconds, no model):
+  - every citation the model wrote must be borne out by the passage(s) it cites: enough of the line's words, and every
+    number in it (an unsupported one becomes `[n?]`);
+  - capitalised names that appear in no passage, title, the question or what the user said earlier ("Shadow Serpents",
+    "Moonwraiths");
+  - pretended lookups ("Let me check that for Binu", "Let me take a closer look at that").
+
+  Calibrated by replaying it over the 204 answers in the conversation log: 15% name something no passage has, 3 pretend
+  to look something up, 17% of cited lines are not borne out by the passage they cite, and in 48% most factual lines
+  carry no citation at all. Phase 3 acts on these; for now they are measured.
+- **`epedia eval --full`** also answers every question and scores the answers (citation validity, share of lines cited,
+  answers with unknown names or pretended lookups, wrong numbers, false refusals, latency p50/p90), runs
+  **`eval/refusals.yaml`** (25 questions Fennick must decline: not about DragonRealms, invented names checked absent
+  from the index, fiction) and **`eval/scripts.yaml`** (7 conversations, 18 turns, end to end through the real answer
+  path: follow-ups, the hunting clarify, "are you sure?", the edit-history bait, a long Binu thread, fiction).
+- **Every eval run is saved** under `eval/runs/` (git-ignored) and printed with its change since the previous run of
+  the same kind. New metric `hit_in_prompt`: the expected page is among the passages that actually fit the prompt
+  (hit@k counted pages the model may never have been shown).
+
+### Fixes
+
+- The automatic `[n*]` tag now reaches numbered steps ("2. Smelt the ingot" used to count the 2 as a number the
+  passage lacked), and numbers written differently still match ("130-230", "1,500", "2027-01-02" for "January 2, 2027").
+
+### Internals
+
+- `attribution.Evidence` (word bags, weights, number veto) and `attribution.unit_words` are shared by attribution and
+  verification; `evalx/faithfulness.py` (`is_refusal`, `model_text`, `check`, `aggregate`); `evalx/runner.py`
+  (`answer`, `run_refusals`, `run_scripts`, `save_run`, `deltas`). 17 new tests; 308 in all.
+- Baseline `eval --full` before Phase 2: hit@5 0.94, hit@10 0.98, MRR 0.911, expected page in the prompt 0.96, cited
+  lines borne out 0.798, answers naming something no passage has 9.3%, false refusals 0, **must-decline questions
+  declined 0.48**, script turns passing 72% (3 of 7 conversations clean), answer time p50 10.8 s / p90 14.6 s.
+
+### Phase 2: a grounding gate, and one list of question kinds
+
+- **A question about something the wiki never mentions is declined in code, without the model** ("I have nothing in my
+  notes on “Zarnak the Unbound”, and I'd rather not guess..."), so the model cannot fill the gap with an invented
+  creature or spell (`core/grounding.py`). It declines when every capitalised name the question gives occurs nowhere in
+  the wiki as a phrase and the question asks little else, or when a third or more of its content words occur in no page
+  at all. Measured: all 11 invented names in the refusal set are declined, plus "World Cup" and an invented swamp; none
+  of the 50 answerable eval questions or 93 of 94 real logged questions are (the one is a typo, "hollowseve", which is
+  honestly answered "nothing on that; if it is spelled differently, try me again"). About 2 ms per question.
+- **Changed from the plan, on the evidence:** the plan gated on vector distance. Measured, distance cannot tell an
+  answerable question from an unanswerable one ("Moonwraith Veil", invented, is as close to its nearest chunk as "Who is
+  Binu?"), so it is recorded on every turn (`best_cos`, title match, lexical overlap) and never used to decide. The
+  "thin evidence" and "outside Elanthia" outcomes it was to drive are dropped; off-topic questions (sourdough, France)
+  are left to the model and the verifier, since the wiki's forum posts mention those words too.
+- **Every answer is verified against the passages it was written from**, and the result is recorded on the turn
+  (`turns.verify_json`) and in `Done.verification`; `Done.by_code` marks answers code wrote. Nothing the reader sees
+  changes yet (Phase 3 acts on it); the eval now scores what the assistant measured instead of re-reading passages,
+  which it could not do for the edit-history passage or the code-written tables.
+
+### Fixes
+
+- Search with `k_final=0` returns nothing, as asked; it used to fall back to 8 results.
+- The planner's list of question kinds is built from `kinds.KIND_DESCRIPTIONS` (the prompt is byte-for-byte the same),
+  so the kinds are defined in one place.
+- `epedia doctor` checks the stored vectors are unit length, which converting vec0's L2 distance to cosine relies on.
+- **Kept on the evidence:** the exact-title boost (0.05) is larger than any rank-fusion score, so a title match always
+  wins. Lowering it to one or two rank-1 units (0.0164, 0.0328) gained nothing (hit@5 0.94, hit@10 0.98 at all three;
+  MRR 0.911, 0.911, 0.901), so it stays.
+
+### Internals
+
+- `search.vec_search_dist`, `Hit.vec_dist`; `Plan.signals`; `grounding.Gate/assess/decline/names_in/in_wiki`;
+  `faithfulness.check_done`. 8 new tests (`tests/test_grounding.py`); 316 in all.
+
 ## 1.0.0: Fennick, a storyteller's guide (2026-10-22)
 
 The first full release: the whole of Elanthipedia, answered by a persona.

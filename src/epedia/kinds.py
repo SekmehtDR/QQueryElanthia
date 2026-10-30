@@ -9,6 +9,20 @@ QUESTION_KINDS = (
     "item", "crafting", "place", "character", "lore", "creature", "mechanics", "event_news", "meta", "general",
 )
 
+# What each question kind means, as the planner is told (llm/prompts.py builds its list from this, in this order).
+KIND_DESCRIPTIONS = {
+    "item": 'a specific weapon, armor, shield, item or title, its stats, or where to get it. Always "item" when mode is "items".',
+    "crafting": 'making things: forging, outfitting, engineering, alchemy, enchanting, techniques, recipes, materials, crafting societies, tools, workorders. "How do I forge/craft/make X" is "crafting" even though a skill is involved.',
+    "place": "towns, provinces, regions, shops, guildhalls, maps, docks, how to travel somewhere, what is sold where, local currency.",
+    "character": 'a named mortal person: an NPC, shopowner, guild leader, GameMaster, or a player\'s character; who someone is. Gods and legendary figures (Hodierna, Lanival, the Immortals) are "lore", not "character".',
+    "lore": "history, the Immortals (the gods) and legendary figures, races as peoples and cultures, organizations, in-world books, languages, holidays, legends, the timeline.",
+    "creature": "monsters and animals: where they are, levels, attacks, loot, skinning, hunting ladders.",
+    "mechanics": "game systems and rules: skills, commands, spells and abilities, experience, death, combat, housing, how X works.",
+    "event_news": 'festivals, quests, auctions, raffles, dated events, announcements, updates, forum or Discord posts, "what changed".',
+    "meta": "greetings and chit-chat, or questions about you, this assistant, or Elanthipedia the wiki itself (not the game).",
+    "general": "anything else or mixed.",
+}
+
 PAGE_KINDS = (
     "item", "recipe", "material", "crafting", "guide", "script", "shop", "place", "pc", "npc", "gm", "creature",
     "spell", "skill", "command", "guild", "mechanics", "lore", "race", "event", "news", "post", "category",
@@ -43,8 +57,8 @@ OFFER_EXCLUDED_PAGE_KINDS = frozenset({"log", "soft_redirect", "disambig", "cate
 
 
 # ----------------------------------------------------------------------------------------------- kind rules
-# One declarative table of what each kind of page is and how a question points at it. The name resolver, the clarifying
-# question and (later) the planner prompt read this instead of carrying their own word lists.
+# One declarative table of what each kind of page is and how a question points at it. The name resolver and the
+# clarifying question read this instead of carrying their own word lists (the planner reads KIND_DESCRIPTIONS above).
 
 # page kind -> the word a person uses for it ("the spell Sidasas Sedra", "the weapon Svidaw sis")
 KIND_LABEL = {

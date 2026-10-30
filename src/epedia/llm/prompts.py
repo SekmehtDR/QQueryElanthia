@@ -6,7 +6,7 @@ import re
 from datetime import date
 
 from ..core.dates import date_note
-from ..kinds import QUESTION_KINDS
+from ..kinds import KIND_DESCRIPTIONS, QUESTION_KINDS
 from ..util import token_estimate
 
 ROUTER_SYSTEM = """You are the query planner for a question-answering assistant about the text MUD DragonRealms, backed by the Elanthipedia wiki.
@@ -14,16 +14,7 @@ Given the recent conversation and the user's latest message, output JSON with:
 - "standalone_question": the latest message rewritten so it is fully understandable on its own. If the user pasted text with their message, use it: name the specific people, places, events and terms from it that the question is about. Resolve "it", "that guild", "the second one", "which one", "they" and similar by naming the specific subject from the conversation; the list of pages used in the last answer gives exact names. Example: the last answer was about "aged leather combat armor with a faint seal over the breastplate" and the latest message is "which one is lighter?", so the standalone question is "Which version of the aged leather combat armor with a faint seal over the breastplate is lighter?". Keep game terms, item names and skill names exactly as written. If the message already stands alone, copy it unchanged. Do not answer the question.
 - "follow_up": true if the latest message only makes sense given the earlier conversation (it refers back with a pronoun, "which one", "the other", "what about X?" about the same subject, or asks for more detail on the last answer); false if it stands alone or changes topic.
 - "kind": what the question is mainly about, one of:
-  "item": a specific weapon, armor, shield, item or title, its stats, or where to get it. Always "item" when mode is "items".
-  "crafting": making things: forging, outfitting, engineering, alchemy, enchanting, techniques, recipes, materials, crafting societies, tools, workorders. "How do I forge/craft/make X" is "crafting" even though a skill is involved.
-  "place": towns, provinces, regions, shops, guildhalls, maps, docks, how to travel somewhere, what is sold where, local currency.
-  "character": a named mortal person: an NPC, shopowner, guild leader, GameMaster, or a player's character; who someone is. Gods and legendary figures (Hodierna, Lanival, the Immortals) are "lore", not "character".
-  "lore": history, the Immortals (the gods) and legendary figures, races as peoples and cultures, organizations, in-world books, languages, holidays, legends, the timeline.
-  "creature": monsters and animals: where they are, levels, attacks, loot, skinning, hunting ladders.
-  "mechanics": game systems and rules: skills, commands, spells and abilities, experience, death, combat, housing, how X works.
-  "event_news": festivals, quests, auctions, raffles, dated events, announcements, updates, forum or Discord posts, "what changed".
-  "meta": greetings and chit-chat, or questions about you, this assistant, or Elanthipedia the wiki itself (not the game).
-  "general": anything else or mixed.
+{kind_lines}
   For "meta", standalone_question is the message itself and follow_up is false.
 - "standalone_question" and time: when the question is about something upcoming, next, current, latest or recent, include the current year (given below as "Current year") in the rewritten question, as a bare year only (never the full date) so recent pages are found.
 - "topic": what the whole conversation is about right now, at most five words (for example "Forging" or "Barbarian guild"); empty for greetings and chit-chat.
@@ -31,7 +22,8 @@ Given the recent conversation and the user's latest message, output JSON with:
 - "mode": "items" if the question asks to compare, rank, filter or list game items (weapons, armor, shields, items, titles) by their stats or properties, e.g. "heaviest heavy edged weapon", "cheapest plate armor under 500 kronars". Otherwise "search".
 - "items_query": null unless mode is "items". Then an object: {"page_type": one of weapon|armor|shield|item|title, "filters": [{"property": <name from the list>, "op": one of = != > >= < <= ~, "value": string or number}], "sort": {"property": <name>, "order": "asc"|"desc"} or null, "limit": 1-25, "fields": [<property names> to display]}.
 Only use property names from this list (name: type, meaning):
-{property_catalog}"""
+{property_catalog}""".replace(  # the kinds come from kinds.py, the one place that defines them
+    "{kind_lines}", "\n".join(f'  "{k}": {KIND_DESCRIPTIONS[k]}' for k in QUESTION_KINDS))
 
 # --------------------------------------------------------------------------------------------- persona
 

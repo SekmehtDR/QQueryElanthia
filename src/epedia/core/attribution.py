@@ -44,8 +44,17 @@ class Attribution:
     uncited: int  # factual-looking lines left without any tag
 
 
+_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")
+_LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+
+
+_NUM_JOIN = re.compile(r"(?<=\d)[-–—/:](?=\d)")  # "130-230", "2027-01-02", "12/18": each number counts on its own
+
+
 def _content_tokens(text: str) -> list[str]:
-    toks = [t.strip("-'’") for t in _WORD.findall(text.lower())]
+    text = _NUM_JOIN.sub(" ", _THOUSANDS.sub("", text.lower()))
+    toks = [re.sub(r"['’]s$", "", t.strip("-'’")) for t in _WORD.findall(text)]
+    toks = [str(int(t)) if t.isdigit() else t for t in toks]  # "02" in a date is the 2 in "January 2"
     return [t for t in toks if t and t not in STOP and (len(t) > 2 or t.isdigit())]
 
 
@@ -63,6 +72,12 @@ def _stem(t: str) -> str:
 
 def _bag(text: str) -> set[str]:
     return {_stem(t) for t in _content_tokens(text)}
+
+
+def unit_words(unit: str) -> set[str]:
+    """What a line of the answer claims, as a bag: without its citation tags or its list number ("2. Smelt the
+    ingot" claims nothing about the number 2)."""
+    return _bag(_LIST_MARK.sub("", CITED.sub(" ", re.sub(r"\[\d+\?\]", " ", unit))))
 
 
 def _split_units(answer: str) -> list[tuple[int, int, str]]:
@@ -100,40 +115,61 @@ def _insert_point(unit: str) -> int:
     return len(body)
 
 
+def _is_number(w: str) -> bool:
+    return any(c.isdigit() for c in w)
+
+
+class Evidence:
+    """The numbered passages as bags of content words, with weights that favour rare words and numbers. Shared by
+    attribution (tagging uncited lines) and verification (checking the lines the model did cite)."""
+
+    def __init__(self, passage_texts: list[str]):
+        self.bags = [_bag(clean_passage_text(t)) for t in passage_texts]
+        self.n = len(self.bags)
+        self.df: dict[str, int] = {}
+        for b in self.bags:
+            for w in b:
+                self.df[w] = self.df.get(w, 0) + 1
+
+    def weight(self, w: str) -> float:
+        base = math.log(1 + self.n / self.df.get(w, 0.5))  # unseen words get the highest weight but can never match
+        return base * (2.0 if _is_number(w) else 1.0)
+
+    def coverage(self, words: set[str], bag: set[str]) -> float:
+        """Share of the line's weighted content words that `bag` contains."""
+        total = sum(self.weight(w) for w in words)
+        return sum(self.weight(w) for w in words & bag) / total if total else 0.0
+
+    @staticmethod
+    def numbers_ok(words: set[str], bag: set[str], allowed: set[str] = frozenset()) -> bool:
+        """Veto: a number the passage does not contain means the line says something the passage does not, however
+        much else they share ("weighs 40 stones" vs a passage saying 35). `allowed` are numbers the user gave."""
+        return all(w in bag or w in allowed for w in words if _is_number(w))
+
+
 def attribute(answer: str, passage_texts: list[str]) -> Attribution:
     """Return the answer with `[n*]` added to uncited lines that clearly come from passage n (1-based)."""
     if not answer.strip() or not passage_texts:
         return Attribution(answer, 0, 0)
-    bags = [_bag(clean_passage_text(t)) for t in passage_texts]
-    df: dict[str, int] = {}
-    for b in bags:
-        for w in b:
-            df[w] = df.get(w, 0) + 1
-    n = len(bags)
-
-    def weight(w: str) -> float:
-        base = math.log(1 + n / df.get(w, 0.5))  # unseen words get the highest weight but can never match
-        return base * (2.0 if any(c.isdigit() for c in w) else 1.0)
+    ev = Evidence(passage_texts)
+    bags = ev.bags
 
     edits: list[tuple[int, str]] = []
     uncited = 0
     for start, end, unit in _split_units(answer):
         if CITED.search(unit) or OFFER_LINE.match(unit.strip()):
             continue
-        words = _bag(unit)
+        words = unit_words(unit)
         if len(words) < MIN_CONTENT_TOKENS:
             continue
-        total = sum(weight(w) for w in words)
         scores = sorted(  # ties go to the earlier (higher-ranked) passage
-            ((sum(weight(w) for w in words & b) / total if total else 0.0, i) for i, b in enumerate(bags, 1)),
+            ((ev.coverage(words, b), i) for i, b in enumerate(bags, 1)),
             key=lambda s: (-s[0], s[1]),
         )
         best, idx = scores[0]
         runner = scores[1][0] if len(scores) > 1 else 0.0
         overlap = len(words & bags[idx - 1])
-        # Veto: a number the passage does not contain means the line says something the passage does not, however
-        # much else they share ("weighs 40 stones" vs a passage saying 35). Never put a source badge on that.
-        numbers_ok = all(w in bags[idx - 1] for w in words if any(c.isdigit() for c in w))
+        numbers_ok = ev.numbers_ok(words, bags[idx - 1])
         if (best >= MIN_COVERAGE and overlap >= 2 and numbers_ok
                 and (best - runner >= CLEAR_MARGIN or best >= NEAR_TOTAL)):
             edits.append((start + _insert_point(unit), f" [{idx}*]"))

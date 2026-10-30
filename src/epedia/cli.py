@@ -731,11 +731,14 @@ def eval_cmd(
     k: str = typer.Option("5,10", help="Comma-separated cutoffs for hit@k"),
     answers: bool = typer.Option(False, "--answers", help="Also generate answers for manual spot checks"),
     conversations: bool = typer.Option(False, "--conversations", help="Run the scripted multi-turn dialogues instead"),
+    full: bool = typer.Option(False, "--full", help="Also answer every question and score the answers for truthfulness, "
+                              "run the refusal set and the end-to-end scripts (slow: one model answer each)"),
 ) -> None:
-    """Score retrieval quality on the question set (or, with --conversations, how well follow-ups are tracked)."""
+    """Score retrieval quality on the question set (or, with --conversations, how well follow-ups are tracked).
+    Every run is saved under eval/runs/ and compared with the previous run of the same kind."""
     from pathlib import Path
 
-    from .evalx.runner import run_conversations, run_eval
+    from .evalx.runner import deltas, run_conversations, run_eval, run_refusals, run_scripts, save_run
     from .llm.ollama import Ollama
 
     s = settings()
@@ -759,8 +762,14 @@ def eval_cmd(
         return
 
     async def go() -> None:
+        extra_rows: dict[str, list[dict]] = {}
         async with Ollama(s.ollama) as ol:
-            results, metrics = await run_eval(s, conn, ol, Path(file), ks, answers)
+            results, metrics = await run_eval(s, conn, ol, Path(file), ks, answers, full=full)
+            if full:
+                extra_rows["refusals"], m = await run_refusals(s, conn, ol, Path("eval/refusals.yaml"))
+                metrics.update(m)
+                extra_rows["scripts"], m = await run_scripts(s, conn, ol, Path("eval/scripts.yaml"))
+                metrics.update(m)
         t = Table(title="evaluation")
         for col in ("rank", "mode", "kind", "question", "standalone / top pages"):
             t.add_column(col)
@@ -775,13 +784,33 @@ def eval_cmd(
         from .evalx.runner import VOICE_CHECKLIST
 
         for r in results:
-            if r.answer:
+            if r.answer and answers:
                 console.print(f"\n{r.q}  [{r.kind}]", style="bold", markup=False, highlight=False)
                 console.print(r.answer, markup=False, highlight=False)
                 if r.related:
                     console.print("related: " + "; ".join(r.related), style="dim", markup=False)
                 console.print(VOICE_CHECKLIST, style="dim", markup=False)
-        console.print({m: round(v, 3) for m, v in metrics.items()})
+            if r.truth and (r.truth["unknown_entities"] or r.truth["fake_actions"] or r.truth["unsupported"]):
+                console.print(f"[yellow]truth[/yellow] {r.q}: unknown={r.truth['unknown_entities'][:6]} "
+                              f"fake={len(r.truth['fake_actions'])} unsupported={len(r.truth['unsupported'])}",
+                              highlight=False)
+        for row in extra_rows.get("refusals", []):
+            if not row["ok"]:
+                console.print(f"[red]should have declined[/red] ({row['why']}) {row['q']}\n   "
+                              + row["answer"][:160].replace("\n", " "), highlight=False)
+        for row in extra_rows.get("scripts", []):
+            mark = "ok " if not row["problems"] else "BAD"
+            console.print(f"{mark} {row['script']} #{row['turn']} ({row['mode']}): {row['q']}"
+                          + ("  [" + "; ".join(row["problems"]) + "]" if row["problems"] else ""),
+                          markup=False, highlight=False)
+        suite = "full" if full else "retrieval"
+        rows = [{k: v for k, v in r.__dict__.items()} for r in results]
+        for name, extra in extra_rows.items():
+            rows += [{"set": name, **x} for x in extra]
+        saved, before = save_run(suite, metrics, rows, s)
+        console.print(deltas(metrics, before))
+        console.print(f"[dim]saved {saved}" + (" (compared with the previous run)" if before else "") + "[/dim]",
+                      highlight=False)
 
     run(go())
 

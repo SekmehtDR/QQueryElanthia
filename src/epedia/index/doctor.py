@@ -3,7 +3,9 @@ check that finds a problem says what it means, so a failing line is a lead rathe
 
 from __future__ import annotations
 
+import math
 import sqlite3
+import struct
 from dataclasses import dataclass
 
 from ..db import get_state
@@ -18,6 +20,18 @@ class Check:
 
 def _one(conn: sqlite3.Connection, sql: str, *args) -> int:
     return conn.execute(sql, args).fetchone()[0]
+
+
+def _vector_norms(conn: sqlite3.Connection, sample: int = 200) -> list[float]:
+    """Lengths of a sample of stored embeddings. retrieval/search.py converts vec0's L2 distance to cosine distance,
+    which is only right for unit vectors (Ollama's nomic-embed-text returns them normalised)."""
+    out = []
+    for (cid,) in conn.execute("SELECT chunk_id FROM chunks ORDER BY random() LIMIT ?", (sample,)).fetchall():
+        row = conn.execute("SELECT embedding FROM chunk_vec WHERE chunk_id=?", (cid,)).fetchone()
+        if row and row[0]:
+            vals = struct.unpack(f"{len(row[0]) // 4}f", row[0])
+            out.append(math.sqrt(sum(x * x for x in vals)))
+    return out
 
 
 def run(conn: sqlite3.Connection) -> list[Check]:
@@ -45,6 +59,10 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     vec = _one(conn, "SELECT count(*) FROM chunk_vec")
     add("full-text rows = chunks", fts == chunks, f"{fts:,} vs {chunks:,}")
     add("vector rows = chunks", vec == chunks, f"{vec:,} vs {chunks:,}")
+    norms = _vector_norms(conn)
+    add("vectors are unit length", all(abs(n - 1) < 0.01 for n in norms),
+        f"{len(norms)} sampled, {min(norms):.3f} to {max(norms):.3f}: search reads L2 distance as cosine, which needs "
+        "unit vectors" if norms else "none sampled")
     orphans = _one(conn, "SELECT count(*) FROM chunks WHERE page_id NOT IN (SELECT page_id FROM pages)")
     add("no orphan chunks", orphans == 0, f"{orphans:,} orphans" if orphans else "")
     empty = _one(conn, "SELECT count(*) FROM chunks WHERE text IS NULL OR length(trim(text)) = 0")

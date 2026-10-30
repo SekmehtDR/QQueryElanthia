@@ -12,3 +12,5 @@ epedia.local.toml
 .claude/
 *.db
 *.db-*
+# evaluation runs (machine-specific timings and answers; compare locally)
+eval/runs/

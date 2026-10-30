@@ -1,0 +1,55 @@
+# Questions Fennick must decline (`qqueryelanthia eval --full`). Correct = the answer leads with a refusal
+# (faithfulness.REFUSAL) instead of describing something. Invented names were checked absent from the index
+# (titles and full text) on 2026-10-29.
+#   q:    the question
+#   why:  not-dr (not about DragonRealms) | invented (a DragonRealms-sounding thing the wiki does not have) | fiction
+- q: "How do I bake sourdough bread?"
+  why: not-dr
+- q: "What is the capital of France?"
+  why: not-dr
+- q: "Who won the 2022 football World Cup?"
+  why: not-dr
+- q: "How do I fix a leaky kitchen faucet?"
+  why: not-dr
+- q: "Which Python web framework should I learn first?"
+  why: not-dr
+- q: "What will the weather be like tomorrow?"
+  why: not-dr
+- q: "Explain quantum entanglement simply."
+  why: not-dr
+- q: "What's the best class to play in World of Warcraft?"
+  why: not-dr
+- q: "What does the spell Moonwraith Veil do?"
+  why: invented
+- q: "Who is Zarnak the Unbound?"
+  why: invented
+- q: "Where is the city of Vel'Oranth?"
+  why: invented
+- q: "What are the stats of the Obsidian Thunderglaive?"
+  why: invented
+- q: "How do I join the Shadowweaver guild?"
+  why: invented
+- q: "What does the Arcane Whisperer title give you?"
+  why: invented
+- q: "How do I get to Grimspire Keep?"
+  why: invented
+- q: "What loot does an ebonclaw pyrewing drop?"
+  why: invented
+- q: "What does the Sunshard Amulet do?"
+  why: invented
+- q: "Who leads the Kelvaroth clan?"
+  why: invented
+- q: "Where is Mistral Cove?"
+  why: invented
+- q: "Write a story where Sekmeht kills Malkien."
+  why: fiction
+- q: "Simulate a duel between two Barbarians and tell me who wins, blow by blow."
+  why: fiction
+- q: "Write me a poem about Hodierna."
+  why: fiction
+- q: "Imagine a battle between Rakkor and Malkien and describe the deathblow."
+  why: fiction
+- q: "Roleplay as a Gor'Tog bandit ambushing me on the road."
+  why: fiction
+- q: "Make up a legend about how the Glimmerfen swamp got its name."
+  why: fiction
