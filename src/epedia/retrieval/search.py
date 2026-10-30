@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import struct
 from dataclasses import dataclass, field
 
 from ..config import RetrievalCfg
+from ..kinds import namespace_weight
 from ..util import page_url
 from .titles import GAME_WORDS, normalize, query_as_title, tokens
 
@@ -63,7 +65,7 @@ def score_chunk(
     the additive boosts (exact/partial title match, previous-answer continuity) come after, so a page whose title
     is exactly what the user named still wins even when its kind is not the favoured one.
     """
-    weight = cfg.ns_weights.get(str(ns), 1.0)
+    weight = cfg.ns_weights.get(str(ns), namespace_weight(ns))  # discussion and wiki machinery rank below articles
     if is_disambig:
         weight *= cfg.disambig_weight
     if question_kind and page_kind:
@@ -164,6 +166,76 @@ def title_matches(conn: sqlite3.Connection, query: str) -> tuple[dict[int, str],
         for w, pid in sorted(scored, reverse=True)[:3]:
             partial[pid] = min(1.0, w)
     return exact, partial
+
+
+# "Which player knows the most about X?", "who worked out the epoch?": what the wiki has on the people behind a topic is in
+# its discussion pages (signed posts) and players' own pages, which rank below articles and rarely make the cut.
+WHO_KNOWS = re.compile(
+    r"\b(?:which|what) (?:players?|person|people|characters?|gms?|gamemasters?|users?|editors?)\b|"
+    r"\bwho (?:\w+ )?(?:knows?|knew|figured|worked|wrote|discovered|calculated|found|came up|understands?|maintains?|"
+    r"tracks?|researched|tested|documented|mapped|is (?:the |an )?(?:expert|authority))\b|"
+    r"\b(?:experts?|authority|authorities) (?:on|in|about)\b",
+    re.I,
+)
+# The words of such a question that are about the people, not the topic
+_PEOPLE_WORDS = {"player", "players", "person", "people", "character", "characters", "gm", "gms", "gamemaster",
+                 "gamemasters", "user", "users", "editor", "editors", "knows", "know", "knew", "most", "best", "expert",
+                 "experts", "authority", "figured", "worked", "wrote", "discovered", "calculated", "found", "understands",
+                 "maintains", "researched", "tested", "documented", "game", "games", "out", "up", "came"}
+DISCUSSION_SQL = "(p.ns % 2 = 1 OR p.ns = 2)"  # every talk namespace, and User
+
+
+def discussion_search(conn: sqlite3.Connection, query: str, cfg: RetrievalCfg, base_url: str,
+                      qvec: list[float] | None, k: int = 3, avoid_pages: set[int] | None = None) -> list[Hit]:
+    """The best passages from discussion and player pages only, one per page, for questions about who knows what:
+    keyword search on the topic's words (the question without its words about people) and the nearest vectors among
+    those pages, fused like `search`."""
+    topic = " ".join(t for t in tokens(query) if t not in STOPWORDS and t not in _PEOPLE_WORDS)
+    scores: dict[int, float] = {}
+    for mode in ("and", "or"):
+        q = _fts_query(topic, mode) if topic else None
+        if not q:
+            break
+        try:
+            rows = conn.execute(
+                "SELECT f.rowid FROM chunks_fts f JOIN chunks c ON c.chunk_id=f.rowid JOIN pages p ON p.page_id=c.page_id "
+                f"WHERE chunks_fts MATCH ? AND {DISCUSSION_SQL} ORDER BY bm25(chunks_fts, 5.0, 2.0, 1.0) LIMIT ?",
+                (q, cfg.k_fts)).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for i, r in enumerate(rows):
+            scores[r[0]] = scores.get(r[0], 0.0) + 1.0 / (cfg.rrf_k + i + 1)
+        if len(rows) >= 5:
+            break
+    if qvec:  # the vector index cannot filter by namespace: read further down and keep the discussion pages
+        near = vec_search_dist(conn, qvec, 50 * cfg.k_vec)
+        if near:
+            marks = ",".join("?" * len(near))
+            keep = {r[0] for r in conn.execute(
+                f"SELECT c.chunk_id FROM chunks c JOIN pages p ON p.page_id=c.page_id WHERE c.chunk_id IN ({marks}) "
+                f"AND {DISCUSSION_SQL}", [cid for cid, _ in near])}
+            for i, cid in enumerate([cid for cid, _ in near if cid in keep][: cfg.k_vec]):
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (cfg.rrf_k + i + 1)
+    if not scores:
+        return []
+    marks = ",".join("?" * len(scores))
+    rows = conn.execute(
+        "SELECT c.chunk_id, c.page_id, c.kind, c.title, c.section_path, c.anchor, c.text, p.ns, p.page_kind "
+        f"FROM chunks c JOIN pages p ON p.page_id=c.page_id WHERE c.chunk_id IN ({marks})", list(scores)).fetchall()
+    rows = sorted(rows, key=lambda r: scores[r["chunk_id"]], reverse=True)
+    out: list[Hit] = []
+    seen: set[int] = set()
+    for r in rows:
+        if r["page_id"] in seen or (avoid_pages and r["page_id"] in avoid_pages):
+            continue
+        seen.add(r["page_id"])
+        out.append(Hit(chunk_id=r["chunk_id"], page_id=r["page_id"], ns=r["ns"], title=r["title"],
+                       section_path=r["section_path"], anchor=r["anchor"], text=r["text"], kind=r["kind"],
+                       score=scores[r["chunk_id"]], url=page_url(base_url, r["title"], r["anchor"]),
+                       page_kind=r["page_kind"]))
+        if len(out) >= k:
+            break
+    return out
 
 
 def search(

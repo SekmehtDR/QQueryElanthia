@@ -117,7 +117,7 @@ class RetrievalCfg(BaseModel):
     topic_boost: float = 0.25  # score multiplier (x1 + this x weight) for pages in the topic family the question names
     prior_boost: float = 0.012  # bonus for chunks the previous answer used (follow-up continuity)
     ns_weights: dict[str, float] = Field(
-        default_factory=lambda: {"120": 0.8, "14": 0.7, "4": 0.9, "12": 0.9}
+        default_factory=lambda: {"120": 0.8, "14": 0.7, "4": 0.9, "12": 0.9, "2": 0.8}  # talk/machinery: kinds.py
     )
     disambig_weight: float = 0.8
     log_weight: float = 0.5  # role-play log subpages (Character/Logs/...)

@@ -98,3 +98,33 @@ CHALLENGE = re.compile(
 
 def is_challenge(message: str) -> bool:
     return len(message.split()) <= CHALLENGE_WORDS and bool(CHALLENGE.search(message))
+
+
+# "Try again", "none of those pages had anything to do with it": the last answer missed, so the same question is searched
+# again without the pages already shown. The log showed both taken for small talk about Fennick (they say "you").
+REJECTION_WORDS = 25
+REJECTION = re.compile(
+    r"(?<!\bi )(?<!\bwe )\btry (?:it )?again\b|(?<!\bi )\b(?:search|look(?: it up)?) again\b|"  # not "how do I try again at..."
+    r"\bthat(?:'s| is|s)? not (?:what i (?:asked|meant|wanted)|it|an answer|helpful|relevant|the answer)\b|"
+    r"\b(?:not|isn't|wasn't) an answer\b|\b(?:doesn't|does not|didn't|did not) answer\b|"
+    r"\b(?:none|neither) of (?:the|those|these|your)\s+(?:[\w']+\s+){0,2}?(?:pages?|sources?|results?|links?|answers?)\b|"
+    r"\b(?:that|this|it|your answer)(?:'s| has| had| is)? nothing to do with\b|"
+    r"\b(?:wrong|irrelevant|unrelated) (?:pages?|sources?|answer|results?)\b|"
+    r"\bnot (?:relevant|related) to (?:my|the) question\b",
+    re.I,
+)
+
+
+def is_rejection(message: str) -> bool:
+    return len(message.split()) <= REJECTION_WORDS and bool(REJECTION.search(message))
+
+
+# With a conversation under way, a message is about Fennick himself only if it greets, thanks, or plainly asks about
+# him; anything else that says "you" ("are you going to try again?") is about the conversation's subject.
+ABOUT_ME = re.compile(
+    r"^\W*(?:hi|hello|hey|howdy|greetings|thanks|thank you|thx|ty|cheers|bye|goodbye|good (?:morning|evening|night))\b|"
+    r"\b(?:who|what) are you\b|\bwhat (?:can|do) you (?:do|know)\b|\bhow do you work\b|\babout (?:you|yourself)\b|"
+    r"\byour (?:name|sources?|notes|satchel|creator|maker)\b|\bwho (?:made|built|created|wrote) you\b|"
+    r"\bare you (?:a |an )?(?:bot|ai|real|human|program|person)\b|\b(?:elanthipedia|the wiki) itself\b",
+    re.I,
+)

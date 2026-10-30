@@ -26,8 +26,44 @@ KIND_DESCRIPTIONS = {
 PAGE_KINDS = (
     "item", "recipe", "material", "crafting", "guide", "script", "shop", "place", "pc", "npc", "gm", "creature",
     "spell", "skill", "command", "guild", "mechanics", "lore", "race", "event", "news", "post", "category",
-    "disambig", "meta", "log", "soft_redirect", "general",
+    "disambig", "meta", "log", "soft_redirect", "talk", "user", "file", "site", "general",
 )
+
+# ----------------------------------------------------------------------------------------------- namespaces
+# Every namespace is indexed, so all the wiki's metadata is searchable, but not all of it is content. Discussion pages
+# (every odd namespace: Talk, User talk, Item talk, ...) and the wiki's own machinery (file descriptions, interface
+# messages, templates, forms, Semantic MediaWiki properties and schemas, modules) rank below articles, are never offered
+# as a thread to pull on, and never compete for names ("Template:Armor" and "Talk:Binu" share their article's name).
+TALK_WEIGHT = 0.75
+SITE_NAMESPACES: dict[int, tuple[str, float]] = {  # ns -> (page kind, rank weight)
+    6: ("file", 0.5),      # File: an image's description page
+    8: ("site", 0.3),      # MediaWiki: interface messages, site CSS and JS
+    10: ("site", 0.4),     # Template
+    106: ("site", 0.3),    # Form
+    202: ("site", 0.6),    # Property: what each Semantic MediaWiki property means
+    212: ("site", 0.3),    # smw/schema
+    828: ("site", 0.3),    # Module (Lua)
+}
+
+
+def is_talk_ns(ns: int) -> bool:
+    return ns > 0 and ns % 2 == 1
+
+
+def namespace_weight(ns: int) -> float:
+    """How a namespace ranks against articles, before any per-namespace setting in `[retrieval.ns_weights]`."""
+    if is_talk_ns(ns):
+        return TALK_WEIGHT
+    return SITE_NAMESPACES[ns][1] if ns in SITE_NAMESPACES else 1.0
+
+
+def names_a_thing(ns: int) -> bool:
+    """Whether a page's title may stand for a name in a question (title matches, the name resolver)."""
+    return not is_talk_ns(ns) and ns not in SITE_NAMESPACES
+
+
+# SQL for the same rule, on a column holding the namespace
+NAMES_A_THING_SQL = "({col} % 2 = 0 AND {col} NOT IN (" + ",".join(str(n) for n in sorted(SITE_NAMESPACES)) + "))"
 
 # Page kinds with a weight column (the rest, e.g. log/soft_redirect/disambig/category, are handled by flags).
 _COLS = ("item", "recipe", "material", "crafting", "guide", "script", "shop", "place", "pc", "npc", "gm",
@@ -53,7 +89,9 @@ DEFAULT_KIND_WEIGHTS["general"] = {"script": 0.9, "pc": 0.8}
 
 # A related page may be offered after an answer only if its kind is at least this favoured for the question kind.
 OFFER_MIN_WEIGHT = 1.0
-OFFER_EXCLUDED_PAGE_KINDS = frozenset({"log", "soft_redirect", "disambig", "category", "meta", "script"})
+# Talk and user pages are context for an answer (who worked something out), never a thread to offer on their own.
+OFFER_EXCLUDED_PAGE_KINDS = frozenset({"log", "soft_redirect", "disambig", "category", "meta", "script", "talk", "user",
+                                       "file", "site"})
 
 
 # ----------------------------------------------------------------------------------------------- kind rules
@@ -65,7 +103,8 @@ KIND_LABEL = {
     "spell": "spell", "item": "item", "recipe": "crafted item", "material": "crafting material", "crafting": "crafting page",
     "guide": "guide", "creature": "creature", "pc": "character", "npc": "character", "gm": "staff member", "place": "place",
     "shop": "shop", "skill": "skill", "command": "command", "guild": "guild", "race": "race", "mechanics": "game mechanic",
-    "lore": "lore page", "event": "event", "news": "news post", "general": "page",
+    "lore": "lore page", "event": "event", "news": "news post", "general": "page", "user": "player page",
+    "talk": "talk page", "file": "file page", "site": "wiki page",
 }
 
 # page kinds that are the same sort of thing to a reader: two names in one group are not a real conflict
@@ -74,6 +113,7 @@ KIND_GROUP = {
     "place": "place", "shop": "place", "skill": "skill", "command": "skill", "guild": "skill", "race": "race",
     "item": "thing", "recipe": "thing", "material": "thing", "crafting": "thing", "guide": "thing",
     "mechanics": "thing", "lore": "thing", "general": "thing", "event": "event", "news": "event",
+    "user": "character",  # User:Dandin and a character page named Dandin are the same sort of thing: a person
 }
 
 # words in a question that say which group it is about

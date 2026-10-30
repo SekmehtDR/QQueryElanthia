@@ -17,6 +17,7 @@ from urllib.parse import unquote
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeRemainingColumn
 
 from ..db import transaction
+from ..kinds import SITE_NAMESPACES, is_talk_ns
 
 log = logging.getLogger("epedia.classify")
 
@@ -73,6 +74,12 @@ def classify_page(
 
     if soft_redirect:
         return done("soft_redirect")
+    if is_talk_ns(ns):  # the discussion behind a page (Talk, User talk, Item talk...): players working things out
+        return done("talk")
+    if ns == 2:  # a player's own page and subpages (analyses, formulas, drafts), whatever categories it borrows
+        return done("user")
+    if ns in SITE_NAMESPACES:  # file descriptions and the wiki's machinery (templates, forms, properties...)
+        return done(SITE_NAMESPACES[ns][0])
     if ns in (4, 12):
         return done("meta")
     if ns == 14:

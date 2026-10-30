@@ -6,8 +6,13 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-NS_NAMES = {0: "Main", 14: "Category", 110: "Armor", 112: "Shield", 114: "Weapon", 116: "Title",
-            118: "Item", 120: "Post", 208: "Concept"}
+NS_NAMES = {0: "Main", 1: "Talk", 2: "User", 3: "User talk", 4: "Elanthipedia", 5: "Elanthipedia talk", 6: "File",
+            7: "File talk", 8: "MediaWiki", 9: "MediaWiki talk", 10: "Template", 11: "Template talk", 12: "Help",
+            13: "Help talk", 14: "Category", 15: "Category talk", 106: "Form", 107: "Form talk", 110: "Armor",
+            111: "Armor talk", 112: "Shield", 113: "Shield talk", 114: "Weapon", 115: "Weapon talk", 116: "Title",
+            117: "Title talk", 118: "Item", 119: "Item talk", 120: "Post", 121: "Post talk", 202: "Property",
+            203: "Property talk", 208: "Concept", 209: "Concept talk", 212: "smw/schema", 213: "smw/schema talk",
+            828: "Module", 829: "Module talk"}
 RATE_WINDOW_MIN = 5
 
 

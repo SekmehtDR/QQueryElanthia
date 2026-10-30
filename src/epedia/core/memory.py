@@ -91,15 +91,30 @@ def recent_questions(conn: sqlite3.Connection, session_id: str, n: int = 8) -> l
 
 
 def last_question(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
-    """The last question that was answered by searching (its standalone form and kind), with the answer's mode, after
-    the context boundary: what "are you sure?" is about."""
+    """The last real question, one answered by searching (its standalone form and kind), with the answer's mode, after
+    the context boundary: what "are you sure?" and "try again" are about. Small talk in between is skipped."""
     return conn.execute(
         "SELECT u.standalone_q, u.kind, (SELECT a.mode FROM messages a WHERE a.session_id=u.session_id "
         "AND a.role='assistant' AND a.msg_id>u.msg_id ORDER BY a.msg_id LIMIT 1) AS answer_mode "
         "FROM messages u WHERE u.session_id=? AND u.msg_id>? AND u.role='user' AND u.standalone_q IS NOT NULL "
+        "AND coalesce(u.kind, '') != 'meta' AND coalesce(u.mode, 'search') IN ('search', 'recheck', 'retry') "
         "ORDER BY u.msg_id DESC LIMIT 1",
         (session_id, _context_from(conn, session_id)),
     ).fetchone()
+
+
+def recent_source_titles(conn: sqlite3.Connection, session_id: str, answers: int = 3) -> list[str]:
+    """Pages shown with the last few answers, for "try again": the next search leaves them out."""
+    titles: list[str] = []
+    for r in conn.execute(
+        "SELECT sources FROM messages WHERE session_id=? AND msg_id>? AND role='assistant' "
+        "AND coalesce(mode, '') != 'error' ORDER BY msg_id DESC LIMIT ?",
+        (session_id, _context_from(conn, session_id), answers),
+    ):
+        for s in json.loads(r["sources"]) if r["sources"] else []:
+            if s.get("chunk_id") and s.get("title") and s["title"] not in titles:
+                titles.append(s["title"])
+    return titles
 
 
 RECENT_QUESTION_CHARS = 120  # longer ones are pasted posts or essays, not something to click again

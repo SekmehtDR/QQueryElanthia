@@ -41,7 +41,7 @@ Voice:
 
 Honesty:
 - Every fact comes from the numbered passages below, cited as [n] at the end of the sentence or line it supports (at most two numbers per citation; only numbers that exist below). Earlier turns of the conversation tell you what the user means; they are not a source of facts.
-- Relay the wiki's own hedges: pages marked outdated, obsolete, incomplete or a stub; information tied to an era (DR 3.0, "before the Lyras War", an in-game year like 450 AV); and the kind of source: a GM's forum post, a player's guide or player-created lore, an in-world book, an event log, or the wiki's own article. Say which when it matters for trust.
+- Relay the wiki's own hedges: pages marked outdated, obsolete, incomplete or a stub; information tied to an era (DR 3.0, "before the Lyras War", an in-game year like 450 AV); and the kind of source: a GM's forum post, a player's guide or player-created lore, an in-world book, an event log, the wiki's own article, a "Talk:" page (players discussing an article; each post is signed with the player's name and date) or a "User:" page (a player's own notes). Say which when it matters for trust, and name who signed a talk-page post you use, and when.
 - If the passages lack a detail the user asked for, say so in one plain sentence and answer the rest. Only when no passage is relevant at all, make your entire reply this one line: "I couldn't find anything on that. Want to try asking it a different way, or ask me something else?" Never add that line to an answer that has content.
 - Several pages can describe versions of one thing, e.g. "(1)" and "(2)": treat them as versions, note where they differ and which is marked outdated. If no page has exactly the name the user used, say so in one sentence, then answer from the closest matches, naming them.
 - {no_lookup}
@@ -193,6 +193,7 @@ How to answer:
 - Only state facts that appear in the passages; never use outside knowledge or guess. If a detail the user asked about is not in the passages, say which detail is missing, but still answer the parts that are covered. Reply "The wiki doesn't seem to cover that." only when the passages contain nothing relevant at all.
 - Cite sources as passage numbers in square brackets at the end of the line or sentence they support, e.g. [2] or [1][3]. Use at most two numbers per citation. Only cite numbers that appear below.
 - Keep game terms, item names, skill names, numbers and commands exactly as written. Forum posts may be out of date; if passages disagree, say so.
+- A "Talk:" page is players discussing an article (each post signed with a name and date); a "User:" page is a player's own notes. Say so when you use one, and name who signed the post.
 - Earlier turns of the conversation are context for what the user means, not a source of facts: every fact in your answer must come from the numbered passages, with the citation of the passage that states it.
 - {no_lookup}
 
@@ -219,6 +220,14 @@ RECHECK = (
     "anything the passages support just to agree with the user, and add nothing they do not say."
 )
 
+# "Try again" / "none of those pages had anything to do with it": searched again without the pages already shown.
+RETRY = (
+    "The user says your last answer missed their question. The numbered passages below are a fresh search that leaves "
+    "out the pages you used before. Answer the question from them if they answer it. If none of them does, say so "
+    "plainly in one or two sentences (the wiki doesn't seem to cover it) and do not stretch an unrelated passage to fit. "
+    "Do not apologise at length or repeat the last answer."
+)
+
 # Written after a first draft named things no passage has, or pretended to look something up (core/verify.py).
 STRICT = "Your first draft of this answer broke the rules, so write it again from the passages alone. {problems}"
 STRICT_NAMES = "No passage mentions {names}: do not name {them}. Name only creatures, people, places and things the passages name."
@@ -237,11 +246,13 @@ def strict_addendum(names: list[str], fake_actions: bool) -> str:
 
 
 def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bool = True,
-                        continuing: bool = False, pasted: str = "", today: str = "", recheck: bool = False) -> str:
+                        continuing: bool = False, pasted: str = "", today: str = "", recheck: bool = False,
+                        retry: bool = False) -> str:
     """System prompt for the answer step. Uses replace(), never format(): passage text may contain braces."""
+    lead = RECHECK if recheck else RETRY if retry else ""
     if not persona:
         base = NEUTRAL_ANSWER_SYSTEM.replace("{passages}", passages_text)
-        return f"{RECHECK}\n\n{base}" if recheck else base
+        return f"{lead}\n\n{base}" if lead else base
     parts = [PERSONA_BLOCK.replace("{name}", name)]
     hint = SHAPE_HINTS.get(kind)
     if hint:
@@ -250,8 +261,8 @@ def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bo
         parts.append(TODAY.replace("{date}", today))
     if continuing:
         parts.append(CONTINUING)
-    if recheck:
-        parts.append(RECHECK)
+    if lead:
+        parts.append(lead)
     if pasted:
         parts.append(PASTED.replace("{text}", pasted))
     if "Reading of the history:" in passages_text:

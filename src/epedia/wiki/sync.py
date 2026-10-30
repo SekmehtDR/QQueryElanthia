@@ -57,9 +57,9 @@ async def collect_changes(client: WikiClient, settings: Settings, since: str) ->
             for rev in page.get("revisions", []):
                 ch.revisions += 1
                 ch.newest = max(ch.newest or "", rev["timestamp"])
-                if page["ns"] in TEMPLATE_NS:
+                if page["ns"] in TEMPLATE_NS:  # the pages that use it render differently now
                     ch.template_titles.add(page["title"])
-                elif page["ns"] in content_ns:
+                if page["ns"] in content_ns:  # a template or module is also indexed as a page in its own right
                     ch.titles.add(page["title"])
 
     for logtype in ("delete", "move"):

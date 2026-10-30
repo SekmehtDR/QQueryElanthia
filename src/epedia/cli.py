@@ -935,8 +935,8 @@ def monitor(
 
     s = settings()
     conn = db.connect(s, readonly=True)
-    names = {0: "Main", 14: "Category", 110: "Armor", 112: "Shield", 114: "Weapon", 116: "Title",
-             118: "Item", 120: "Post", 208: "Concept"}
+    from .progress import NS_NAMES as names
+
     samples: deque[tuple[float, int, int]] = deque(maxlen=40)  # (time, fetched, indexed)
 
     def rate(idx: int) -> float:

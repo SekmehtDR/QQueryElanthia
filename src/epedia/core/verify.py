@@ -37,8 +37,9 @@ UNCITED_FACTUAL_MIN = 3  # the uncited ratio says nothing about an answer with f
 
 # A promise to go and look something up, or a claim to have done so. "Let me know", "let me explain" are not.
 FAKE_ACTION = re.compile(
-    r"\b(?:let me|i'll|i will|i'm going to|i am going to|allow me to|give me a (?:moment|second|minute)(?: to)?)"
-    r"\s+(?:just\s+|quickly\s+|now\s+|go\s+(?:and\s+)?)?"
+    r"\b(?:let me|i'll|i will|i(?:'d| would) (?:have|need) to|i'm going to|i am going to|allow me to|give me a (?:moment|second|minute)(?: to)?|"
+    r"(?:maybe |perhaps )?i (?:should|need to|have to|must|ought to|could)|i'll need to|i'm (?:now )?(?:going|about) to)"
+    r"\s+(?:have to\s+|need to\s+|try to\s+|be sure to\s+)?(?:just\s+|quickly\s+|now\s+|first\s+|go\s+(?:and\s+)?)?"
     r"(?:take an?(?: closer| quick| deeper| second| another)? look|have a(?: closer| quick)? look|check|look(?: at| into| up| through| over| again| back)"
     r"|search|dig|pull up|consult|go (?:through|over|back)|review|flip|re-?read|see what|find out|verify|double[- ]check|scan|"
     r"browse|open|fetch|confirm)\b"
@@ -209,8 +210,9 @@ HONESTY_NOTES = {
 }
 
 
-def honesty_note(v: Verification, persona: bool = True) -> str:
-    """The note for the most important problem left in an answer, or ''."""
+def honesty_note(v: Verification, persona: bool = True, uncited: bool = True) -> str:
+    """The note for the most important problem left in an answer, or ''. `uncited` False leaves out the note about
+    uncited lines (small talk about Fennick himself cites nothing)."""
     style = 0 if persona else 1
     if v.unknown_entities:
         names = [f"“{n}”" for n in v.unknown_entities[:3]]
@@ -220,7 +222,7 @@ def honesty_note(v: Verification, persona: bool = True) -> str:
                 .replace("{do}", "does" if one else "do"))
     if v.numbers_bad:
         return HONESTY_NOTES["numbers"][style]
-    if v.factual_units >= UNCITED_FACTUAL_MIN and v.ratio_uncited >= UNCITED_NOTE_SHARE:
+    if uncited and v.factual_units >= UNCITED_FACTUAL_MIN and v.ratio_uncited >= UNCITED_NOTE_SHARE:
         return HONESTY_NOTES["uncited"][style]
     return ""
 

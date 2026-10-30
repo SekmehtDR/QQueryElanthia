@@ -206,6 +206,49 @@ creatures, narrated "let me check" actions, drift in long chats, fan fiction). P
   `answers_revised`. Tests: 381 in all (`tests/test_verify_policy.py`, `tests/test_feedback.py`, render, sharing and page
   tests).
 
+### Talk and User pages, and what a real conversation taught
+
+A visitor asked which player knows the most about the game's time mechanics. The answer (Dandin, who worked out the
+DragonRealms epoch in 2010) is on "Talk:Elanthian time", a namespace that was never indexed; Fennick instead reasoned
+from a roleplay availability table, called "are you going to try again?" small talk, and searched a pasted link as
+text.
+
+- **Every namespace of the wiki is indexed**, so all of its metadata is searchable: about 7,900 more pages. Talk and
+  User pages (about 1,830 and 670) came first; then every other discussion namespace (User talk, Item talk, Title
+  talk, Category talk...) and the wiki's machinery (File descriptions, Templates, Semantic MediaWiki Properties, Forms,
+  interface messages, schemas, modules). Delta updates, full scans, fill and the edit-history read all follow the one
+  namespace list in `epedia.toml`; a Template or Module edit now also re-fetches the template itself, not only the
+  pages that use it.
+- **They rank below articles and never take an article's place** (`kinds.namespace_weight`: discussion 0.75, User 0.8,
+  Property 0.6, File 0.5, Template 0.4, the rest of the machinery 0.3). None is ever offered as a thread to pull on,
+  and the answer prompt says how to credit them: a talk page is players discussing an article, each post signed, so
+  name who signed it and when; a user page is a player's own notes. A discussion page or a template never competes for
+  its article's name ("Talk:Binu" and "Template:Armor" are left out of the title index and the name resolver); a user
+  page is a name ("Who is Dandin?" reaches User:Dandin).
+- **"Which player knows the most about X?"** also searches the discussion and player pages alone (keywords on the
+  topic's words, and the nearest vectors among those pages) and puts the best three near the top of the evidence:
+  they rank below articles and would otherwise never make the cut (`search.WHO_KNOWS`, `discussion_search`). Measured
+  live: "Who worked out the DragonRealms epoch?" now answers Dandin from Talk:Elanthian time, and "which player knows
+  the most about TDPs?" names Dandin's analyses. The original "which player knows the most about the game's time
+  mechanics?" still does not reach that talk page (it finds a talk page of game formulas instead), but it now says
+  it found nothing rather than inventing an answer from a roleplay schedule.
+- **"Try again", "that's not what I asked", "none of those pages had anything to do with it"** search the last real
+  question again without the pages the last answers showed, and say plainly when the wiki doesn't seem to cover it.
+- **In a conversation, a message that says "you" is about the subject** unless it greets, thanks or plainly asks about
+  Fennick; "are you going to try again?" was answered as small talk.
+- **A pasted Elanthipedia link is read directly**: the linked page's opening passages lead the evidence (through a
+  redirect too), and the planner sees the page's title instead of the address. The saved question keeps the link.
+- **Pretended look-ups in more words** ("I'll have to look through the pages", "maybe I should check") are caught, and
+  small talk is checked like any answer (it is never cautioned for citing nothing).
+
+- **README rewritten** to the essentials: setup, running, the web page, sharing, commands, configuration.
+
+Internals: `capabilities.REJECTION`/`is_rejection`, `capabilities.ABOUT_ME`; plan mode `retry` with `Plan.avoid_titles`
+and `prompts.RETRY`; `Plan.pinned`, `assistant.WIKI_LINK`; `memory.recent_source_titles`; `memory.last_question` skips
+small talk; page kinds `talk`, `user`, `file` and `site`; `kinds.SITE_NAMESPACES`, `is_talk_ns`, `names_a_thing`;
+`progress.NS_NAMES` names every namespace (the terminal monitor shares it). 36 new tests
+(`tests/test_conversation_fixes.py`); 417 in all.
+
 ## 1.0.0: Fennick, a storyteller's guide (2026-10-22)
 
 The first full release: the whole of Elanthipedia, answered by a persona.

@@ -12,14 +12,14 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 
-from ..kinds import KIND_GROUP, KIND_LABEL, intent_groups
+from ..kinds import KIND_GROUP, KIND_LABEL, NAMES_A_THING_SQL, intent_groups
 from .titles import STOP_NAMES, normalize
 
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'’\-]*")
 _ACRONYM = re.compile(r"^[A-Z0-9]{2,5}$")
 MAX_SPAN = 6
 LOOSE_KINDS = {"general", "command"}  # pages that share a name with a word in everyday use
-SKIP_KINDS = {"disambig", "soft_redirect", "category", "meta", "log", "script", "post"}
+SKIP_KINDS = {"disambig", "soft_redirect", "category", "meta", "log", "script", "post", "talk", "file", "site"}
 
 
 @dataclass
@@ -52,7 +52,8 @@ def _lookup(conn: sqlite3.Connection, norm: str) -> list[Entity]:
         rows = conn.execute(
             "SELECT DISTINCT t.page_id, p.title, p.page_kind FROM titles_fts t JOIN pages p ON p.page_id = t.page_id "
             "WHERE titles_fts MATCH ? AND t.title_norm = ? AND coalesce(p.page_kind, '') NOT IN "
-            "('disambig','soft_redirect','category','meta','log','script','post') AND p.ns NOT IN (116, 120) LIMIT 30",
+            "('disambig','soft_redirect','category','meta','log','script','post','talk','file','site') "
+            "AND p.ns NOT IN (116, 120) AND " + NAMES_A_THING_SQL.format(col="p.ns") + " LIMIT 30",
             (phrase, norm)).fetchall()
     except sqlite3.OperationalError:
         return []

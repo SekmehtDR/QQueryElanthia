@@ -12,6 +12,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, T
 
 from ..config import Settings
 from ..db import set_state, transaction
+from ..kinds import NAMES_A_THING_SQL
 from ..llm.ollama import Ollama
 from ..text.chunker import Chunk, chunk_page
 from ..text.html2md import html_to_page
@@ -190,10 +191,14 @@ def rebuild_titles(conn: sqlite3.Connection) -> int:
             "INSERT INTO titles_fts(title_norm, page_id, is_redirect) "
             "SELECT title_norm, page_id, 0 FROM pages "
             "WHERE is_redirect=0 AND coalesce(page_kind, '') <> 'soft_redirect'"  # no content; the redirect row resolves it
+            # A talk page or a template shares its article's name ("Talk:Binu" and "Template:Armor" normalise to the
+            # article's): neither may compete for the name or its title boost. Their text is still searched.
+            " AND " + NAMES_A_THING_SQL.format(col="ns")
         )
         # Join against pages: a redirect's stored target id outlives its page when that page is deleted or recreated.
         conn.execute(
             "INSERT INTO titles_fts(title_norm, page_id, is_redirect) "
             "SELECT r.from_norm, r.to_page_id, 1 FROM redirects r JOIN pages p ON p.page_id = r.to_page_id"
+            " WHERE " + NAMES_A_THING_SQL.format(col="p.ns")  # "Jousting talk" -> Talk:Jousting is no name either
         )
     return conn.execute("SELECT count(*) FROM titles_fts").fetchone()[0]

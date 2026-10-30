@@ -18,7 +18,7 @@ from ..kinds import OFFER_EXCLUDED_PAGE_KINDS, OFFER_MIN_WEIGHT, QUESTION_KINDS
 from ..llm import prompts
 from ..llm.ollama import Ollama, OllamaError
 from ..retrieval import resolve
-from ..retrieval.search import Hit, search
+from ..retrieval.search import WHO_KNOWS, Hit, discussion_search, search
 from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
@@ -35,6 +35,7 @@ OFFER_CLOSE_MARGIN = 0.06  # an offer must be about as close to the question as 
 OFFER_MAX_DISTANCE = 0.45  # ...and close in absolute terms (cosine distance); otherwise nothing is offered
 MIN_OFFER_INLINKS = 8  # a page must be linked from at least this many pages to be offered as a thread to pull on
 RECHECK_PRIOR = 8  # "are you sure?": passages of the last answer re-read (its cited ones first), before fresh results
+WHO_KNOWS_PASSAGES = 3  # "which player knows the most about X?": discussion and player pages added to the evidence
 
 
 @dataclass
@@ -203,6 +204,12 @@ Event = Retrieval | Token | Revise | Done
 # A citation in a final answer: by the model [2], matched by code [2*], or not borne out by its passage [2?].
 ANY_CITE = re.compile(r"\[(\d+)[*?]?\]")
 
+# A link to an Elanthipedia page pasted into a message ("check the correct article: https://.../Elanthian_time"): the
+# page is read directly instead of searching for the words of its address.
+WIKI_LINK = re.compile(r"https?://(?:www\.)?elanthipedia\.play\.net/(?:index\.php\?title=|wiki/)?([^\s?#&<>\"')\]]+)"
+                       r"[^\s<>\"')\]]*", re.I)
+PINNED_CHUNKS = 4  # a linked page's opening passages that lead the evidence
+
 
 @dataclass
 class Plan:
@@ -218,6 +225,8 @@ class Plan:
     prebuilt: list[dict] | None = None  # passages code already wrote while planning (a crafting table): reused, not rebuilt
     signals: dict = field(default_factory=dict)  # how well retrieval matched (recorded on the turn, see core/grounding.py)
     names: list[str] = field(default_factory=list)  # for a declined story: the wiki pages the request named
+    avoid_titles: list[str] = field(default_factory=list)  # "try again": pages already shown, left out of the search
+    pinned: list[int] = field(default_factory=list)  # pages the person linked to: their passages lead
 
 
 class Assistant:
@@ -262,9 +271,10 @@ class Assistant:
             kind = data.get("kind") if data.get("kind") in QUESTION_KINDS else "general"
             if mode == "items":
                 kind = "item"
-            if kind == "meta" and (not META_CUES.search(message) or (hist and capabilities.is_challenge(message))):
-                # the 8B planner sometimes files "Who is <name>?" as small talk, and "are you sure?" about the last
-                # answer (when that answer could not be re-read by rule) as a question about Fennick: both need a search
+            if kind == "meta" and (not META_CUES.search(message) or (hist and not capabilities.ABOUT_ME.search(message))):
+                # The 8B planner files "Who is <name>?" as small talk, and in a conversation anything that says "you"
+                # ("are you going to try again?", "are you sure?"): only greetings, thanks and questions plainly about
+                # Fennick are small talk once a conversation is under way; the rest is about its subject.
                 kind = "general"
             # The 8B planner resolves "it" correctly but often forgets to say follow_up: a question it had to rewrite
             # using the conversation is a follow-up whatever the flag says.
@@ -439,12 +449,20 @@ class Assistant:
         prior: list[dict] = (self._prior_passages(session_id, RECHECK_PRIOR if recheck else 5, cited_first=recheck)
                              if plan.follow_up and k else [])
         passages.extend(prior)
+        if plan.pinned and k:  # a page the person linked to: its opening passages come first
+            pinned = [p for p in self._pinned_passages(plan.pinned) if p["chunk_id"] not in {q["chunk_id"] for q in prior}]
+            passages[:0] = pinned
+            prior = [*pinned, *prior]
         have = {p["chunk_id"] for p in prior}
         extra_k = self.s.retrieval.related_k if self.s.retrieval.offer_related else 0
         qvec = (await self.ollama.embed(["search_query: " + plan.standalone_question]))[0]
         plan.qvec = qvec  # reused to pick related pages that are really about this question
         named = resolve.resolve(self.conn, plan.standalone_question)  # once: the avoid set and the topic family agree
         avoid = self._not_meant(plan.standalone_question, named)
+        if plan.avoid_titles:  # "try again": the pages already shown missed the point
+            marks = ",".join("?" * len(plan.avoid_titles))
+            avoid |= {r[0] for r in self.conn.execute(f"SELECT page_id FROM pages WHERE title IN ({marks})",
+                                                       plan.avoid_titles)}
         hits: list[Hit] = search(
             self.conn, plan.standalone_question, self.s.retrieval, self.s.wiki.base_url, qvec, k_final=k + extra_k,
             prior_chunk_ids=self._prior_chunk_ids(session_id) if plan.follow_up else None, kind=plan.kind,
@@ -463,6 +481,17 @@ class Assistant:
                 taken += 1
             else:
                 extras.append(item)
+        if k and WHO_KNOWS.search(plan.standalone_question):
+            # "Which player knows the most about X?": the wiki's answer is in signed talk-page posts and players' own
+            # pages, which rank below articles; a few of the best go in near the top so they survive the budget.
+            taken_ids = {p["chunk_id"] for p in passages}
+            people = [{"title": h.title, "section": h.section_path, "url": h.url, "text": h.text,
+                       "chunk_id": h.chunk_id, "page_kind": h.page_kind}
+                      for h in discussion_search(self.conn, plan.standalone_question, self.s.retrieval,
+                                                 self.s.wiki.base_url, qvec, k=WHO_KNOWS_PASSAGES, avoid_pages=avoid)
+                      if h.chunk_id not in taken_ids]
+            at = min(2, len(passages))
+            passages[at:at] = people
         if not (passages and passages[0].get("answer")):
             passages.extend(self._history_passages(passages, plan.standalone_question))
         return passages, extras
@@ -597,6 +626,9 @@ class Assistant:
     async def _answer(self, turn: turns.Turn, hist: list[dict[str, str]], user_message: str,
                       kind_override: str | None) -> AsyncIterator[Event]:
         session_id = turn.session_id
+        # Links to wiki pages become the pages' titles for everything that reads the words (the saved question keeps
+        # the link as typed); the pages themselves lead the evidence.
+        user_message, linked = self._linked_pages(user_message)
         asked, pasted = split_message(user_message)
         early = self._early_plan(asked, pasted, hist)
         if early is not None and early.mode == "clock":
@@ -614,6 +646,7 @@ class Assistant:
                 or await self.plan(hist, user_message, session_id))
         turn.mark("planner")
         turn.plan = plan
+        plan.pinned = linked
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         if kind_override in QUESTION_KINDS:
             plan.kind = kind_override
@@ -626,7 +659,7 @@ class Assistant:
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
         gate = grounding.Gate()
-        if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt:
+        if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt and not plan.pinned:
             # Something the wiki never mentions cannot be answered from it: say so in code, without the model, so it
             # cannot fill the gap with an invented creature or spell. Judged on the person's own words.
             gate = grounding.assess(self.conn, asked)
@@ -714,7 +747,7 @@ class Assistant:
         # Earlier turns always come along, as they would in a conversation with a person: what was just said shapes
         # how the next question is understood, whether or not the planner flagged it as a follow-up.
         user_turn = plan.standalone_question
-        if plan.mode == "recheck":
+        if plan.mode in ("recheck", "retry"):
             user_turn = f"{asked.strip()} (This is about my last question: {plan.standalone_question})"
         messages = [{"role": "system", "content": system}, *hist, {"role": "user", "content": user_turn}]
         lead = ""
@@ -724,7 +757,9 @@ class Assistant:
         # What the user said earlier and today's date are known: names and numbers from them are not inventions.
         said = " ".join(m["content"] for m in hist if m["role"] == "user")
         context = f"{said} {now_text()}"
-        policy = self.s.chat.regenerate == "fabrication" and plan.kind != "meta"
+        # Small talk is checked too: the log had "I'll have to look through the pages" and names from earlier answers in
+        # a reply filed as a question about Fennick.
+        policy = self.s.chat.regenerate == "fabrication"
         recheck = plan.mode == "recheck"
         revised = False
         temperature = self.s.chat.temperature
@@ -751,7 +786,7 @@ class Assistant:
             temperature = 0.0
         # The final text: unsupported citations marked [n?], pretended look-ups removed, and one note on what is left.
         answer = lead + (checked.text if recheck else verify.strip_fake_actions(checked.text) or checked.text)
-        note = verify.honesty_note(checked, self.s.persona.enabled) if plan.kind != "meta" else ""
+        note = verify.honesty_note(checked, self.s.persona.enabled, uncited=plan.kind != "meta")
         if note:
             tail = "\n\n" + note
             yield Token(tail)
@@ -787,6 +822,40 @@ class Assistant:
         answer = soften_refusal(strip_closing_offer(raw.strip()))
         return attribute(answer, [p["text"] for p in passages]).text
 
+    def _linked_pages(self, text: str) -> tuple[str, list[int]]:
+        """(the text with each Elanthipedia link replaced by its page's title in quotes, the linked pages' ids). A link
+        to a redirect reaches its target; a page not in the index still becomes its title, which searches well."""
+        from urllib.parse import unquote
+
+        from ..retrieval.titles import normalize
+
+        ids: list[int] = []
+
+        def swap(m: re.Match) -> str:
+            raw = unquote(m.group(1)).replace("_", " ").strip()
+            row = self.conn.execute("SELECT page_id, title FROM pages WHERE title=? COLLATE NOCASE AND is_redirect=0",
+                                    (raw,)).fetchone() or self.conn.execute(
+                "SELECT p.page_id, p.title FROM redirects r JOIN pages p ON p.page_id=r.to_page_id WHERE r.from_norm=? "
+                "LIMIT 1", (normalize(raw),)).fetchone()
+            if row is None:
+                return f'"{raw}"'
+            if row[0] not in ids:
+                ids.append(row[0])
+            return f'"{row[1]}"'
+
+        return WIKI_LINK.sub(swap, text), ids
+
+    def _pinned_passages(self, page_ids: list[int]) -> list[dict]:
+        out: list[dict] = []
+        for pid in page_ids:
+            for r in self.conn.execute(
+                "SELECT chunk_id, title, section_path, anchor, text FROM chunks WHERE page_id=? ORDER BY ord LIMIT ?",
+                (pid, PINNED_CHUNKS),
+            ):
+                out.append({"title": r["title"], "section": r["section_path"], "text": r["text"],
+                            "url": page_url(self.s.wiki.base_url, r["title"], r["anchor"]), "chunk_id": r["chunk_id"]})
+        return out
+
     def _fiction_plan(self, asked: str) -> Plan | None:
         """A request for a story, a poem or roleplay: declined, and answered with what the wiki says about the names in
         it that it has pages for."""
@@ -806,21 +875,34 @@ class Assistant:
         return Plan(question, mode="fiction", kind=kind, names=shown)
 
     def _recheck_plan(self, asked: str, hist: list[dict[str, str]], session_id: str) -> Plan | None:
-        """'Are you sure?' after an answer: the same question again, read against that answer's own pages plus fresh
-        ones (see RECHECK in llm/prompts.py). Not after an answer code wrote without searching."""
-        if not hist or not capabilities.is_challenge(asked):
+        """After an answer, two replies are about that answer rather than a new subject:
+
+        - "try again" / "none of those pages had anything to do with it": the same question searched again without the
+          pages already shown (RETRY in llm/prompts.py), and an honest "the wiki doesn't seem to cover it" if nothing
+          new fits;
+        - "are you sure?": the same question read against that answer's own pages plus fresh ones (RECHECK).
+
+        Not after an answer code wrote without searching."""
+        if not hist:
+            return None
+        rejected = capabilities.is_rejection(asked)
+        if not rejected and not capabilities.is_challenge(asked):
             return None
         last = memory.last_question(self.conn, session_id)
         # Only an answer written from searched passages can be re-read. An items table is rebuilt by the planner (its
         # passage is not stored), and a story decline has nothing to check.
-        if last is None or last["kind"] == "meta" or last["answer_mode"] not in ("search", "recheck"):
+        if last is None or last["answer_mode"] not in ("search", "recheck", "retry"):
             return None
-        return Plan(last["standalone_q"], mode="recheck", kind=last["kind"] or "general", follow_up=True)
+        kind = last["kind"] or "general"
+        if rejected:
+            return Plan(last["standalone_q"], mode="retry", kind=kind,
+                        avoid_titles=memory.recent_source_titles(self.conn, session_id))
+        return Plan(last["standalone_q"], mode="recheck", kind=kind, follow_up=True)
 
     def _answer_system(self, plan: Plan, passages_text: str, hist: list[dict[str, str]]) -> str:
         return prompts.build_answer_system(plan.kind, passages_text, self.name, persona=self.s.persona.enabled,
                                            continuing=bool(hist), pasted=plan.material, today=now_text(),
-                                           recheck=plan.mode == "recheck")
+                                           recheck=plan.mode == "recheck", retry=plan.mode == "retry")
 
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,

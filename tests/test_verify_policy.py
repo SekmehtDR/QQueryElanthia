@@ -165,10 +165,14 @@ def test_strip_fake_actions_keeps_cited_lines_and_tidies_lists():
         "Binu is a Necromancer.[2?]"
 
 
-def test_meta_answers_get_no_notes_and_no_second_draft(conn):
-    model = Model(["Hello! I'm Fennick, and Moonwraiths are my favourite subject."], kind="meta")
+def test_small_talk_is_checked_too_but_never_noted_for_citing_nothing(conn):
+    # an invented name or a pretended look-up in small talk is rewritten like anywhere else (the log had both)...
+    model = Model(["Hello! I'm Fennick, and Moonwraiths are my favourite subject.",
+                   "Hello! I'm Fennick, a Halfling Bard with a satchel of notes, and I'd love to help you."], kind="meta")
     done = run(Assistant(Settings(), conn, model), memory.new_session(conn, "web"), "Hi Fennick, who are you?")[-1]
-    assert len(model.calls) == 1 and "One caution" not in done.answer
+    assert len(model.calls) == 2 and done.revised and "Moonwraiths" not in done.answer
+    # ...but a reply about himself cites nothing, and is not cautioned for it
+    assert "One caution" not in done.answer
     system = model.calls[0][0][0]["content"]
     assert capabilities.capabilities_text("Fennick") in system  # he says truthfully what he can and cannot do
 
