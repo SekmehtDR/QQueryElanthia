@@ -201,15 +201,18 @@ def test_page_has_an_about_fennick_page_with_his_story_and_how_he_works(client):
     assert "about.showModal()" in html and "e.target === about" in html  # opens as a window; a click outside closes it
 
 
-def test_page_shows_recent_questions_and_a_delete_all_but_hides_both_from_visitors(client):
+def test_page_shows_recent_questions_to_everyone_and_a_delete_all_only_at_this_computer(client):
     html = client.get("/").text
     assert "fetch('/api/recent-questions')" in html and "'Others are asking:'" in html
-    # at this computer the owner's own questions replace the starters, and an empty history says so
+    # the questions in Past chats replace the starters for everyone, and an empty history says so
     assert "No questions have been asked yet. Ask one now!" in html
     assert "const starters" not in html  # nothing filters the history against canned questions any more
     start = html.index("function hintHtml(")
     body = html[start:html.index("async function loadRecent(", start)]
-    assert body.index("persona.local !== false") < body.index("loadRecent(recent)") < body.index("persona.chips")
+    assert "loadRecent(recent)" in body and "persona.chips" not in body and "persona.local" not in body
+    # Past chats lists visitors' chats too, tagged; opening one shows it, and asking there starts the owner's own chat
+    assert '<span class="who">visitor</span>' in html and "A visitor's conversation." in html
+    assert "if (viewingVisitor) {  // a question while reading a visitor's chat" in html
     assert "getElementById('pastbtn').hidden = true" in html  # Past chats hidden through the tunnel, like Index
     assert 'id="pastclear"' in html and "fetch('/api/sessions', { method: 'DELETE'" in html
     assert "else if (r.ok) loadRecent();" in html  # a deleted chat's questions leave the start screen at once

@@ -84,7 +84,7 @@ def test_deleting_a_conversation_takes_its_votes_with_it(setup):
     assert feedback.votes(c, vote=None) == []
 
 
-def test_the_page_votes_on_its_own_answers_only_and_sees_them_again(setup):
+def test_a_visitor_votes_on_their_own_answers_the_owner_on_any_and_votes_show_again(setup):
     s, c, sid, first, second = setup
     visitor_sid = memory.new_session(c, "web", owner="someone-else")
     theirs = answered(c, visitor_sid, "Where is the Crossing?", "In Zoluren [1].")
@@ -94,7 +94,8 @@ def test_the_page_votes_on_its_own_answers_only_and_sees_them_again(setup):
         assert cl.post(url, json={"vote": "down"}, headers={"Host": "localhost:8765"}).status_code == 403  # no X-QQE
         assert cl.post(url, json={"vote": "sideways"}, headers=LOCAL).status_code == 422
         assert cl.post("/api/turns/9999/feedback", json={"vote": "up"}, headers=LOCAL).status_code == 404
-        assert cl.post(f"/api/turns/{theirs}/feedback", json={"vote": "up"}, headers=LOCAL).status_code == 404  # a visitor's
+        # the owner reviews visitors' answers too
+        assert cl.post(f"/api/turns/{theirs}/feedback", json={"vote": "up"}, headers=LOCAL).json()["vote"] == "up"
         ok = cl.post(url, json={"vote": "down", "reasons": ["missed"], "note": "wrong guild"}, headers=LOCAL)
         assert ok.json() == {"vote": "down", "reasons": ["missed"], "note": "wrong guild"}
         msgs = cl.get(f"/api/sessions/{sid}/messages").json()["messages"]

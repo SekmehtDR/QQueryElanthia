@@ -231,10 +231,11 @@ def delete_sessions(conn: sqlite3.Connection, owner: str | None = None, frontend
 
 def list_sessions(conn: sqlite3.Connection, frontend: str = "web", limit: int = 50, owner: str | None = None) -> list[dict]:
     """Conversations that have at least one question, newest first, for the Past chats list. With `owner`, only that
-    person's (visitors never see each other's, or the owner's)."""
+    person's; without, everyone's (the owner's view, each row saying whose it is)."""
     rows = conn.execute(
         "SELECT s.session_id, substr(coalesce(s.title, (SELECT m.content FROM messages m WHERE m.session_id=s.session_id "
         "AND m.role='user' ORDER BY m.msg_id LIMIT 1)), 1, 60) AS title, s.topic, coalesce(s.updated_at, s.created_at) AS updated_at, "
+        "coalesce(s.owner, 'local') AS owner, "
         "(SELECT count(*) FROM messages m WHERE m.session_id=s.session_id AND m.role='user') AS questions "
         "FROM sessions s WHERE s.frontend=? AND questions > 0 AND (? IS NULL OR coalesce(s.owner, 'local') = ?) "
         "ORDER BY updated_at DESC, s.rowid DESC LIMIT ?",

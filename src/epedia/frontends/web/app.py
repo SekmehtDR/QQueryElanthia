@@ -52,7 +52,7 @@ CHIPS = [
     "Where do musk hogs live and how tough are they?",
     "What is the heaviest heavy edged weapon?",
 ]
-RECENT_QUESTIONS = 20  # the latest questions in the owner's Past chats, shown on the start screen instead of the starters
+RECENT_QUESTIONS = 20  # the latest questions anyone asked on the page, on everyone's start screen instead of the starters
 
 
 class ChatRequest(BaseModel):
@@ -347,32 +347,39 @@ def create_app(settings: Settings) -> FastAPI:
     async def create_session(request: Request) -> dict:
         return {"session_id": memory.new_session(state["conn"], "web", owner=access.owner_of(request))}
 
-    # Past chats and recent questions are the owner's, at this computer: through the tunnel the page is a plain chat,
-    # like the Index panel, and these are refused there.
+    def may_see(request: Request, session_id: str) -> bool:
+        """The owner at this computer moderates the page: every conversation, visitors' included. A visitor through the
+        tunnel only ever reaches their own."""
+        if access.is_local(request):
+            return memory.session_exists(state["conn"], session_id)
+        return memory.owned_by(state["conn"], session_id, access.owner_of(request))
+
+    # Past chats is the owner's view of every conversation on the page (visitors' too, marked as such), to read and
+    # clean up; through the tunnel it is hidden and refused, like the Index panel.
     @app.get("/api/sessions")
     async def list_sessions(request: Request) -> list[dict]:
         local_only(request)
-        return memory.list_sessions(state["conn"], "web", owner=access.owner_of(request))
+        return memory.list_sessions(state["conn"], "web")
 
-    # The start screen's questions are exactly those in the owner's Past chats, so "Delete all" (which clears Past chats)
-    # empties it too. Visitors' chats are in neither.
+    # The start screen's questions are those in Past chats (everyone's), for everyone, so "Delete all" empties it too.
     @app.delete("/api/sessions")
     async def delete_all_sessions(request: Request) -> dict:
         guard(request)  # irreversible: the Index panel's checks, Host header included (DNS rebinding)
-        return {"deleted": memory.delete_sessions(state["conn"], access.owner_of(request))}
+        return {"deleted": memory.delete_sessions(state["conn"])}
 
     @app.get("/api/recent-questions")
     async def recent_questions(request: Request) -> dict:
-        local_only(request)
-        return {"questions": memory.recent_user_questions(state["conn"], access.owner_of(request), RECENT_QUESTIONS)}
+        return {"questions": memory.recent_user_questions(state["conn"], limit=RECENT_QUESTIONS)}
 
     @app.get("/api/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str) -> dict:
         local_only(request)
-        if not memory.owned_by(state["conn"], session_id, access.owner_of(request)):
+        if not may_see(request, session_id):
             raise HTTPException(404, "no such conversation")
+        row = state["conn"].execute("SELECT coalesce(owner, 'local') FROM sessions WHERE session_id=?",
+                                    (session_id,)).fetchone()
         return {"messages": memory.messages(state["conn"], session_id),
-                "topic": memory.get_topic(state["conn"], session_id)}
+                "topic": memory.get_topic(state["conn"], session_id), "owner": row[0] if row else "local"}
 
     @app.post("/api/sessions/{session_id}/forget-context")
     async def forget_context(request: Request, session_id: str) -> dict:
@@ -385,17 +392,17 @@ def create_app(settings: Settings) -> FastAPI:
     @app.delete("/api/sessions/{session_id}")
     async def delete_session(request: Request, session_id: str) -> dict:
         csrf(request)
-        if not memory.owned_by(state["conn"], session_id, access.owner_of(request)):
+        if not may_see(request, session_id):
             raise HTTPException(404, "no such conversation")
         memory.delete_session(state["conn"], session_id)
         return {"deleted": True}
 
     @app.post("/api/turns/{turn_id}/feedback")
     async def turn_feedback(request: Request, turn_id: int, body: FeedbackRequest) -> dict:
-        """A thumbs up or down on one answer, by whoever had that conversation (a visitor on their own answers too)."""
+        """A thumbs up or down on one answer: a visitor on their own answers, the owner on any (reviewing them)."""
         csrf(request)
         sid = feedback.turn_session(state["conn"], turn_id)
-        if sid is None or not memory.owned_by(state["conn"], sid, access.owner_of(request)):
+        if sid is None or not may_see(request, sid):
             raise HTTPException(404, "no such answer")
         return feedback.record(state["conn"], turn_id, body.vote, body.reasons, body.note)
 

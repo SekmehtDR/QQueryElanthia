@@ -150,9 +150,14 @@ creatures, narrated "let me check" actions, drift in long chats, fan fiction). P
   Past chats in place of the fixed starter questions, each in the planner's standalone form ("What tools do I need for
   forging?", not "...for it?"), so any can be asked again with one click. Small talk, the clock, declined questions,
   story requests and re-checks are left out. With none, it says "No questions have been asked yet. Ask one now!"
-  Deleting a chat removes its questions at once. Visitors' chats are in neither list.
-- **Delete all chats**: a button at the foot of Past chats deletes every conversation listed there, after a
-  confirmation. Visitors' chats, which Past chats does not show, are left alone.
+  Deleting a chat removes its questions at once. The list is everything asked on the page, visitors' questions
+  included, and visitors through the tunnel see the same list; only the owner, at this computer, can open or delete
+  the chats behind it.
+- **Past chats shows every conversation on the page**, visitors' too (tagged "visitor"), so the owner can read what
+  people asked and what Fennick answered, vote on those answers, and delete them. Asking a question while reading a
+  visitor's chat starts a fresh chat of the owner's own.
+- **Delete all chats**: a button at the foot of Past chats deletes every conversation on the page, visitors' included,
+  after a confirmation that says so.
 - **Thumbs up or down under every answer.** A thumbs-down then offers four reasons to tick (wrong or made up, didn't
   answer my question, lost track of the conversation, too long or hard to follow) and a line for anything else; a
   second click on the same thumb takes the vote back. The vote is kept on the answer's turn record, so it stays with
@@ -162,10 +167,9 @@ creatures, narrated "let me check" actions, drift in long chats, fan fiction). P
   the reasons and note, and what the checks found (names no page has, unsupported lines, a rewritten draft). `feedback
   <turn id>` shows that answer in its conversation with its full record (the plan, retrieval signals, checks, timings);
   `--all` adds thumbs-up, `--since` limits by date and `--json` prints everything for processing elsewhere.
-- **Visitors through the tunnel get a plain chat**: like the Index panel, Past chats and other people's questions are
-  hidden from them, and the server refuses the conversation list, a past conversation's messages and the question list.
-  They keep the fixed starter questions. (Their chats are still private; there was never a way to resume one across a
-  page reload.)
+- **Visitors through the tunnel cannot manage chats**: like the Index panel, Past chats and Delete all are hidden from
+  them, and the server refuses the conversation list, a past conversation's messages and deleting them all. (Their chats
+  are still private; there was never a way to resume one across a page reload.)
 - The Copy answer button also strips `[n?]` marks.
 - **About Fennick**: an "About" button beside Desktop and Mobile (or a click on his portrait) opens a page from his
   notes over the chat, with a close button (Escape or a click outside also close it). It opens "Hi, I'm Fennick!" with
@@ -190,8 +194,9 @@ creatures, narrated "let me check" actions, drift in long chats, fan fiction). P
 
 ### Internals
 
-- `memory.recent_user_questions`, `memory.delete_sessions`; `GET /api/recent-questions`, `DELETE /api/sessions` (both
-  local only; delete also needs the `X-QQE` header).
+- `memory.recent_user_questions`, `memory.delete_sessions`; `GET /api/recent-questions` (everything asked on the page,
+  for everyone), `DELETE /api/sessions` (local only, with the Index panel's checks). At this computer, listing, opening,
+  deleting and voting reach every page conversation (`may_see` in `app.py`); through the tunnel, only one's own.
 - `core/feedback.py` (`record`, `votes`, `conversation`, `REASONS`); `POST /api/turns/{id}/feedback` (the `X-QQE` header
   and ownership of the conversation required); `memory.messages` returns each answer's `turn_id` and `feedback`;
   `/api/persona` carries the reasons. 5 new tests (`tests/test_feedback.py`).

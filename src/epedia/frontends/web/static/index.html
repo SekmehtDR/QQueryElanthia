@@ -186,6 +186,7 @@
   #past .pick:hover { border-color:var(--accent); }
   #past .pick .when { display:block; color:var(--muted); font-size:.78rem; }
   #past .pick .ttl { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #past .pick .who { display:inline-block; margin-right:6px; padding:0 6px; border:1px solid var(--line); border-radius:999px; font-size:.72rem; color:var(--muted); vertical-align:1px; }
   #past li.current .pick { border-color:var(--line); }
   #past .del { flex:0 0 auto; border:0; background:none; color:var(--muted); cursor:pointer; font:inherit; padding:6px 8px; border-radius:6px; }
   #past .del:hover { color:#d24a3a; }
@@ -352,7 +353,7 @@
   </div>
 </dialog>
 <div id="past"><ul id="pastlist"></ul>
-  <div class="past-foot" id="pastfoot" hidden><button type="button" id="pastclear" title="Delete every past conversation, and the questions they put on the start screen">Delete all chats</button></div></div>
+  <div class="past-foot" id="pastfoot" hidden><button type="button" id="pastclear" title="Delete every conversation, visitors' included, and the questions they put on the start screen">Delete all chats</button></div></div>
 <div id="topicbar" hidden><span>Talking about:</span> <b id="topictext"></b>
   <button id="topicx" type="button" title="Set this topic aside: the chat stays, but Fennick stops carrying it into new questions" aria-label="Set this topic aside">×</button></div>
 <div id="status">
@@ -403,6 +404,7 @@ const log = document.getElementById('log'), q = document.getElementById('q'), se
 // A conversation lives only as long as this page: reloading starts fresh, and earlier chats are picked back up
 // from "Past chats". (Older versions kept the id in localStorage, which made Fennick remember a chat the screen had lost.)
 let sessionId = null;
+let viewingVisitor = false;  // the owner has a visitor's conversation open (read-only for them)
 try { localStorage.removeItem('epedia.session'); } catch (e) {}
 
 async function ensureSession() {
@@ -569,20 +571,12 @@ function hintHtml(text) {
     wrap.append(hero, nm);
   }
   const p = document.createElement('p'); p.textContent = text; wrap.append(p);
-  if (persona && persona.local !== false) {
-    // At this computer the start screen offers the questions in Past chats, not canned ones.
+  if (persona) {
+    // The start screen offers the questions people really asked on the page (anyone's), not canned ones; visitors
+    // through the tunnel see the same list. Only the owner, at this computer, can open or delete those chats.
     const recent = document.createElement('div'); recent.className = 'recent'; recent.id = 'recent';
     wrap.append(recent);
     loadRecent(recent);
-  } else {
-    // Visitors through the tunnel never see anyone's history (the server refuses it): they get the starter questions.
-    const chips = document.createElement('div'); chips.className = 'chips';
-    ((persona && persona.chips) || []).forEach(c => {
-      const b = document.createElement('button');
-      b.className = 'chip'; b.type = 'button'; b.textContent = c; b.onclick = () => ask(c);
-      chips.append(b);
-    });
-    wrap.append(chips);
   }
   return wrap;
 }
@@ -730,6 +724,9 @@ function cancelRun() {
   runCtl = null; busy = false; syncSend();
 }
 async function runAsk(text, signal) {
+  if (viewingVisitor) {  // a question while reading a visitor's chat is the owner's own: a fresh conversation
+    viewingVisitor = false; sessionId = null; setTopic(null); log.innerHTML = '';
+  }
   document.getElementById('hint')?.remove();
   await ensureSession();
   if (signal.aborted) return;
@@ -834,7 +831,7 @@ document.getElementById('topicx').addEventListener('click', async () => {
 // ---- New chat and Past chats ---------------------------------------------------------------------------------------
 function startFresh() {
   cancelRun();
-  sessionId = null; setTopic(null);
+  sessionId = null; setTopic(null); viewingVisitor = false;
   log.innerHTML = ''; log.append(hintHtml(persona ? persona.greeting : 'New conversation.'));
   q.value = ''; autosize(); syncSend();
 }
@@ -843,9 +840,10 @@ async function loadPast() {
   try {
     const rows = await (await fetch('/api/sessions')).json();
     document.getElementById('pastfoot').hidden = !rows.length;
-    if (!rows.length) { ul.innerHTML = '<li class="empty">Nothing yet. Conversations you have appear here.</li>'; return; }
+    if (!rows.length) { ul.innerHTML = '<li class="empty">Nothing yet. Conversations on this page, yours and visitors\', appear here.</li>'; return; }
     ul.innerHTML = rows.map(r => `<li${r.session_id === sessionId ? ' class="current"' : ''}>` +
-      `<button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">${esc(r.title || 'Untitled')}</span>` +
+      `<button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">` +
+      (r.owner && r.owner !== 'local' ? '<span class="who">visitor</span>' : '') + `${esc(r.title || 'Untitled')}</span>` +
       `<span class="when">${when(r.updated_at) || ''} · ${r.questions} question${r.questions === 1 ? '' : 's'}${r.topic ? ' · ' + esc(r.topic) : ''}</span></button>` +
       `<button type="button" class="del" data-del="${esc(r.session_id)}" title="Delete this conversation" aria-label="Delete this conversation">Delete</button></li>`).join('');
   } catch (e) { ul.innerHTML = '<li class="empty">Could not load past chats.</li>'; }
@@ -865,6 +863,12 @@ async function resumeChat(id) {
   } catch (e) { loadPast(); return; }  // it vanished (deleted elsewhere): refresh the list
   sessionId = id;
   log.innerHTML = '';
+  viewingVisitor = !!data.owner && data.owner !== 'local';
+  if (viewingVisitor) {  // the owner reading a visitor's chat: theirs to read, vote on or delete, not to continue
+    const d = document.createElement('div'); d.className = 'setaside';
+    d.textContent = "A visitor's conversation. Asking a question here starts a new chat of your own.";
+    log.append(d);
+  }
   data.messages.forEach(m => {
     if (m.role === 'user') { add('user', m.content); return; }
     const a = add('assistant', ''), sources = m.sources || [];
@@ -901,7 +905,7 @@ document.getElementById('pastlist').addEventListener('click', async e => {
   } else if (pick) resumeChat(pick.dataset.id);
 });
 document.getElementById('pastclear').addEventListener('click', async () => {
-  if (!confirm('Delete every past conversation for good? Their questions also leave the start screen.')) return;
+  if (!confirm("Delete every conversation for good, visitors' included? Their questions also leave the start screen.")) return;
   try {
     const r = await fetch('/api/sessions', { method: 'DELETE', headers: { 'X-QQE': '1' } });
     if (r.ok) startFresh();  // the conversation on screen went too
