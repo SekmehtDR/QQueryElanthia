@@ -1,7 +1,20 @@
 # Changes
 
-Latest version: **1.6.1** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.6.2** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.6.2: reviewing what people said (2026-10-31)
+
+- **Your vote no longer replaces a visitor's.** Reading a visitor's chat, your 👍 / 👎 sits beside theirs, and taking yours back
+  leaves theirs alone. Before, your click overwrote their vote, reason and note.
+- **Opening a visitor's chat shows what they said** under each answer they voted on: the thumb, their reasons, their note.
+- **"What people liked" in Past chats, and `epedia chats list --liked`:** what is working well, beside "Worth a look". `epedia
+  chats show` prints each vote with its reasons, and `epedia feedback` says whose vote it is.
+
+Internals: `turns.owner_feedback*`, schema 6. Votes come only from people clicking on the page.
+
+Correction to 1.5.0: gathering a layered answer takes up to about 0.9 seconds on the biggest places (since 1.6.1 it ranks all their
+linked pages), not 500 ms.
 
 ## 1.6.1: web chat works again; fixes from a code review (2026-10-31)
 
@@ -727,4 +740,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.6.1 (2026-10-31)_
+_Last updated: 1.6.2 (2026-10-31)_

@@ -11,7 +11,7 @@ import sqlite_vec
 
 from .config import Settings
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -260,6 +260,7 @@ def migrate(conn: sqlite3.Connection, settings: Settings) -> None:
     _migrate_v3(conn)
     _migrate_v4(conn)
     _migrate_v5(conn)
+    _migrate_v6(conn)
     if get_state(conn, "schema_version") != str(SCHEMA_VERSION):
         set_state(conn, "schema_version", str(SCHEMA_VERSION))
     if get_state(conn, "embed_model") is None:
@@ -306,6 +307,13 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS ix_links_to ON page_links(to_page_id);
         """
     )
+
+
+def _migrate_v6(conn: sqlite3.Connection) -> None:
+    """The owner's own vote on someone else's answer, beside theirs: reviewing must not replace what a visitor said."""
+    _ensure_column(conn, "turns", "owner_feedback", "TEXT")
+    _ensure_column(conn, "turns", "owner_feedback_reason", "TEXT")
+    _ensure_column(conn, "turns", "owner_feedback_at", "TEXT")
 
 
 def _migrate_v5(conn: sqlite3.Connection) -> None:

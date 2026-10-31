@@ -107,12 +107,85 @@ def test_a_visitor_votes_on_their_own_answers_the_owner_on_any_and_votes_show_ag
     assert turns.get(c, second)["feedback"] == "down"
 
 
+def test_the_owner_reviewing_a_visitors_answer_votes_beside_them_never_over_them(setup):
+    settings, c, *_ = setup
+    theirs = memory.new_session(c, "web", owner="someone-else")
+    tid = answered(c, theirs, "Who is Binu?", "A mage [1].")
+    feedback.record(c, tid, "down", ["wrong"], "He is a Necromancer")
+    with TestClient(create_app(settings)) as client:
+        assert client.post(f"/api/turns/{tid}/feedback", headers=LOCAL, json={"vote": "up"}).status_code == 200
+        row = c.execute("SELECT feedback, feedback_reason, owner_feedback FROM turns WHERE turn_id=?", (tid,)).fetchone()
+        assert row["feedback"] == "down" and "He is a Necromancer" in row["feedback_reason"] and row["owner_feedback"] == "up"
+        (m,) = [x for x in client.get(f"/api/sessions/{theirs}/messages", headers=LOCAL).json()["messages"] if x["role"] == "assistant"]
+        assert (m["feedback"], m["reasons"], m["note"], m["owner_feedback"]) == ("down", ["wrong"], "He is a Necromancer", "up")
+        assert {(v["by"], v["feedback"]) for v in feedback.votes(c, None) if v["turn_id"] == tid} == {("visitor", "down"), ("you, reviewing", "up")}
+        assert client.post(f"/api/turns/{tid}/feedback", headers=LOCAL, json={"vote": None}).status_code == 200  # takes back mine
+        assert tuple(c.execute("SELECT feedback, owner_feedback FROM turns WHERE turn_id=?", (tid,)).fetchone()) == ("down", None)  # not theirs
+
+
+def test_the_owners_vote_on_their_own_chat_is_an_ordinary_vote(setup):
+    settings, c, _, first, _ = setup
+    with TestClient(create_app(settings)) as client:
+        assert client.post(f"/api/turns/{first}/feedback", headers=LOCAL, json={"vote": "down"}).status_code == 200
+    assert tuple(c.execute("SELECT feedback, owner_feedback FROM turns WHERE turn_id=?", (first,)).fetchone()) == ("down", None)
+
+
+def test_your_thumbs_down_on_a_visitors_answer_puts_it_on_the_list_and_says_whose(setup):
+    _, c, *_ = setup
+    theirs = memory.new_session(c, "web", owner="someone-else")
+    tid = answered(c, theirs, "Who is Binu?", "A mage [1].")
+    feedback.record(c, tid, "down", ["missed"], "mine", reviewing=True)
+    row = next(r for r in feedback.review(c) if r["turn_id"] == tid)
+    assert row["flags"] == ["your thumbs down"] and row["owner_reasons"] == ["missed"] and row["feedback"] is None
+
+
+def test_what_people_liked_is_listed_with_who_liked_it(setup):
+    settings, c, _, first, _ = setup
+    assert feedback.review(c, liked=True) == []
+    feedback.record(c, first, "up")
+    (row,) = feedback.review(c, liked=True)
+    assert row["turn_id"] == first and row["flags"] == ["thumbs up"]
+    assert first not in [r["turn_id"] for r in feedback.review(c)]  # being liked is not a problem
+    theirs = memory.new_session(c, "web", owner="someone-else")
+    tid = answered(c, theirs, "Who?", "x [1].")
+    feedback.record(c, tid, "up", reviewing=True)
+    assert feedback.review(c, liked=True)[0]["flags"] == ["your thumbs up"]
+    with TestClient(create_app(settings)) as client:
+        assert {r["turn_id"] for r in client.get("/api/review/turns?liked=true", headers=LOCAL).json()} == {first, tid}
+        assert client.get("/api/review/turns?liked=true", headers={**LOCAL, **TUNNEL}).status_code == 403
+
+
+def test_the_page_shows_what_a_visitor_said_and_what_people_liked():
+    from epedia.frontends.web.app import STATIC
+
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "showTheirVote" in html and "viewingVisitor ? m.owner_feedback : m.feedback" in html
+    assert 'id="likedlist"' in html and "liked=true" in html
+    assert "d.textContent = 'The visitor gave this" in html  # their words are text, never markup
+
+
 def test_the_page_offers_thumbs_with_reasons_under_each_answer():
     from pathlib import Path
 
     html = (Path(__file__).parents[1] / "src/epedia/frontends/web/static/index.html").read_text(encoding="utf-8")
     assert "function addVotes(" in html and "'/api/turns/' + turnId + '/feedback'" in html
     assert "addActions(a, full, { id: data.turn_id })" in html  # a fresh answer
-    assert "addActions(a, m.content, { id: m.turn_id, feedback: m.feedback })" in html  # a reopened chat shows its votes
+    assert "feedback: viewingVisitor ? m.owner_feedback : m.feedback" in html  # a reopened chat shows the reader's own vote
     assert "persona.feedback_reasons" in html and "What went wrong? (optional)" in html
     assert "state === vote ? null : vote" in html  # a second click takes the vote back
+
+
+def test_the_review_commands_work_on_a_database_older_than_the_code(setup, monkeypatch):
+    from typer.testing import CliRunner
+
+    from epedia import cli
+
+    settings, c, sid, first, _ = setup
+    feedback.record(c, first, "down", ["wrong"])
+    for column in ("owner_feedback", "owner_feedback_reason", "owner_feedback_at"):
+        c.execute(f"ALTER TABLE turns DROP COLUMN {column}")
+    monkeypatch.setattr(cli, "settings", lambda: settings)
+    run = CliRunner()
+    for args in (["feedback"], ["feedback", str(first)], ["chats", "list", "--flagged"], ["chats", "show", sid], ["chats", "export", str(first)]):
+        out = run.invoke(cli.app, args)
+        assert out.exit_code == 0, (args, out.output)

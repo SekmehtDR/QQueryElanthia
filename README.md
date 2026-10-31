@@ -73,7 +73,8 @@ Stopping the server also stops any job started from its Index panel.
 - 👍 / 👎 under each answer; a thumbs-down asks what went wrong.
 - The start screen lists the last 20 questions asked. **Past chats** opens, and **Delete all chats** clears, every
   conversation on the page, visitors' included. It opens with **Worth a look**: answers people disliked, that failed, or that
-  named things or figures their pages do not have. **About** tells who Fennick is.
+  named things or figures their pages do not have; then **What people liked**. Opening a visitor's chat shows what they said
+  about each answer, and your own 👍 / 👎 there sits beside theirs. **About** tells who Fennick is.
 - **Index** (this computer only) runs updates and shows index health.
 
 ## Share it
@@ -103,7 +104,7 @@ them. Keep `[web] host` at `127.0.0.1`.
 | `epedia sync` | Fetch only what changed (the web server does this hourly) |
 | `epedia sync --full-scan` | Re-compare every page |
 | `epedia fill` | Fetch missing pages from the configured source |
-| `epedia chats list [--flagged]` | Chats, or the answers worth a look |
+| `epedia chats list [--flagged \| --liked]` | Chats, the answers worth a look, or those people liked |
 | `epedia chats show <session>` | One conversation as it went |
 | `epedia chats export <turn> [--eval]` | One answer's full record, or a question for the evaluation set |
 | `epedia feedback [turn]` | Thumbs-down answers, or one in its conversation |

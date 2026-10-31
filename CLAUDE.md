@@ -136,6 +136,8 @@ data/         wiki.db and logs (git-ignored)
   is always empty; `Done.related` carries them. Inlinks count from articles only: item templates link to everything.
 - **What the model sees of a conversation:** the planner gets `history_turns`; the answer gets the last exchange plus
   `memory.summary` (code-written; never ask a model to summarise). New memory helpers must honour `context_from`.
+- **Votes are real clicks only** (`core/feedback.py`): whoever asked votes in `turns.feedback`, the owner reading someone else's
+  chat in `turns.owner_feedback`, so reviewing never replaces a visitor's vote. Never cast a test vote on `data/wiki.db`.
 - **Testing the web flow without touching the live server:** `EPEDIA_WEB__AUTO_SYNC_MINUTES=0`, `serve --port 8766`, drive it,
   then kill that PID with `taskkill /T /F`. It shares `data/wiki.db`, so delete any chat it makes.
 - **Tiny test databases trigger the "nothing in my notes" decline:** words like "word" are absent from them. Add a page that
@@ -155,4 +157,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.6.0 (2026-10-31)_
+_Last updated: 1.6.2 (2026-10-31)_

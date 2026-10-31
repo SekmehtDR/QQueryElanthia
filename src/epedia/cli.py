@@ -461,6 +461,7 @@ app.add_typer(chats_app, name="chats")
 @chats_app.command("list")
 def chats_list(
     flagged: bool = typer.Option(False, "--flagged", help="Answers worth a look, one per line, instead of whole chats"),
+    liked: bool = typer.Option(False, "--liked", help="Answers people gave a thumbs up, one per line"),
     since: Optional[str] = typer.Option(None, help="With --flagged: only on or after this date (YYYY-MM-DD)"),
     owner: Optional[str] = typer.Option(None, help="local (this computer), visitors, or one visitor's id"),
     frontend: str = typer.Option("web", help="web or cli; 'all' for both"),
@@ -469,10 +470,10 @@ def chats_list(
     """Chats newest first, or with --flagged the answers worth a look, thumbs-down first."""
     from .core import feedback, memory
 
-    conn = db.connect(settings(), readonly=True)
+    conn = db.connect(settings())
     which = None if frontend == "all" else frontend
-    if flagged:
-        rows = feedback.review(conn, True, since, owner, which, limit)
+    if flagged or liked:
+        rows = feedback.review(conn, True, since, owner, which, limit, liked=liked)
         for r in rows:
             who = "you" if (r["owner"] or "local") == "local" else "visitor"
             console.print(f"#{r['turn_id']}  {r['started_at'][:16]}  {who}  {r['session_id']}  [{', '.join(r['flags'])}]",
@@ -491,10 +492,10 @@ def chats_list(
 
 @chats_app.command("show")
 def chats_show(session: str = typer.Argument(..., help="A session id from `chats list`")) -> None:
-    """One conversation as it went, each answer with its turn id, how it was planned and any vote."""
-    from .core import memory
+    """One conversation as it went, each answer with its turn id, how it was planned and any votes, with why."""
+    from .core import feedback, memory
 
-    conn = db.connect(settings(), readonly=True)
+    conn = db.connect(settings())
     if not memory.session_exists(conn, session):
         console.print(f"no chat {session}", markup=False)
         raise typer.Exit(1)
@@ -504,8 +505,14 @@ def chats_show(session: str = typer.Argument(..., help="A session id from `chats
             if m.get("standalone_q") and m["standalone_q"] != m["content"]:
                 console.print(f"  planned as: {m['standalone_q']} ({m.get('kind')}, {m.get('mode')})", markup=False, highlight=False)
         else:
-            console.print(f"\nanswer #{m.get('turn_id')}" + (f"  [{m['feedback']}]" if m.get("feedback") else ""), markup=False, highlight=False)
+            console.print(f"\nanswer #{m.get('turn_id')}", markup=False, highlight=False)
             console.print(m["content"], markup=False, highlight=False)
+            if m.get("feedback"):
+                why = ", ".join(feedback.REASONS.get(x, x) for x in m["reasons"])
+                console.print(f"  vote: {m['feedback']}" + (f"; {why}" if why else "") + (f"; note: {m['note']}" if m["note"] else ""),
+                              markup=False, highlight=False)
+            if m.get("owner_feedback"):
+                console.print(f"  your vote: {m['owner_feedback']}", markup=False, highlight=False)
 
 
 @chats_app.command("export")
@@ -518,7 +525,7 @@ def chats_export(
 
     from .core import feedback
 
-    conn = db.connect(settings(), readonly=True)
+    conn = db.connect(settings())
     got = feedback.eval_item(conn, turn) if as_eval else feedback.conversation(conn, turn)
     if got is None:
         console.print(f"no turn {turn}", markup=False)
@@ -540,7 +547,7 @@ def feedback_cmd(
 
     from .core import feedback
 
-    conn = db.connect(settings(), readonly=True)
+    conn = db.connect(settings())
     if turn is not None:
         got = feedback.conversation(conn, turn)
         if got is None:
@@ -560,7 +567,8 @@ def feedback_cmd(
         t = got["turn"]
         console.print(f"\n[bold]turn {turn}[/bold]: vote {t['feedback'] or '-'}"
                       f"{'; ' + ', '.join(feedback.REASONS.get(r, r) for r in t['reasons']) if t['reasons'] else ''}"
-                      f"{'; note: ' + t['note'] if t['note'] else ''}", markup=False, highlight=False)
+                      f"{'; note: ' + t['note'] if t['note'] else ''}"
+                      f"{'; your vote: ' + t['owner_feedback'] if t['owner_feedback'] else ''}", markup=False, highlight=False)
         for key in ("grounding", "verify"):
             if t.get(key):
                 console.print(f"{key}: {_json.dumps(t[key], ensure_ascii=False)}", markup=False, highlight=False)
@@ -576,7 +584,7 @@ def feedback_cmd(
         console.print("no votes yet" if all_votes else "no thumbs-down yet")
         return
     for r in rows:
-        who = "you" if r["owner"] == "local" else "visitor"
+        who = r["by"]
         why = ", ".join(feedback.REASONS.get(x, x) for x in r["reasons"])
         c = r["checks"] or {}
         flags = [f"{len(c.get('unknown_entities') or [])} unknown names" if c.get("unknown_entities") else "",

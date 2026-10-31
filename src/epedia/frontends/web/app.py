@@ -405,13 +405,15 @@ def create_app(settings: Settings) -> FastAPI:
         sid = feedback.turn_session(state["conn"], turn_id)
         if sid is None or not may_see(request, sid):
             raise HTTPException(404, "no such answer")
-        return feedback.record(state["conn"], turn_id, body.vote, body.reasons, body.note)
+        # the owner reading a visitor's chat votes beside them, never over them
+        reviewing = not memory.owned_by(state["conn"], sid, access.owner_of(request))
+        return feedback.record(state["conn"], turn_id, body.vote, body.reasons, body.note, reviewing=reviewing)
 
     # What is worth the owner's look, at this computer only, like Past chats.
     @app.get("/api/review/turns")
-    async def review_turns(request: Request, flagged: bool = True, limit: int = 30) -> list[dict]:
+    async def review_turns(request: Request, flagged: bool = True, liked: bool = False, limit: int = 30) -> list[dict]:
         local_only(request)
-        return feedback.review(state["conn"], flagged=flagged, limit=min(limit, 200))
+        return feedback.review(state["conn"], flagged=flagged, liked=liked, limit=min(limit, 200))
 
     @app.get("/api/review/turns/{turn_id}/eval")
     async def review_eval_item(request: Request, turn_id: int) -> dict:

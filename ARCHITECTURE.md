@@ -371,8 +371,10 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   "Jump to latest" button appears. One answer runs at a time, errors show a "Try again" button, and a dropped
   connection is reported as possibly incomplete.
 
-- **Votes and review.** 👍 / 👎 under each answer (a thumbs-down asks why) go on its turn record. Past chats opens with
-  "Worth a look" (`feedback.review`, this computer only): thumbs-down, failures, names no page has, figures that do not match.
+- **Votes and review.** 👍 / 👎 under each answer (a thumbs-down asks why) go on its turn record: whoever asked in `feedback`, the
+  owner reading someone else's chat in `owner_feedback`, so neither replaces the other. Opening a visitor's chat shows what they
+  said. Past chats opens with "Worth a look" (`feedback.review`, this computer only): thumbs-down, failures, names no page has,
+  figures that do not match; then "What people liked".
   Marked lines and rewritten drafts are noted on an entry but do not put it there, because most answers have one. "Copy as
   eval" copies a skeleton for `eval/questions.yaml`, to check and paste by hand. `epedia chats` reads the same from the terminal.
 - **Clarifying buttons.** `done` carries `choices`; a click sends the message with `pin`, which counts only as the answer to
@@ -467,4 +469,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.6.0 (2026-10-31)_
+_Last updated: 1.6.2 (2026-10-31)_

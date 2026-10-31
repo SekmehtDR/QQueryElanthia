@@ -14,6 +14,7 @@ import uuid
 
 from ..util import utcnow_iso
 from .attribution import OFFER_LINE
+from .feedback import parse_reason
 from .userinput import split_message
 
 # "[2]" cited by the model, "[2*]" matched automatically, "[2?]" a citation its passage does not bear out
@@ -333,15 +334,18 @@ def list_sessions(conn: sqlite3.Connection, frontend: str | None = "web", limit:
 
 
 def messages(conn: sqlite3.Connection, session_id: str) -> list[dict]:
-    """The transcript; an answer carries its turn id and any thumbs up or down it was given (core/feedback.py)."""
+    """The transcript; an answer carries its turn id, the vote of whoever asked with their reasons and note, and the
+    owner's own vote if it was someone else's chat (core/feedback.py)."""
     rows = conn.execute(
-        "SELECT m.role, m.content, m.standalone_q, m.mode, m.kind, m.sources, m.related, t.turn_id, t.feedback "
+        "SELECT m.role, m.content, m.standalone_q, m.mode, m.kind, m.sources, m.related, t.turn_id, t.feedback, t.feedback_reason, "
+        "t.owner_feedback "
         "FROM messages m LEFT JOIN turns t ON t.assistant_msg_id = m.msg_id "
         "WHERE m.session_id=? ORDER BY m.msg_id",
         (session_id,),
     ).fetchall()
     return [
-        {**dict(r), "sources": json.loads(r["sources"]) if r["sources"] else [],
+        {**{k: r[k] for k in r.keys() if k != "feedback_reason"}, **parse_reason(r["feedback_reason"]),
+         "sources": json.loads(r["sources"]) if r["sources"] else [],
          "related": json.loads(r["related"]) if r["related"] else []}
         for r in rows
     ]
