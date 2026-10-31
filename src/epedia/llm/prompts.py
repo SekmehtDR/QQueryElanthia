@@ -247,14 +247,15 @@ def strict_addendum(names: list[str], fake_actions: bool) -> str:
 
 def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bool = True,
                         continuing: bool = False, pasted: str = "", today: str = "", recheck: bool = False,
-                        retry: bool = False) -> str:
-    """System prompt for the answer step. Uses replace(), never format(): passage text may contain braces."""
+                        retry: bool = False, outline: str = "") -> str:
+    """System prompt for the answer step. Uses replace(), never format(): passage text may contain braces. `outline` is a
+    layered answer's parts (core/layers.py), which take the place of the shape for its kind of question."""
     lead = RECHECK if recheck else RETRY if retry else ""
     if not persona:
         base = NEUTRAL_ANSWER_SYSTEM.replace("{passages}", passages_text)
-        return f"{lead}\n\n{base}" if lead else base
+        return "\n\n".join(x for x in (lead, outline, base) if x)
     parts = [PERSONA_BLOCK.replace("{name}", name)]
-    hint = SHAPE_HINTS.get(kind)
+    hint = outline or SHAPE_HINTS.get(kind)
     if hint:
         parts.append(hint)
     if today:

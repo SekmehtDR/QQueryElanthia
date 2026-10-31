@@ -4,6 +4,7 @@ weights that connect them. No imports, so config, db, search and prompts can all
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 QUESTION_KINDS = (
     "item", "crafting", "place", "character", "lore", "creature", "mechanics", "event_news", "meta", "general",
@@ -107,6 +108,65 @@ OFFER_NOT_AFTER: dict[str, frozenset[str]] = {
 OFFER_ONLY_FOR: dict[str, frozenset[str]] = {"pc": frozenset({"character"})}
 # An answer about a category page is a list of its members (the code-written tables): nothing to follow from it.
 OFFER_NO_ANCHOR_KINDS = frozenset({"category", "disambig", "meta", "site"})
+
+
+# ----------------------------------------------------------------------------------------------- layers
+# "Tell me about X" reads several sorts of page, not eight passages of X's stat sheet (core/layers.py). A hierarchy over
+# what pages are about: namespaces are only page formats (storyline, systems and people all sit in Main).
+
+
+@dataclass(frozen=True)
+class Layer:
+    key: str
+    heading: str  # exactly as the answer shows it; "" for the opening part, which has no heading
+    page_kinds: frozenset[str]  # what sort of page fills it
+    slots: int  # how many of the answer's passages it is given
+    mentions: bool = False  # filled by pages that name the subject in their text, not only by links
+    logs: bool = False  # players' role-play logs may fill what no other page does (and are labelled in code)
+    meanings: bool = False  # what the subject's name means belongs here
+    practical: bool = False  # shops, loot and training: not what "the story behind X" asks for
+
+
+def _layer(key: str, heading: str, kinds: str, slots: int, **flags: bool) -> Layer:
+    return Layer(key, heading, frozenset(kinds.split()), slots, **flags)
+
+
+_ITS_OWN = _layer("own", "", "", 3)
+# "general" pages only mention things in passing (trade routes, prestige boards, players' hunting ladders): never story.
+_STORY_KINDS = "event news lore"
+LAYERS: dict[str, tuple[Layer, ...]] = {
+    "thing": (_layer("own", "", "", 2),
+              _layer("source", "Where it comes from", "shop recipe crafting guide", 2, practical=True),
+              _layer("people", "The name and its people", "race lore mechanics", 2, mentions=True, meanings=True),
+              _layer("story", "In the story", _STORY_KINDS, 2, mentions=True, logs=True)),
+    "person": (_ITS_OWN,
+               _layer("deeds", "What they've done", _STORY_KINDS, 3, mentions=True, logs=True),
+               _layer("ties", "Who and what they're tied to", "guild place shop race npc gm", 2)),
+    "lore": (_ITS_OWN,
+             _layer("around", "Related people and places", "place guild race lore", 2),
+             _layer("story", "In the story", "event news", 3, mentions=True, logs=True)),
+    "place": (_ITS_OWN,
+              _layer("there", "What's there", "shop creature npc guild place", 3, practical=True),
+              _layer("history", "Its history", _STORY_KINDS, 2, mentions=True, logs=True)),
+    "system": (_ITS_OWN,
+               _layer("train", "How to train it", "guide skill crafting", 2, practical=True),
+               _layer("why", "Why it is so", "post news lore", 3, mentions=True)),
+    "creature": (_ITS_OWN,
+                 _layer("loot", "Loot and skinning", "material recipe", 1, practical=True),
+                 _layer("story", "In the story", _STORY_KINDS, 3, mentions=True)),
+}
+# What a page is -> which table a question about it reads. Anything else (an event, a guide, a post) is answered as usual.
+LAYER_TABLE = {
+    "item": "thing", "recipe": "thing", "material": "thing",
+    "pc": "person", "npc": "person", "gm": "person",
+    "lore": "lore", "race": "lore",
+    "place": "place", "shop": "place",
+    "spell": "system", "skill": "system", "command": "system", "guild": "system", "mechanics": "system", "crafting": "system",
+    "creature": "creature",
+}
+# How the closing offer names the rest, after a narrow question (the page's chip then asks "Tell me about <this>").
+LAYER_OFFER = {"thing": "the story behind {x}", "person": "the story of {x}", "lore": "the story of {x}",
+               "place": "the history of {x}", "system": "the reasoning behind {x}", "creature": "the story behind {x}"}
 
 
 # ----------------------------------------------------------------------------------------------- kind rules

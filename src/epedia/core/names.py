@@ -76,7 +76,7 @@ def passages(conn: sqlite3.Connection, question: str, titles: Iterable[str], bas
         return []
     words = named_in(conn, question)
     found = meanings(conn, words) if words else meanings(conn, titles)
-    return [_passage(m, base_url) for m in found[:MAX_MEANINGS]]
+    return [passage(m, base_url) for m in found[:MAX_MEANINGS]]
 
 
 def answer(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict]:
@@ -89,12 +89,12 @@ def answer(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict]
     found = meanings(conn, [word])[:MAX_MEANINGS]
     if not found:
         return []
-    out = [_passage(m, base_url) for m in found]
+    out = [passage(m, base_url) for m in found]
     out[0]["answer"] = " ".join(f'"{m.entity}" is {m.language} for "{m.meaning}" [{n}].' for n, m in enumerate(found, 1))
     return out
 
 
-def _passage(m: Meaning, base_url: str) -> dict:
+def passage(m: Meaning, base_url: str) -> dict:
     about = LANGUAGES.get(m.language)
     text = f'"{m.entity}" is {m.language} for "{m.meaning}".' + (f" (The language: {about}.)" if about else "")
     return {"title": m.title, "section": "What the name means", "url": page_url(base_url, m.title, None), "text": text,

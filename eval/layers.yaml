@@ -1,0 +1,53 @@
+# Layered answers (epedia eval --layers). Without the model: which pages each part reads.
+# layered: false means the question must stay an ordinary answer. expect / never: part -> page titles.
+- q: Tell me about svidaw sis
+  expect:
+    own: [Svidaw sis]
+    source: [Kifa Awrocis (1)]
+    people: [Svidaw sis, Rakash Weapons and Armor]
+    story: [Rakash Moot 442]
+- q: What is the story behind Svidaw sis?
+  expect:
+    people: [Svidaw sis]
+- q: Who is Lanival?
+  expect:
+    own: [Lanival]
+    deeds: [Dragon Clan]
+- q: Who is Hodierna?
+  expect:
+    own: [Hodierna]
+    around: [Tamsine]
+  never:
+    around: [Shard]
+- q: What is Riverhaven?
+  expect:
+    own: [Riverhaven]
+    history: [House Theren]
+- q: Tell me about the Rakash
+  expect:
+    own: ["Concept:Rakash"]
+    around: [Mrod]
+- q: What is forging?
+  expect:
+    train: [Blacksmithing discipline]
+- q: Explain the Barbarian guild
+  expect:
+    train: [Barbarian new player guide]
+  never:
+    train: [Bard]
+# Nothing but its own page: the logs that mention it are in passing.
+- q: What is a musk hog?
+  layered: false
+# Narrow: these ask for one thing about it.
+- q: What is the weight of a svidaw sis?
+  layered: false
+- q: How much does a svidaw sis weigh?
+  layered: false
+- q: Where can I buy a svidaw sis?
+  layered: false
+- q: What does svidaw sis mean?
+  layered: false
+- q: What is the best weapon for a Barbarian?
+  layered: false
+- q: Tell me about it
+  layered: false

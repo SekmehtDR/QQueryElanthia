@@ -22,7 +22,19 @@ from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
 from ..wiki import timeline
-from . import capabilities, disciplines, grounding, hunting, materials, memory, names, offers, turns, verify
+from . import (
+    capabilities,
+    disciplines,
+    grounding,
+    hunting,
+    layers,
+    materials,
+    memory,
+    names,
+    offers,
+    turns,
+    verify,
+)
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -229,6 +241,9 @@ class Plan:
     names: list[str] = field(default_factory=list)  # for a declined story: the wiki pages the request named
     avoid_titles: list[str] = field(default_factory=list)  # "try again": pages already shown, left out of the search
     pinned: list[int] = field(default_factory=list)  # pages the person linked to: their passages lead
+    asked: str = ""  # the person's own words: what they asked about, before the planner rewrote it
+    layer_table: tuple = ()  # a layered answer's parts (core/layers.py); empty for any other answer
+    outline: str = ""  # those parts as the model is told them, with the passage numbers each may use
 
 
 class Assistant:
@@ -450,6 +465,9 @@ class Assistant:
         elif (meant := names.answer(self.conn, plan.standalone_question, self.s.wiki.base_url)):
             passages = meant  # "What does svidaw sis mean?": what the wiki states, in code's words
             k = 0
+        if k and (layered := self._layered_passages(plan)):
+            plan.qvec = (await self.ollama.embed(["search_query: " + plan.standalone_question]))[0]
+            return [*layered, *self._history_passages(layered, plan.standalone_question)], []
         # A re-check reads every page the last answer cited, first; an ordinary follow-up brings its opening passages.
         recheck = plan.mode == "recheck"
         prior: list[dict] = (self._prior_passages(session_id, RECHECK_PRIOR if recheck else 5, cited_first=recheck)
@@ -503,6 +521,18 @@ class Assistant:
         if not (passages and passages[0].get("answer")):
             passages.extend(self._history_passages(passages, plan.standalone_question))
         return passages, extras
+
+    def _layered_passages(self, plan: Plan) -> list[dict]:
+        """"Tell me about svidaw sis": each part of the answer read from its own sort of page, decided from the person's
+        own words, so asking this in the middle of a conversation counts too. Empty for anything else."""
+        if (not self.s.chat.layered_answers or plan.mode != "search" or plan.pinned or plan.material or plan.avoid_titles):
+            return []
+        subject = layers.open_question(self.conn, plan.asked or plan.standalone_question)
+        found = layers.gather(self.conn, subject, self.s.retrieval.k_final, self.s.wiki.base_url) if subject else []
+        if found:
+            plan.layer_table = layers.table_for(subject)
+            plan.signals["layers"] = sorted({p["layer"] for p in found})
+        return found
 
     def _meta_passages(self) -> list[dict]:
         """What the assistant truthfully is, plus the wiki's own pages about itself when they are indexed."""
@@ -585,6 +615,7 @@ class Assistant:
         turn.mark("planner")
         turn.plan = plan
         plan.pinned = linked
+        plan.asked = asked
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         if kind_override in QUESTION_KINDS:
             plan.kind = kind_override
@@ -638,6 +669,7 @@ class Assistant:
                 over_only, passages = True, over_answer(over, date.today(), self.s.persona.enabled)[1]
         budget = self.s.chat.context_token_budget
         text, used = prompts.format_passages(passages, budget, date.today())
+        plan.outline = layers.outline(passages[:used], plan.layer_table) if plan.layer_table else ""
         system = self._answer_system(plan, text, hist)
         # The whole prompt must fit the context window, or the model silently loses its rules: older turns go first,
         # then passages from the bottom of the list.
@@ -645,6 +677,7 @@ class Assistant:
                                           self.s.ollama.answer_reserve_tokens)
         if over and used > 1:
             text, used = prompts.format_passages(passages, max(1000, budget - over), date.today())
+            plan.outline = layers.outline(passages[:used], plan.layer_table) if plan.layer_table else ""
             system = self._answer_system(plan, text, hist)
         passages = passages[:used]
         sources = [
@@ -717,6 +750,8 @@ class Assistant:
                 if hasattr(stream, "aclose"):
                     await stream.aclose()
             answer = self._clean_draft("".join(chunks), passages)
+            if plan.layer_table:  # the exact headings, in order; a part its passages do not back goes
+                answer = layers.tidy(answer, plan.layer_table, passages)
             # Checked against the very passages it was written from (core/verify.py), and recorded on the turn.
             checked = verify.run(answer, passages, plan.standalone_question, user_message, context)
             if recheck:  # "I checked the passages again" is true of a re-check: not a pretended look-up there
@@ -751,10 +786,18 @@ class Assistant:
             yield Token(tail)
             answer += tail
         cited = sorted({int(n) for n in ANY_CITE.findall(answer) if 1 <= int(n) <= len(sources)})
+        log_note = layers.log_note(cited, passages)  # never left to the model: a player's story is not the wiki's
+        if log_note:
+            tail = "\n\n" + log_note
+            yield Token(tail)
+            answer += tail
         # A thread to pull on: a page about the same subject as the page this answer cites most (core/offers.py).
         anchor = offers.anchor_title([{"title": s.title} for s in sources], _cite_order(answer, len(sources)))
-        related = offers.related(self.conn, self.s.retrieval, plan.kind, anchor,
-                                 {p["title"] for p in passages} | memory.seen_titles(self.conn, session_id), plan.qvec)
+        seen = memory.seen_titles(self.conn, session_id)
+        related = offers.related(self.conn, self.s.retrieval, plan.kind, anchor, {p["title"] for p in passages} | seen, plan.qvec)
+        rest = self._rest_of_it(plan, anchor)
+        if rest and rest not in seen:  # a narrow answer: the first thing to offer is the rest of what it was about
+            related = [rest, *related][: self.s.retrieval.related_k]
         offer = prompts.offer_line(related) if self.s.persona.enabled else ""
         if offer and not answer.endswith("?"):
             tail = "\n\n" + offer
@@ -770,6 +813,15 @@ class Assistant:
             memory.set_topic(self.conn, session_id, topic)
         yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id),
                    verification=record, revised=revised)
+
+    def _rest_of_it(self, plan: Plan, anchor: str | None) -> str | None:
+        """After a narrow question about one thing, whose answer is about that thing: its story, in words the chip can ask."""
+        if (not self.s.chat.layered_answers or plan.layer_table or plan.mode != "search" or plan.kind == "meta" or not anchor):
+            return None
+        subject = layers.about(self.conn, plan.standalone_question)
+        if subject is None or anchor not in {c.title for c in subject.pages}:
+            return None
+        return layers.offer(self.conn, subject, self.s.wiki.base_url, self.s.retrieval.k_final)
 
     @staticmethod
     def _clean_draft(raw: str, passages: list[dict]) -> str:
@@ -860,7 +912,7 @@ class Assistant:
     def _answer_system(self, plan: Plan, passages_text: str, hist: list[dict[str, str]]) -> str:
         return prompts.build_answer_system(plan.kind, passages_text, self.name, persona=self.s.persona.enabled,
                                            continuing=bool(hist), pasted=plan.material, today=now_text(),
-                                           recheck=plan.mode == "recheck", retry=plan.mode == "retry")
+                                           recheck=plan.mode == "recheck", retry=plan.mode == "retry", outline=plan.outline)
 
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,

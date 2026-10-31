@@ -1,7 +1,42 @@
 # Changes
 
-Latest version: **1.4.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.5.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.5.0: "tell me about X" answers in parts (2026-10-31)
+
+Players ask about story, items, training, systems and why things matter, and one thing often touches several of those. A
+question about the whole of something now reads each of them instead of eight passages of one stat sheet.
+
+- **"Tell me about svidaw sis" gets short headed parts:** what it is, *Where it comes from* (Kifa Awrocis, the recipe),
+  *The name and its people* (Rakash for "throwing beater", the Rakash) and *In the story* (Rakash Moot 442). People, gods
+  and peoples, places, spells and skills, and creatures each have their own parts: *What they've done*, *Related people and
+  places*, *What's there*, *Its history*, *How to train it*, *Why it is so*.
+- **Code decides the parts and the headings; the model writes under them.** A heading the model nearly got right is made
+  exact, parts go in a fixed order, and a part goes if nothing supports it. A part the model forgot to cite is kept if its
+  own passages say it, and tagged.
+- **Narrow questions stay narrow** ("how much does a svidaw sis weigh?") and end by offering the rest: "Want to hear about
+  the story behind Svidaw sis next?". The offer's button asks for just that, without the shops and stats.
+- **Players' role-play logs can fill a story nothing else tells, and code always says so:** "(OOC) [8] is a player's
+  role-play log, not official lore." Not for creatures, which turn up in logs without that being a story about them.
+- A subject with nothing but its own page gets an ordinary answer. It is judged from the person's own words, so asking
+  this in the middle of a conversation counts too. `[chat] layered_answers = false` turns it off.
+- **Fixed a false alarm:** a number in a page's title counts as something the page says ("Rakash Moot 442" was marked as a
+  figure that did not match its page).
+
+### What it does not do yet
+
+The 8B model does not always follow the parts: it can leave a line uncited, put a fact under the wrong heading or leave
+out a part that had passages. The checks and the marks apply as to any answer.
+
+### Internals
+
+- `core/layers.py` (`open_question`, `gather`, `outline`, `tidy`, `log_note`, `offer`); the parts of each sort of page are one
+  declarative table, `kinds.LAYERS`. No model call and no wiki request; about 100 to 500 ms of queries.
+- A page fills a part by a link, or by naming the subject in its text and being close to it (cosine distance to the subject's
+  opening 0.40 and 0.34, set from the real pages). Listings and "general" pages never fill a part.
+- `epedia eval --layers` shows which pages each part reads and checks `eval/layers.yaml` (no model call). All 15 pass.
+- Retrieval eval: MRR 0.890 -> 0.910, hit rates unchanged.
 
 ## 1.4.0: what a name means (2026-10-31)
 

@@ -282,8 +282,8 @@ def honesty_note(v: Verification, persona: bool = True, uncited: bool = True) ->
 def run(answer: str, passages: list[dict], question: str = "", message: str = "", context: str = "") -> Verification:
     """All checks at once. `passages` are the numbered passages (dicts with title and text), in prompt order;
     `context` is what the user said earlier in the conversation."""
-    texts = [p["text"] for p in passages]
-    ev = Evidence(texts)
+    # A page's title and section are part of what it says: "Rakash Moot 442" may well say 442 nowhere in the text itself.
+    ev = Evidence([f"{p.get('title', '')}\n{p.get('section', '')}\n{p['text']}" for p in passages])
     allowed_numbers = {w for w in _bag(f"{question} {message} {context}") if any(c.isdigit() for c in w)}
     text, unsupported, numbers_bad = check_citations(answer, ev, allowed_numbers)
     factual = cited = uncited = 0

@@ -151,6 +151,8 @@ class ChatCfg(BaseModel):
     # A draft that names things no passage has, or pretends to look something up, is written once more (core/verify.py):
     # "fabrication" (the default) or "off". Anything else the checks find is marked, never rewritten.
     regenerate: Literal["fabrication", "off"] = "fabrication"
+    # "Tell me about X" answers in short headed parts, each from its own sort of page (core/layers.py).
+    layered_answers: bool = True
 
 
 class WebCfg(BaseModel):

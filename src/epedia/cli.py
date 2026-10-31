@@ -808,6 +808,8 @@ def eval_cmd(
                               "run the refusal set and the end-to-end scripts (slow: one model answer each)"),
     offers_: bool = typer.Option(False, "--offers", help="Replay the closing offer for every answer in the conversation "
                                  "log, old next to new, and check the labelled cases in eval/offers.yaml (no model call)"),
+    layers_: bool = typer.Option(False, "--layers", help="Show which pages each part of a layered answer reads, and check "
+                                 "the labelled cases in eval/layers.yaml (no model call)"),
 ) -> None:
     """Score retrieval quality on the question set (or, with --conversations, how well follow-ups are tracked).
     Every run is saved under eval/runs/ and compared with the previous run of the same kind."""
@@ -819,6 +821,19 @@ def eval_cmd(
     s = settings()
     conn = db.connect(s)
     ks = [int(x) for x in k.split(",")]
+    if layers_:
+        from .evalx.layers import run_layers
+
+        rows, metrics = run_layers(s, conn, Path("eval/layers.yaml"))
+        for r in rows:
+            console.print(f"{'BAD' if r['problems'] else 'ok '} {r['q']} -> {r['subject'] or '-'}"
+                          + ("  [" + "; ".join(r["problems"]) + "]" if r["problems"] else ""), markup=False, highlight=False)
+            for key, titles in r["parts"].items():
+                console.print(f"      {key}: {'; '.join(titles)}", markup=False, highlight=False)
+        saved, before = save_run("layers", metrics, rows, s)
+        console.print(deltas(metrics, before))
+        console.print(f"saved {saved}", style="dim")
+        return
     if offers_:
         from .evalx.offers import run_offers
 
