@@ -1,7 +1,36 @@
 # Changes
 
-Latest version: **1.3.0** (2026-10-30). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.4.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.4.0: what a name means (2026-10-31)
+
+Fennick can now say what the wiki's names mean: the second step towards layered answers.
+
+- **"What does svidaw sis mean?" gets the wiki's own words, written by code:** "Svidaw sis" is Rakash for "throwing
+  beater", cited to the page that says so. The model used to pad a correct meaning with what it imagined the word said
+  about the thing, and the checker then doubted the whole sentence. It works for words with no page of their own too
+  (Khalaen). A question that asks more than that still goes to the model, with the meaning as its first passage. A
+  question about something else ("how much does a svidaw sis weigh?") is not told what the name means.
+- **172 stated meanings read from the wiki**, for 118 names, under 13 ways of writing a language. Only fixed phrasings
+  that name a language count (`X (Rakash for "...")`, `X means "..." in Rakash`, `X, a Gamgweth word meaning "..."`), and
+  a sentence that does not say what it is naming gives nothing. Role-play logs and talk pages are not read. One meaning
+  written two ways ("throwing beater", "throw(ing) beat(er)") is stated once.
+- A bare "Name means ..." is about the section heading only where several sections do it (Grazhir's Aliaes and Mintais);
+  otherwise it is about the page, and on a post, a book or an item page it is left out.
+
+### Internals
+
+- `index/extract/names.py` (extractor, the `LANGUAGES` spelling table), `core/names.py` (`meanings`, `passages`, `answer`).
+  Languages are a declared table rather than harvested, because pages write several with no page of that name ("Elven",
+  "S'Kra"); `epedia doctor` names any language the wiki's category adds.
+- New table `enriched(page_id, domain, revid)`, schema 4: each extractor keeps its own revision, so a second extractor
+  on a page is no longer skipped because the first made it current. The first `epedia enrich` after upgrading re-reads
+  those pages (about 1,100, a few seconds, no wiki requests).
+- Losing most of a page's facts counts as a layout change only from 4 facts up: one line edited off a page is an edit.
+- `epedia doctor` checks: meanings read, "Svidaw sis" still has its Rakash meaning, every language known; "facts are
+  current" is now per extractor.
+- Retrieval eval unchanged.
 
 ## 1.3.0: offers that fit the answer; a complete link graph (2026-10-30)
 

@@ -92,9 +92,19 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     facts = _one(conn, "SELECT count(*) FROM facts")
     materials = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='material'")
     add("material facts extracted", materials >= 250, f"{facts:,} facts for {materials:,} materials")
-    stale = _one(conn, "SELECT count(*) FROM pages p WHERE EXISTS (SELECT 1 FROM facts f WHERE f.page_id=p.page_id) "
-                       "AND (enriched_revid IS NULL OR enriched_revid != fetched_revid)")
+    stale = _one(conn, "SELECT count(*) FROM pages p WHERE EXISTS (SELECT 1 FROM facts f LEFT JOIN enriched e ON "
+                       "e.page_id=f.page_id AND e.domain=f.domain WHERE f.page_id=p.page_id AND "
+                       "(e.revid IS NULL OR e.revid != p.fetched_revid))")
     add("facts are current", stale == 0, f"{stale:,} source pages changed since their facts were read" if stale else "")
+
+    meanings = _one(conn, "SELECT count(*) FROM facts WHERE domain='name_meaning'")
+    add("name meanings read", meanings >= 100, f"{meanings:,} stated meanings")
+    add("a known meaning is still read", _one(
+        conn, "SELECT count(*) FROM facts WHERE domain='name_meaning' AND entity='Svidaw sis' AND grp='Rakash'") > 0,
+        "Svidaw sis in Rakash")
+    unknown = unknown_languages(conn)
+    add("every language on the wiki is one the name reader knows", not unknown,
+        f"add to index/extract/names.py LANGUAGES: {', '.join(unknown)}" if unknown else "")
 
     disciplines = _one(conn, "SELECT count(*) FROM facts WHERE domain='crafting' AND attribute='discipline_of'")
     add("crafting disciplines read from the Crafting page", disciplines >= 5, f"{disciplines} disciplines")
@@ -116,6 +126,16 @@ def run(conn: sqlite3.Connection) -> list[Check]:
         found = _one(conn, "SELECT count(*) FROM chunks WHERE title=? AND text LIKE ?", title, f"%{needle}%")
         add(f"rule still on {title}", found > 0, f'"{needle}"' if found else f'"{needle}" not found: update core/materials.py')
     return out
+
+
+def unknown_languages(conn: sqlite3.Connection) -> list[str]:
+    """Articles in the wiki's Languages category that index/extract/names.py has no spelling of."""
+    from .extract.names import LANGUAGES
+
+    known = set(LANGUAGES) | set(LANGUAGES.values()) | {"Common", "S'Kra Language"}
+    return [r[0] for r in conn.execute(
+        "SELECT p.title FROM pages p, json_each(p.categories) c WHERE c.value='Languages' AND p.ns=0 AND p.is_redirect=0 "
+        "ORDER BY p.title") if r[0] not in known]
 
 
 def crosscheck_materials(conn: sqlite3.Connection) -> tuple[int, int, list[str]]:

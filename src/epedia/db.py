@@ -11,7 +11,7 @@ import sqlite_vec
 
 from .config import Settings
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -258,6 +258,7 @@ def migrate(conn: sqlite3.Connection, settings: Settings) -> None:
         )
     _migrate_v2(conn)
     _migrate_v3(conn)
+    _migrate_v4(conn)
     if get_state(conn, "schema_version") != str(SCHEMA_VERSION):
         set_state(conn, "schema_version", str(SCHEMA_VERSION))
     if get_state(conn, "embed_model") is None:
@@ -302,6 +303,21 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
           PRIMARY KEY (from_page_id, to_page_id)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS ix_links_to ON page_links(to_page_id);
+        """
+    )
+
+
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    """Which revision of a page each extractor has read: two can read one page (a material page's box and what its name
+    means), and the second must not be skipped because the first is current. Empty at first, so the next enrich re-reads."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS enriched (
+          page_id INTEGER NOT NULL REFERENCES pages(page_id) ON DELETE CASCADE,
+          domain  TEXT NOT NULL,
+          revid   INTEGER,
+          PRIMARY KEY (page_id, domain)
+        ) WITHOUT ROWID;
         """
     )
 

@@ -22,7 +22,7 @@ from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
 from ..wiki import timeline
-from . import capabilities, disciplines, grounding, hunting, materials, memory, offers, turns, verify
+from . import capabilities, disciplines, grounding, hunting, materials, memory, names, offers, turns, verify
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
@@ -447,6 +447,9 @@ class Assistant:
         elif (disc := disciplines.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)):
             passages = [disc]  # the Crafting page's own list is the whole evidence
             k = 0
+        elif (meant := names.answer(self.conn, plan.standalone_question, self.s.wiki.base_url)):
+            passages = meant  # "What does svidaw sis mean?": what the wiki states, in code's words
+            k = 0
         # A re-check reads every page the last answer cited, first; an ordinary follow-up brings its opening passages.
         recheck = plan.mode == "recheck"
         prior: list[dict] = (self._prior_passages(session_id, RECHECK_PRIOR if recheck else 5, cited_first=recheck)
@@ -494,6 +497,9 @@ class Assistant:
                       if h.chunk_id not in taken_ids]
             at = min(2, len(passages))
             passages[at:at] = people
+        if k:  # a question that asks a meaning among other things: the stated meaning leads, in code's words
+            passages[:0] = names.passages(self.conn, plan.standalone_question, [c.title for c in (named.chosen if named else [])],
+                                          self.s.wiki.base_url)
         if not (passages and passages[0].get("answer")):
             passages.extend(self._history_passages(passages, plan.standalone_question))
         return passages, extras
