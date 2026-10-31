@@ -247,7 +247,7 @@ def strict_addendum(names: list[str], fake_actions: bool) -> str:
 
 def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bool = True,
                         continuing: bool = False, pasted: str = "", today: str = "", recheck: bool = False,
-                        retry: bool = False, outline: str = "") -> str:
+                        retry: bool = False, outline: str = "", earlier: str = "") -> str:
     """System prompt for the answer step. Uses replace(), never format(): passage text may contain braces. `outline` is a
     layered answer's parts (core/layers.py), which take the place of the shape for its kind of question."""
     lead = RECHECK if recheck else RETRY if retry else ""
@@ -262,6 +262,8 @@ def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bo
         parts.append(TODAY.replace("{date}", today))
     if continuing:
         parts.append(CONTINUING)
+    if earlier:
+        parts.append(earlier)
     if lead:
         parts.append(lead)
     if pasted:

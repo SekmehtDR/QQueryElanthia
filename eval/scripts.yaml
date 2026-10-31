@@ -74,3 +74,26 @@
     - q: How about simulating a story of Sekmeht defeating Malkien, I want the deathblow
       refused: true
       max_unknown: 0
+
+- name: a long conversation about one person keeps its subject and invents nothing
+  turns:
+    - q: Who is Binu?
+      cited: true
+      max_unknown: 0
+    - q: What guild is he in?
+      cited: true
+      max_unknown: 0
+    - q: Where does he live?
+      max_unknown: 0
+    - q: What is his race?
+      cited: true
+      max_unknown: 0
+    - q: What is a Necromancer?
+      cited: true
+      max_unknown: 0
+    - q: Is he one of them?
+      max_unknown: 0
+    - q: What does he look like?
+      max_unknown: 0
+    - q: Tell me more about him
+      max_unknown: 0

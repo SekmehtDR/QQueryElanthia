@@ -1,7 +1,47 @@
 # Changes
 
-Latest version: **1.5.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.6.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.6.0: long conversations keep their subject; what to review (2026-10-31)
+
+### Conversations
+
+- **Fennick keeps track of the page a conversation is about.** After "Who is Binu?", "what guild is he in?" still means
+  Binu several turns later; a question naming something else moves it on, and a question naming nothing leaves it.
+- **Answers are written from the last exchange and a short record of the rest,** written by code: each earlier question and
+  the pages its answer cited. A small model given its own earlier answers repeats them, and what it repeats it has not read
+  from the pages. On the end-to-end conversations, 12% of drafts had to be rewritten for inventing names or pretending to
+  look something up, down from 22% (the later run also has 8 more turns, so this is a rough comparison). The planner still
+  reads more, to work out what a message means.
+- **Setting a topic aside now sets all of it aside.** A follow-up, the offer and "are you sure?" still read the set-aside
+  answer before; now none of them do.
+- **A name that really means two sorts of thing asks with buttons,** each saying how its page opens; a click answers the
+  original question from that page without asking again. This is rare on today's wiki: "Mo" (a Barbarian guildleader, and a
+  spell's abbreviation) is the only such name found, because pages with one name are told apart by "(1)".
+- A clarifying question can now be asked later in a conversation, when nothing in it gives a subject.
+
+### Fixed
+
+- **"200 offense and 180 defense" was read as offense 180.** The hunting match used the wrong number, and lost the other. It
+  also now uses ranks given earlier in the conversation.
+
+### For the owner
+
+- **Past chats opens with "Worth a look":** thumbs-down first, then answers that failed, named things no page has, or stated a
+  figure their page does not. A click opens the chat; "Copy as eval" copies a question for the evaluation set, to check and
+  paste by hand (nothing joins it by itself, and it expects only what the answer cited). At this computer only.
+- **`epedia chats list [--flagged] [--since] [--owner] [--frontend]`, `chats show <session>`, `chats export <turn> [--eval]`.**
+  Thumbs and `epedia feedback` were already there.
+
+### Internals
+
+- `memory.summary`, `recent_exchange`, `last_assistant`, `user_messages`, `get_anchor`/`set_anchor`; every memory helper
+  honours the context boundary. `sessions.anchor`, schema 5. `[chat] answer_history_turns = 1`; `history_turns` is the planner's.
+- `resolve.choices`; `pin` on `/api/chat` counts only as the answer to a clarifying question. `Done.choices`.
+- `feedback.review`, `why_flagged`, `eval_item`; `/api/review/turns`, `/api/review/turns/{id}/eval` (local only).
+- A new 8-turn conversation in `eval/scripts.yaml`. The one "names no passage has" left on the Binu script is a false
+  alarm: the name is in a note written by code from the page's own edit history.
 
 ## 1.5.0: "tell me about X" answers in parts (2026-10-31)
 

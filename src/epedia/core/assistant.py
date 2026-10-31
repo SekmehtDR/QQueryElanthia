@@ -119,6 +119,10 @@ ANAPHORA = re.compile(
     r"the second|the last|more|another|also)\b|^(and|but|so|what about|how about)\b", re.I,
 )
 
+# A short message that leans on a subject it does not name: what the conversation's anchor is for.
+POINTS_BACK = re.compile(r"\b(it|its|they|them|their|that|this|those|these|he|she|him|her|his|hers)\b", re.I)
+NS_PREFIX = re.compile(r"^[A-Za-z]+:(?=\S)")
+
 # A follow-up that points back at text pasted earlier ("what I sent you", "that message", "the post above").
 REFERS_TO_PASTE = re.compile(
     r"\b(?:i|we) (?:sent|pasted|shared|posted|gave|showed|copied)\b|\b(?:that|this|the|my|above|previous) "
@@ -204,6 +208,7 @@ class Done:
     by_code: bool = False  # written by code (clock, a table, a clarifying question, a decline), not by the model
     verification: dict | None = None  # core/verify.py on the model's answer, against the passages it was given
     revised: bool = False  # the first draft was withdrawn and rewritten
+    choices: list[dict] = field(default_factory=list)  # a clarifying question's answers, as the page's buttons
 
 
 Event = Retrieval | Token | Revise | Done
@@ -244,6 +249,8 @@ class Plan:
     asked: str = ""  # the person's own words: what they asked about, before the planner rewrote it
     layer_table: tuple = ()  # a layered answer's parts (core/layers.py); empty for any other answer
     outline: str = ""  # those parts as the model is told them, with the passage numbers each may use
+    earlier: str = ""  # the conversation before the last exchange, written by code (memory.summary)
+    choices: list[dict] = field(default_factory=list)  # a clarifying question's answers (resolve.choices)
 
 
 class Assistant:
@@ -267,6 +274,10 @@ class Assistant:
         user = ""
         if earlier:  # questions older than the last two turns: enough to keep the thread without the answers
             user += "Earlier questions in this conversation, oldest first:\n" + "\n".join(f"- {t}" for t in earlier) + "\n\n"
+        anchor = memory.get_anchor(self.conn, session_id) if session_id and hist else None
+        pointing = bool(anchor) and len(message.split()) <= SHORT_MESSAGE_WORDS and bool(POINTS_BACK.search(message))
+        if pointing:  # beside the question, where the 8B model reads it: "it" several turns on is still this page
+            user = f"Current subject of the conversation: {anchor}\n\n{user}"
         user += f"Most recent turns:\n{convo}\n"
         last_pages = self._prior_titles(session_id) if hist else []
         if last_pages:
@@ -281,6 +292,8 @@ class Assistant:
             )
             q = strip_game_name((data.get("standalone_question") or message).strip() or message)
             q = drop_unasked_year(q, message)
+            if pointing and _norm(q) == _norm(message):  # it left the pronoun standing: code says what it points at
+                q = f"{q.rstrip(' ?.!')} (about {re.sub(NS_PREFIX, '', anchor)})?"
             mode = data.get("mode") if data.get("mode") in ("search", "items") else "search"
             iq = data.get("items_query") if mode == "items" else None
             if mode == "items" and not catalog:
@@ -300,8 +313,9 @@ class Assistant:
             follow_up = bool(hist) and (bool(data.get("follow_up")) or rewritten or leans_on_context) and kind != "meta"
             topic = re.sub(r"\s+", " ", str(data.get("topic") or "")).strip()[:40]
             clarify = str(data.get("clarify") or "").strip()
-            if hist or kind == "meta" or len(clarify) > 200:
-                clarify = ""  # only trusted when there is no conversation to draw a subject from
+            if (kind == "meta" or len(clarify) > 200
+                    or (hist and (follow_up or anchor or resolve.resolve(self.conn, q) is not None))):
+                clarify = ""  # trusted only when the conversation gives no subject to draw on
             return Plan(q, mode, iq, follow_up=follow_up, kind=kind, topic=topic, clarify=clarify, material=material)
         except (OllamaError, KeyError, ValueError) as exc:
             log.warning("planner failed (%s); falling back to plain search", exc)
@@ -364,16 +378,13 @@ class Assistant:
         """A 'what should I hunt?' question, or the reply to Fennick asking for the ranks to answer one."""
         if hunting.HUNT_FIT.search(plan.standalone_question):
             return True
-        row = session_id and self.conn.execute(
-            "SELECT content FROM messages WHERE session_id=? AND role='assistant' AND coalesce(mode, '') != 'error' "
-            "ORDER BY msg_id DESC LIMIT 1",
-            (session_id,),
-        ).fetchone()
+        row = memory.last_assistant(self.conn, session_id) if session_id else None
         return bool(row) and row["content"] == hunting.NEED_RANKS
 
-    def _hunt_ranks(self, plan: Plan, user_message: str) -> list[int]:
+    def _hunt_ranks(self, plan: Plan, user_message: str, session_id: str | None = None) -> list[int]:
         """Combat ranks the person gave, in this message or in what they said earlier in the conversation."""
-        return hunting.parse_ranks(plan.standalone_question, user_message)
+        earlier = memory.user_messages(self.conn, session_id) if session_id else []
+        return hunting.parse_ranks(plan.standalone_question, user_message, *earlier)
 
     def _property_catalog(self) -> str:
         rows = self.conn.execute(
@@ -387,11 +398,7 @@ class Assistant:
         cited first (what "are you sure?" is about)."""
         if not session_id:
             return []
-        row = self.conn.execute(
-            "SELECT sources, cited FROM messages WHERE session_id=? AND role='assistant' AND coalesce(mode, '') != 'error' "
-            "ORDER BY msg_id DESC LIMIT 1",
-            (session_id,),
-        ).fetchone()
+        row = memory.last_assistant(self.conn, session_id)
         if not row or not row["sources"]:
             return []
         try:
@@ -450,7 +457,7 @@ class Assistant:
             except Exception as exc:  # the items tool is best-effort; ordinary search still answers
                 log.warning("items tool failed: %s", exc)
         if self._is_hunt_fit(plan, session_id):
-            ranks = self._hunt_ranks(plan, plan.standalone_question)
+            ranks = self._hunt_ranks(plan, plan.standalone_question, session_id)
             p = hunting.passage(self.conn, ranks, self.s.wiki.base_url, plan.standalone_question) if ranks else None
             if p:
                 passages.append(p)
@@ -561,7 +568,7 @@ class Assistant:
     # ------------------------------------------------------------------------------------ answering
 
     async def answer_stream(
-        self, session_id: str, user_message: str, *, kind_override: str | None = None
+        self, session_id: str, user_message: str, *, kind_override: str | None = None, pin: int | None = None
     ) -> AsyncIterator[Event]:
         """Answer one message. The question is saved before anything can fail, and the turn is recorded however it
         ends (answered, failed, or abandoned by the reader), so nothing a person asked disappears."""
@@ -571,7 +578,7 @@ class Assistant:
         turn = turns.Turn.start(self.conn, session_id, user_id)
         said: list[str] = []
         try:
-            async for ev in self._answer(turn, hist, user_message, kind_override):
+            async for ev in self._answer(turn, hist, user_message, kind_override, pin):
                 if isinstance(ev, Retrieval):
                     turn.mark("retrieve")
                 elif isinstance(ev, Token):
@@ -592,7 +599,7 @@ class Assistant:
             raise
 
     async def _answer(self, turn: turns.Turn, hist: list[dict[str, str]], user_message: str,
-                      kind_override: str | None) -> AsyncIterator[Event]:
+                      kind_override: str | None, pin: int | None = None) -> AsyncIterator[Event]:
         session_id = turn.session_id
         # Links to wiki pages become the pages' titles for everything that reads the words (the saved question keeps
         # the link as typed); the pages themselves lead the evidence.
@@ -610,8 +617,15 @@ class Assistant:
             return
         # A story request and "are you sure?" are recognised by rule: the planner turned the one into a story and filed
         # the other as a question about Fennick himself.
+        chosen = self._picked(pin, session_id)  # a button under a clarifying question: which page they meant
+        if chosen:
+            linked = [pin]
+            memory.set_anchor(self.conn, session_id, chosen)
         plan = (early or self._fiction_plan(asked) or self._recheck_plan(asked, hist, session_id)
                 or await self.plan(hist, user_message, session_id))
+        if chosen:  # the question they first asked, about the page they chose: not "I meant the spell X"
+            asked_first = memory.user_messages(self.conn, session_id, 2)[0]
+            plan.standalone_question = f"{asked_first.rstrip(' ?.!')} ({asked.strip().removeprefix('I meant ')})?"
         turn.mark("planner")
         turn.plan = plan
         plan.pinned = linked
@@ -643,19 +657,23 @@ class Assistant:
                 return
         asks = plan.mode in ("search", "items")  # a re-check or a declined story has nothing to clarify
         if (asks and not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
-                and not self._hunt_ranks(plan, user_message)):
+                and not self._hunt_ranks(plan, user_message, session_id)):
             plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
-        if asks and not plan.clarify and plan.kind != "meta":
+        if chosen:
+            plan.clarify = ""
+        # A name that really reaches two sorts of thing beats the planner's vaguer question: this one has answers to click.
+        if asks and plan.clarify != hunting.NEED_RANKS and plan.kind != "meta" and not plan.pinned:
             named = resolve.resolve(self.conn, plan.standalone_question)
             if named is not None and named.ambiguous:
                 plan.clarify = resolve.clarify(named)  # one name, different kinds of page, and nothing to choose between
+                plan.choices = resolve.choices(self.conn, named)
         if plan.clarify and not memory.last_was_clarification(self.conn, session_id):
             # Ask rather than guess, but never twice in a row: the second time it is answered as best it can be.
             yield Retrieval([], plan.standalone_question, "clarify", plan.kind, [])
             yield Token(plan.clarify)
             plan.mode = "clarify"
             self._persist(turn, plan.clarify, plan, [], [])
-            yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
+            yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id), by_code=True, choices=plan.choices)
             return
         passages, _ = await self.retrieve_with_extras(plan, session_id)
         over_only = False
@@ -667,10 +685,15 @@ class Assistant:
                 passages = [{**p, "text": keep_ahead_lines(p["text"], date.today())} for p in ahead] + undated
             elif over:
                 over_only, passages = True, over_answer(over, date.today(), self.s.persona.enabled)[1]
+        said_before = " ".join(m["content"] for m in hist if m["role"] == "user")  # all of it: their words are not inventions
+        plan.earlier = memory.summary(self.conn, session_id, skip=self.s.chat.answer_history_turns)
+        continuing = bool(hist)
+        # "Are you sure?" is about the whole of the last answer; anything else needs only enough of it to follow on from.
+        hist = hist[-2:] if plan.mode == "recheck" else memory.recent_exchange(hist, self.s.chat.answer_history_turns)
         budget = self.s.chat.context_token_budget
         text, used = prompts.format_passages(passages, budget, date.today())
         plan.outline = layers.outline(passages[:used], plan.layer_table) if plan.layer_table else ""
-        system = self._answer_system(plan, text, hist)
+        system = self._answer_system(plan, text, continuing)
         # The whole prompt must fit the context window, or the model silently loses its rules: older turns go first,
         # then passages from the bottom of the list.
         hist, over = prompts.fit_messages(system, hist, plan.standalone_question, self.s.ollama.num_ctx,
@@ -678,7 +701,7 @@ class Assistant:
         if over and used > 1:
             text, used = prompts.format_passages(passages, max(1000, budget - over), date.today())
             plan.outline = layers.outline(passages[:used], plan.layer_table) if plan.layer_table else ""
-            system = self._answer_system(plan, text, hist)
+            system = self._answer_system(plan, text, continuing)
         passages = passages[:used]
         sources = [
             Source(i + 1, p["title"], p.get("section", ""), p["url"], p.get("chunk_id"), _snippet(p["text"]))
@@ -726,8 +749,7 @@ class Assistant:
             lead = capabilities.decline_fiction(plan.names, self.s.persona.enabled) + "\n\n"
             yield Token(lead)
         # What the user said earlier and today's date are known: names and numbers from them are not inventions.
-        said = " ".join(m["content"] for m in hist if m["role"] == "user")
-        context = f"{said} {now_text()}"
+        context = f"{said_before} {now_text()}"
         # Small talk is checked too: the log had "I'll have to look through the pages" and names from earlier answers in
         # a reply filed as a question about Fennick.
         policy = self.s.chat.regenerate == "fabrication"
@@ -811,8 +833,25 @@ class Assistant:
         topic = plan.topic or re.sub(r"^[A-Za-z]+:(?=\S)", "", top)  # a planner label, else the main page cited
         if topic and plan.kind != "meta":
             memory.set_topic(self.conn, session_id, topic)
+        self._move_anchor(plan, session_id, anchor if cited else None)
         yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id),
                    verification=record, revised=revised)
+
+    def _picked(self, pin: int | None, session_id: str) -> str | None:
+        """The title of the page a clarifying question's button chose; None if the last answer asked nothing, or it is no page."""
+        if pin is None or not memory.last_was_clarification(self.conn, session_id):
+            return None
+        row = self.conn.execute("SELECT title FROM pages WHERE page_id=? AND is_redirect=0", (pin,)).fetchone()
+        return row["title"] if row else None
+
+    def _move_anchor(self, plan: Plan, session_id: str, cited_page: str | None) -> None:
+        """The subject moves when a question names something and its answer rests on it; a question that names nothing
+        ("how much does it weigh?") leaves it where it was."""
+        if not cited_page or plan.kind == "meta" or plan.pinned:
+            return
+        named = resolve.resolve(self.conn, plan.standalone_question)
+        if named is not None and not named.ambiguous and cited_page in {c.title for c in named.chosen}:
+            memory.set_anchor(self.conn, session_id, cited_page)
 
     def _rest_of_it(self, plan: Plan, anchor: str | None) -> str | None:
         """After a narrow question about one thing, whose answer is about that thing: its story, in words the chip can ask."""
@@ -909,10 +948,10 @@ class Assistant:
                         avoid_titles=memory.recent_source_titles(self.conn, session_id))
         return Plan(last["standalone_q"], mode="recheck", kind=kind, follow_up=True)
 
-    def _answer_system(self, plan: Plan, passages_text: str, hist: list[dict[str, str]]) -> str:
+    def _answer_system(self, plan: Plan, passages_text: str, continuing: bool) -> str:
         return prompts.build_answer_system(plan.kind, passages_text, self.name, persona=self.s.persona.enabled,
-                                           continuing=bool(hist), pasted=plan.material, today=now_text(),
-                                           recheck=plan.mode == "recheck", retry=plan.mode == "retry", outline=plan.outline)
+                                           continuing=continuing, pasted=plan.material, today=now_text(),
+                                           recheck=plan.mode == "recheck", retry=plan.mode == "retry", outline=plan.outline, earlier=plan.earlier)
 
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,

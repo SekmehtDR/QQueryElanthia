@@ -18,6 +18,7 @@ from .titles import STOP_NAMES, normalize
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'’\-]*")
 _ACRONYM = re.compile(r"^[A-Z0-9]{2,5}$")
 MAX_SPAN = 6
+CHOICE_LEAD_CHARS = 160
 LOOSE_KINDS = {"general", "command"}  # pages that share a name with a word in everyday use
 SKIP_KINDS = {"disambig", "soft_redirect", "category", "meta", "log", "script", "post", "talk", "file", "site"}
 
@@ -124,6 +125,19 @@ def clarify(res: Resolution) -> str:
     picks = list(seen.values())[:3]
     named = [f"the {c.label} {c.title.split(':', 1)[-1]}" for c in picks]
     return f"{res.span} could mean " + ", or ".join(named) + ". Which did you mean?"
+
+
+def choices(conn: sqlite3.Connection, res: Resolution) -> list[dict]:
+    """What the clarifying question offers as buttons: one page per sort of thing, with how it opens."""
+    seen: dict[str, Entity] = {}
+    for c in res.candidates:
+        seen.setdefault(c.group, c)
+    out = []
+    for c in list(seen.values())[:3]:
+        row = conn.execute("SELECT text FROM chunks WHERE page_id=? ORDER BY ord LIMIT 1", (c.page_id,)).fetchone()
+        out.append({"title": c.title, "page_id": c.page_id, "label": c.label, "text": f"the {c.label} {c.title.split(':', 1)[-1]}",
+                    "lead": re.sub(r"\s+", " ", row[0])[:CHOICE_LEAD_CHARS].strip() if row else ""})
+    return out
 
 
 def set_aside(conn: sqlite3.Connection, res: Resolution) -> set[int]:

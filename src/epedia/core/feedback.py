@@ -11,6 +11,8 @@ import json
 import sqlite3
 from typing import Any
 
+import yaml
+
 from ..util import utcnow_iso
 
 # The reasons a thumbs-down offers (the page shows the labels; the keys are what is stored).
@@ -89,3 +91,75 @@ def conversation(conn: sqlite3.Connection, turn_id: int) -> dict[str, Any] | Non
         record_[k.removesuffix("_json")] = json.loads(record_.pop(k)) if t[k] else None
     record_.update(parse_reason(record_.pop("feedback_reason")))
     return {"turn": record_, "messages": [dict(m) for m in msgs]}
+
+
+# Marked lines and rewritten drafts are noted on an entry but do not put it on the list: most answers have one, and a list
+# of most answers says nothing.
+WORTH_A_LOOK = frozenset({"thumbs down", "failed", "named things no page has", "a figure its page does not have"})
+
+
+def why_flagged(row: dict) -> list[str]:
+    """What makes a turn worth the owner's look, most telling first."""
+    checks = row.get("checks") or {}
+    out = []
+    if row.get("feedback") == "down":
+        out.append("thumbs down")
+    if row.get("error"):
+        out.append("failed")
+    if checks.get("unknown_entities"):
+        out.append("named things no page has")
+    if checks.get("numbers_bad"):
+        out.append("a figure its page does not have")
+    if checks.get("unsupported"):
+        out.append("lines its pages do not back")
+    if row.get("regenerated"):
+        out.append("rewritten")
+    return out
+
+
+def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = None, owner: str | None = None,
+           frontend: str | None = "web", limit: int = 50) -> list[dict]:
+    """Turns for the owner to look through, thumbs-down first and then newest first. `owner` is an owner id, "local", or
+    "visitors" for everyone else; `frontend` None means every front end. Eval runs delete their sessions, and their turns."""
+    rows = conn.execute(
+        "SELECT t.turn_id, t.session_id, t.started_at, t.owner, t.frontend, t.feedback, t.feedback_reason, t.error, t.regenerated, "
+        "t.verify_json, u.content AS question, u.standalone_q, a.mode, a.kind FROM turns t JOIN messages u ON u.msg_id=t.user_msg_id "
+        "LEFT JOIN messages a ON a.msg_id=t.assistant_msg_id WHERE (? IS NULL OR t.frontend=?) AND (? IS NULL OR t.started_at >= ?) "
+        "AND (? IS NULL OR (CASE WHEN ?='visitors' THEN coalesce(t.owner, 'local') != 'local' ELSE coalesce(t.owner, 'local')=? END)) "
+        "ORDER BY t.feedback='down' DESC, t.turn_id DESC LIMIT ?",
+        (frontend, frontend, since, since, owner, owner, owner, limit * 10 if flagged else limit),
+    ).fetchall()
+    out = []
+    for r in rows:
+        row = {k: r[k] for k in r.keys() if k not in ("verify_json", "feedback_reason")}
+        row.update(parse_reason(r["feedback_reason"]))
+        row["checks"] = json.loads(r["verify_json"]) if r["verify_json"] else {}
+        row["flags"] = why_flagged(row)
+        if not flagged or WORTH_A_LOOK & set(row["flags"]):
+            out.append(row)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def eval_item(conn: sqlite3.Connection, turn_id: int) -> str | None:
+    """A turn as a skeleton for eval/questions.yaml, to check and paste by hand: nothing joins the evaluation set by itself,
+    and the pages it expects are only what the answer cited, which is the first thing to doubt in a bad answer."""
+    t = conn.execute(
+        "SELECT t.session_id, t.user_msg_id, u.content, u.standalone_q, u.kind, u.mode, a.sources, a.cited FROM turns t "
+        "JOIN messages u ON u.msg_id=t.user_msg_id LEFT JOIN messages a ON a.msg_id=t.assistant_msg_id WHERE t.turn_id=?",
+        (turn_id,)).fetchone()
+    if t is None:
+        return None
+    cited = set(json.loads(t["cited"])) if t["cited"] else set()
+    sources = json.loads(t["sources"]) if t["sources"] else []
+    pages = list(dict.fromkeys(s["title"] for s in sources if s.get("n") in cited and s.get("title")))
+    earlier = [r[0] for r in conn.execute("SELECT content FROM messages WHERE session_id=? AND role='user' AND msg_id<? ORDER BY msg_id",
+                                          (t["session_id"], t["user_msg_id"]))]
+    item: dict[str, Any] = {"q": t["content"], "kind": t["kind"] or "general", "expect_pages": pages}
+    if earlier:
+        item["history"] = earlier
+    if t["mode"] and t["mode"] != "search":
+        item["mode"] = t["mode"]
+    return ("# Check before adding to eval/questions.yaml: expect_pages is only what this answer cited.\n"
+            + yaml.safe_dump([item], allow_unicode=True, sort_keys=False, width=110))

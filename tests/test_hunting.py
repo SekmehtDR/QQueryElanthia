@@ -28,6 +28,9 @@ def test_cue_separates_fit_questions_from_lookups():
 def test_parse_ranks():
     assert hunting.parse_ranks("I have 150 ranks") == [150]
     assert hunting.parse_ranks("offense 210, defense 190") == [210, 190]
+    assert hunting.parse_ranks("offense 200 defense 180") == [200, 180]
+    assert hunting.parse_ranks("About 200 offense and 180 defense, I like Zoluren") == [200, 180]
+    assert hunting.parse_ranks("I have 150 ranks of offense") == [150]
     assert hunting.parse_ranks("circle 100 moon mage") == []
 
 

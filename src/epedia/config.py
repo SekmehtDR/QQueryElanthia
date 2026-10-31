@@ -145,7 +145,8 @@ class PersonaCfg(BaseModel):
 
 
 class ChatCfg(BaseModel):
-    history_turns: int = 4
+    history_turns: int = 4  # what the planner reads, to work out what a message means
+    answer_history_turns: int = 1  # what the answer is written with; earlier turns reach it as a code-written summary
     context_token_budget: int = 6000
     temperature: float = 0.2
     # A draft that names things no passage has, or pretends to look something up, is written once more (core/verify.py):

@@ -22,8 +22,10 @@ HUNT_FIT = re.compile(
 )
 
 _RANKS = re.compile(r"(\d[\d,]*)\s*(?:combat\s+)?ranks?\b", re.I)
-_OFFENSE = re.compile(r"\b(?:offen[sc]e|offensive|attack)\b\D{0,14}(\d[\d,]*)", re.I)
-_DEFENSE = re.compile(r"\b(?:defen[sc]e|defensive|evasion)\b\D{0,14}(\d[\d,]*)", re.I)
+_OFFENSE_WORD = r"(?:offen[sc]e|offensive|attack)"
+_DEFENSE_WORD = r"(?:defen[sc]e|defensive|evasion)"
+_WORD_THEN_NUMBER = [re.compile(rf"\b{w}\b\D{{0,14}}(\d[\d,]*)", re.I) for w in (_OFFENSE_WORD, _DEFENSE_WORD)]
+_NUMBER_THEN_WORD = [re.compile(rf"(\d[\d,]*)\s+(?:ranks?\s+(?:of\s+|in\s+)?)?{w}\b", re.I) for w in (_OFFENSE_WORD, _DEFENSE_WORD)]
 
 NEED_RANKS = (
     "Happy to help you find something worth fighting! What I match on is combat ranks, and your circle alone "
@@ -50,14 +52,23 @@ def _num(s: str) -> int | None:
 
 def parse_ranks(*texts: str) -> list[int]:
     """Rank numbers the person gave, offense and defense first; empty when they gave none."""
-    text = " ".join(t for t in texts if t)
     found: list[int] = []
-    for pat in (_OFFENSE, _DEFENSE, _RANKS):
-        for m in pat.finditer(text):
-            n = _num(m.group(1))
-            if n is not None and 0 < n <= 3000 and n not in found:
-                found.append(n)
+    for text in texts:
+        for pat in (*_labelled(text or ""), _RANKS):
+            for m in pat.finditer(text or ""):
+                n = _num(m.group(1))
+                if n is not None and 0 < n <= 3000 and n not in found:
+                    found.append(n)
     return found
+
+
+def _labelled(text: str) -> list[re.Pattern]:
+    """Whichever way this message writes them. In "200 offense and 180 defense" a word reaching for the next number would
+    read offense as 180; in "offense 200 defense 180" a number reaching for the next word would read defense as 200."""
+    def first(patterns: list[re.Pattern]) -> int:
+        return min((m.start() for p in patterns if (m := p.search(text))), default=len(text))
+
+    return _NUMBER_THEN_WORD if first(_NUMBER_THEN_WORD) < first(_WORD_THEN_NUMBER) else _WORD_THEN_NUMBER
 
 
 def ladder(conn: sqlite3.Connection) -> list[Creature]:

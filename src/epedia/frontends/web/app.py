@@ -58,6 +58,7 @@ RECENT_QUESTIONS = 20  # the latest questions anyone asked on the page, on every
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    pin: int | None = None  # a clarifying question's button: the page they meant
 
 
 class FeedbackRequest(BaseModel):
@@ -406,6 +407,20 @@ def create_app(settings: Settings) -> FastAPI:
             raise HTTPException(404, "no such answer")
         return feedback.record(state["conn"], turn_id, body.vote, body.reasons, body.note)
 
+    # What is worth the owner's look, at this computer only, like Past chats.
+    @app.get("/api/review/turns")
+    async def review_turns(request: Request, flagged: bool = True, limit: int = 30) -> list[dict]:
+        local_only(request)
+        return feedback.review(state["conn"], flagged=flagged, limit=min(limit, 200))
+
+    @app.get("/api/review/turns/{turn_id}/eval")
+    async def review_eval_item(request: Request, turn_id: int) -> dict:
+        local_only(request)
+        text = feedback.eval_item(state["conn"], turn_id)
+        if text is None:
+            raise HTTPException(404, "no such answer")
+        return {"yaml": text}
+
     @app.post("/api/chat")
     async def chat(request: Request, req: ChatRequest) -> StreamingResponse:
         csrf(request)  # an answer costs a minute of the GPU: another site must not be able to make a visitor's browser ask
@@ -433,7 +448,7 @@ def create_app(settings: Settings) -> FastAPI:
             state["active"].add(owner)
             try:
                 async with turns, lock:
-                    async for ev in state["assistant"].answer_stream(sid, req.message.strip()):
+                    async for ev in state["assistant"].answer_stream(sid, req.message.strip(), pin=req.pin):
                         if isinstance(ev, Retrieval):
                             yield sse("sources", {"sources": [s.__dict__ for s in ev.sources],
                                                   "standalone_q": ev.standalone_q, "mode": ev.mode, "kind": ev.kind})
@@ -444,7 +459,7 @@ def create_app(settings: Settings) -> FastAPI:
                         elif isinstance(ev, Done):
                             # `answer` is the final text, including tags added for lines the model left uncited
                             yield sse("done", {"cited": ev.cited, "related": ev.related, "answer": ev.answer,
-                                               "topic": ev.topic, "turn_id": ev.turn_id, "revised": ev.revised})
+                                               "topic": ev.topic, "turn_id": ev.turn_id, "revised": ev.revised, "choices": ev.choices})
             except Exception as exc:  # surface model/db problems in the UI instead of a dropped stream
                 yield sse("error", {"message": str(exc)})
             finally:

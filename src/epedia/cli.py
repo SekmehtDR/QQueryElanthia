@@ -454,6 +454,81 @@ def classify(
     console.print(f"page_links: {conn.execute('SELECT count(*) FROM page_links').fetchone()[0]:,}")
 
 
+chats_app = typer.Typer(help="Read the conversations people had with the assistant: what to look at, one chat, one answer.")
+app.add_typer(chats_app, name="chats")
+
+
+@chats_app.command("list")
+def chats_list(
+    flagged: bool = typer.Option(False, "--flagged", help="Answers worth a look, one per line, instead of whole chats"),
+    since: Optional[str] = typer.Option(None, help="With --flagged: only on or after this date (YYYY-MM-DD)"),
+    owner: Optional[str] = typer.Option(None, help="local (this computer), visitors, or one visitor's id"),
+    frontend: str = typer.Option("web", help="web or cli; 'all' for both"),
+    limit: int = typer.Option(30, help="How many to list"),
+) -> None:
+    """Chats newest first, or with --flagged the answers worth a look, thumbs-down first."""
+    from .core import feedback, memory
+
+    conn = db.connect(settings(), readonly=True)
+    which = None if frontend == "all" else frontend
+    if flagged:
+        rows = feedback.review(conn, True, since, owner, which, limit)
+        for r in rows:
+            who = "you" if (r["owner"] or "local") == "local" else "visitor"
+            console.print(f"#{r['turn_id']}  {r['started_at'][:16]}  {who}  {r['session_id']}  [{', '.join(r['flags'])}]",
+                          markup=False, highlight=False)
+            console.print(f"   Q: {r['question'][:150]}" + (f"\n   note: {r['note']}" if r["note"] else ""), markup=False, highlight=False)
+        console.print(f"{len(rows)} shown. `chats show <session>` reads the chat; `chats export <turn> --eval` makes an eval question.",
+                      markup=False, highlight=False)
+        return
+    rows = memory.list_sessions(conn, which, limit) if which else [
+        *memory.list_sessions(conn, "web", limit), *memory.list_sessions(conn, "cli", limit)]
+    if owner:
+        rows = [r for r in rows if (r["owner"] != "local" if owner == "visitors" else r["owner"] == owner)]
+    for r in rows:
+        who = "you" if r["owner"] == "local" else "visitor"
+        console.print(f"{r['session_id']}  {(r['updated_at'] or '')[:16]}  {who}  {r['questions']}q  {r['title'] or ''}",
+                      markup=False, highlight=False)
+    console.print(f"{len(rows)} shown.", markup=False, highlight=False)
+
+
+@chats_app.command("show")
+def chats_show(session: str = typer.Argument(..., help="A session id from `chats list`")) -> None:
+    """One conversation as it went, each answer with its turn id, how it was planned and any vote."""
+    from .core import memory
+
+    conn = db.connect(settings(), readonly=True)
+    if not memory.session_exists(conn, session):
+        console.print(f"no chat {session}", markup=False)
+        raise typer.Exit(1)
+    for m in memory.messages(conn, session):
+        if m["role"] == "user":
+            console.print(f"\nasked: {m['content']}", markup=False, highlight=False)
+            if m.get("standalone_q") and m["standalone_q"] != m["content"]:
+                console.print(f"  planned as: {m['standalone_q']} ({m.get('kind')}, {m.get('mode')})", markup=False, highlight=False)
+        else:
+            console.print(f"\nanswer #{m.get('turn_id')}" + (f"  [{m['feedback']}]" if m.get("feedback") else ""), markup=False, highlight=False)
+            console.print(m["content"], markup=False, highlight=False)
+
+
+@chats_app.command("export")
+def chats_export(
+    turn: int = typer.Argument(..., help="A turn id from `chats list --flagged` or `chats show`"),
+    as_eval: bool = typer.Option(False, "--eval", help="A skeleton for eval/questions.yaml, to check and paste by hand"),
+) -> None:
+    """One answer with its conversation and full record as JSON, or as an evaluation question."""
+    import json as _json
+
+    from .core import feedback
+
+    conn = db.connect(settings(), readonly=True)
+    got = feedback.eval_item(conn, turn) if as_eval else feedback.conversation(conn, turn)
+    if got is None:
+        console.print(f"no turn {turn}", markup=False)
+        raise typer.Exit(1)
+    typer.echo(got if as_eval else _json.dumps(got, ensure_ascii=False, indent=2, default=str))  # not wrapped to the console: it is data
+
+
 @app.command("feedback")
 def feedback_cmd(
     turn: Optional[int] = typer.Argument(None, help="A turn id from the list: show its conversation and full record"),

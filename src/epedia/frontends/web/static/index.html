@@ -190,6 +190,12 @@
   #past li.current .pick { border-color:var(--line); }
   #past .del { flex:0 0 auto; border:0; background:none; color:var(--muted); cursor:pointer; font:inherit; padding:6px 8px; border-radius:6px; }
   #past .del:hover { color:#d24a3a; }
+  #past .review { padding:6px var(--gutter) 2px; font-size:.82rem; color:var(--muted); }
+  #past li.flagged .why { display:block; color:#c9742f; font-size:.78rem; }
+  #past li.flagged .copy { flex:none; border:1px solid var(--line); background:none; color:var(--muted); border-radius:8px; padding:2px 8px; font:inherit; font-size:.78rem; cursor:pointer; }
+  #past li.flagged .copy:hover { border-color:var(--accent); color:var(--accent); }
+  .choices { margin-top:10px; display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+  .choices .chip { text-align:left; }
   #past .past-foot { padding:0 var(--gutter) 10px; text-align:right; }
   #past .past-foot button { border:1px solid var(--line); background:none; color:var(--muted); border-radius:8px; padding:4px 12px; font:inherit; font-size:.82rem; cursor:pointer; }
   #past .past-foot button:hover { border-color:#d24a3a; color:#d24a3a; }
@@ -352,7 +358,7 @@
     <p class="about-foot">No Halflings were harmed in the making of this satchel.</p>
   </div>
 </dialog>
-<div id="past"><ul id="pastlist"></ul>
+<div id="past"><div id="reviewbox" hidden><div class="review">Worth a look</div><ul id="reviewlist"></ul><div class="review">All chats</div></div><ul id="pastlist"></ul>
   <div class="past-foot" id="pastfoot" hidden><button type="button" id="pastclear" title="Delete every conversation, visitors' included, and the questions they put on the start screen">Delete all chats</button></div></div>
 <div id="topicbar" hidden><span>Talking about:</span> <b id="topictext"></b>
   <button id="topicx" type="button" title="Set this topic aside: the chat stays, but Fennick stops carrying it into new questions" aria-label="Set this topic aside">×</button></div>
@@ -710,11 +716,11 @@ function addVotes(bar, turnId, current) {
 }
 // One answer at a time: a starter chip clicked mid-stream must not start a second answer on top of the first.
 let runId = 0, runCtl = null;
-async function ask(text) {
+async function ask(text, pin) {
   if (busy) return;
   const run = ++runId, ctl = runCtl = new AbortController();
   busy = true; syncSend();
-  try { await runAsk(text, ctl.signal); }
+  try { await runAsk(text, ctl.signal, pin); }
   finally { if (run === runId) { busy = false; syncSend(); jump.hidden = true; q.focus(); } }
 }
 // New chat, picking a past chat, or deleting the open one: stop the answer that is still arriving, at once.
@@ -747,7 +753,7 @@ async function runAsk(text, signal) {
   const settle = () => { if (frame) { cancelAnimationFrame(frame); frame = 0; } };
   try {
     const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-QQE': '1' }, signal,
-      body: JSON.stringify({ session_id: sessionId, message: text }) });
+      body: JSON.stringify({ session_id: sessionId, message: text, pin: pin ?? null }) });
     if (!r.ok || !r.body) {  // a 4xx/5xx or a proxy page is not an event stream: say so instead of waiting forever
       let detail = '';
       try { detail = (await r.text()).slice(0, 400); } catch (e) { /* no body */ }
@@ -786,6 +792,7 @@ async function runAsk(text, signal) {
           settle(); mouth.stop();
           if (data.answer) full = data.answer;  // the final text, with tags added for lines the model left uncited
           paint(false); showSources(a, sources, data.cited, data.related, full);
+          if (data.choices && data.choices.length) showChoices(a, data.choices);
           if (full.trim()) addActions(a, full, { id: data.turn_id });
           setTopic(data.topic);
           if (document.getElementById('past').classList.contains('show')) loadPast();
@@ -808,6 +815,18 @@ async function runAsk(text, signal) {
     if (!signal.aborted) showError(body, (e && e.message) || String(e), text);  // a cancelled run is intentional: say nothing
   }
   settle(); mouth.stop();
+}
+
+// A clarifying question's answers, as buttons: a click says which page was meant, so nothing has to be guessed again.
+function showChoices(msg, choices) {
+  const box = document.createElement('div'); box.className = 'choices';
+  choices.forEach(c => {
+    const b = document.createElement('button'); b.className = 'chip'; b.type = 'button';
+    b.textContent = c.text; b.title = c.lead || c.title;
+    b.onclick = () => { box.remove(); ask('I meant ' + c.text, c.page_id); };
+    box.append(b);
+  });
+  msg.querySelector('.sources').before(box);
 }
 
 // ---- Topic chip: what Fennick thinks the conversation is about, and a way to set it aside ------------------------
@@ -835,7 +854,31 @@ function startFresh() {
   log.innerHTML = ''; log.append(hintHtml(persona ? persona.greeting : 'New conversation.'));
   q.value = ''; autosize(); syncSend();
 }
+// Answers worth the owner's look, above the list of chats: a click opens the chat; the other button copies a skeleton
+// for the evaluation set, to check and paste by hand.
+async function loadReview() {
+  const box = document.getElementById('reviewbox'), ul = document.getElementById('reviewlist');
+  try {
+    const rows = await (await fetch('/api/review/turns?limit=8')).json();
+    box.hidden = !rows.length;
+    ul.innerHTML = rows.map(r => `<li class="flagged"><button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">` +
+      (r.owner && r.owner !== 'local' ? '<span class="who">visitor</span>' : '') + `${esc(r.question)}</span>` +
+      `<span class="why">${esc(r.flags.join(', '))}${r.note ? ': ' + esc(r.note) : ''}</span></button>` +
+      `<button type="button" class="copy" data-eval="${r.turn_id}" title="Copy as a question for the evaluation set">Copy as eval</button></li>`).join('');
+  } catch (e) { box.hidden = true; }
+}
+document.getElementById('reviewlist').addEventListener('click', async e => {
+  const copy = e.target.closest('[data-eval]'), pick = e.target.closest('.pick');
+  if (pick) { resumeChat(pick.dataset.id); return; }
+  if (!copy) return;
+  try {
+    const d = await (await fetch('/api/review/turns/' + copy.dataset.eval + '/eval')).json();
+    await navigator.clipboard.writeText(d.yaml);
+    copy.textContent = 'Copied';
+  } catch (err) { copy.textContent = 'Could not copy'; }
+});
 async function loadPast() {
+  loadReview();
   const ul = document.getElementById('pastlist');
   try {
     const rows = await (await fetch('/api/sessions')).json();

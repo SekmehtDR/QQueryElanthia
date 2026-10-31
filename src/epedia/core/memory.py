@@ -20,6 +20,9 @@ from .userinput import split_message
 _CITATION = re.compile(r"\s*\[\d+[*?]?\](?:\[\d+[*?]?\])*")
 MAX_HISTORY_CHARS = 1500
 TITLE_CHARS = 60
+LAST_ANSWER_CHARS = 600  # all the answer step sees of the last answer: enough to follow on from, too little to copy
+SUMMARY_TURNS = 6
+SUMMARY_PAGES = 3
 
 
 def new_session(conn: sqlite3.Connection, frontend: str = "cli", session_id: str | None = None,
@@ -78,6 +81,56 @@ def _without_offer(answer: str) -> str:
     if len(parts) > 1 and OFFER_LINE.match(parts[-1].strip()):
         return "\n\n".join(parts[:-1])
     return answer
+
+
+def recent_exchange(hist: list[dict[str, str]], turns: int) -> list[dict[str, str]]:
+    """What the answer step is given of the conversation: the last `turns` exchanges, answers clipped. The planner gets
+    more; a small model given whole earlier answers repeats them, and what it repeats it has not read from the passages."""
+    out = []
+    for m in hist[-2 * turns:] if turns > 0 else []:
+        text = m["content"]
+        if m["role"] == "assistant" and len(text) > LAST_ANSWER_CHARS:
+            text = text[:LAST_ANSWER_CHARS].rstrip() + " ..."
+        out.append({"role": m["role"], "content": text})
+    return out
+
+
+def summary(conn: sqlite3.Connection, session_id: str, skip: int = 1) -> str:
+    """The conversation before its last `skip` answers, from what is stored, never written by a model: each question as
+    planned and the pages its answer cited. It cannot drift, and it costs no tokens to speak of."""
+    rows = conn.execute(
+        "SELECT standalone_q, sources, cited FROM messages WHERE session_id=? AND msg_id>? AND role='assistant' "
+        "AND coalesce(mode, '') NOT IN ('error', 'clarify') AND standalone_q IS NOT NULL AND coalesce(kind, '') != 'meta' "
+        "ORDER BY msg_id DESC LIMIT ?",
+        (session_id, _context_from(conn, session_id), SUMMARY_TURNS + skip),
+    ).fetchall()[skip:]
+    lines = []
+    for r in reversed(rows):
+        sources = json.loads(r["sources"]) if r["sources"] else []
+        cited = set(json.loads(r["cited"])) if r["cited"] else set()
+        pages = list(dict.fromkeys(s["title"] for s in sources if s.get("n") in cited and s.get("title")))[:SUMMARY_PAGES]
+        lines.append(f"- {r['standalone_q']}" + (f" (pages: {'; '.join(pages)})" if pages else ""))
+    if not lines:
+        return ""
+    return "Earlier in this conversation (what the user asked, not a source of facts):\n" + "\n".join(lines)
+
+
+def last_assistant(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
+    """The last answer since the context boundary that did not fail: setting a topic aside must set all of it aside."""
+    return conn.execute(
+        "SELECT content, sources, cited, mode FROM messages WHERE session_id=? AND msg_id>? AND role='assistant' "
+        "AND coalesce(mode, '') != 'error' ORDER BY msg_id DESC LIMIT 1",
+        (session_id, _context_from(conn, session_id)),
+    ).fetchone()
+
+
+def user_messages(conn: sqlite3.Connection, session_id: str, n: int = 6) -> list[str]:
+    """The person's own last `n` messages since the context boundary, oldest first."""
+    rows = conn.execute(
+        "SELECT content FROM messages WHERE session_id=? AND msg_id>? AND role='user' ORDER BY msg_id DESC LIMIT ?",
+        (session_id, _context_from(conn, session_id), n),
+    ).fetchall()
+    return [r["content"] for r in reversed(rows)]
 
 
 def recent_questions(conn: sqlite3.Connection, session_id: str, n: int = 8) -> list[str]:
@@ -160,10 +213,11 @@ def last_pasted(conn: sqlite3.Connection, session_id: str) -> str:
 
 
 def seen_titles(conn: sqlite3.Connection, session_id: str) -> set[str]:
-    """Pages already cited or offered in this conversation, so they are not offered again."""
+    """Pages already cited or offered since the context boundary, so they are not offered again."""
     seen: set[str] = set()
     for r in conn.execute(
-        "SELECT sources, related FROM messages WHERE session_id=? AND role='assistant'", (session_id,)
+        "SELECT sources, related FROM messages WHERE session_id=? AND msg_id>? AND role='assistant'",
+        (session_id, _context_from(conn, session_id)),
     ):
         for s in json.loads(r["sources"]) if r["sources"] else []:
             if s.get("title"):
@@ -174,8 +228,8 @@ def seen_titles(conn: sqlite3.Connection, session_id: str) -> set[str]:
 
 def last_was_clarification(conn: sqlite3.Connection, session_id: str) -> bool:
     row = conn.execute(
-        "SELECT mode FROM messages WHERE session_id=? AND role='assistant' ORDER BY msg_id DESC LIMIT 1",
-        (session_id,),
+        "SELECT mode FROM messages WHERE session_id=? AND msg_id>? AND role='assistant' ORDER BY msg_id DESC LIMIT 1",
+        (session_id, _context_from(conn, session_id)),
     ).fetchone()
     return bool(row) and row["mode"] == "clarify"
 
@@ -225,10 +279,20 @@ def get_topic(conn: sqlite3.Connection, session_id: str) -> str | None:
     return row["topic"] if row else None
 
 
+def get_anchor(conn: sqlite3.Connection, session_id: str) -> str | None:
+    """The page the conversation is about right now, unlike the topic (a label for the reader): exact, and for code."""
+    row = conn.execute("SELECT anchor FROM sessions WHERE session_id=?", (session_id,)).fetchone()
+    return row["anchor"] if row else None
+
+
+def set_anchor(conn: sqlite3.Connection, session_id: str, title: str | None) -> None:
+    conn.execute("UPDATE sessions SET anchor=? WHERE session_id=?", (title or None, session_id))
+
+
 def clear_context(conn: sqlite3.Connection, session_id: str) -> None:
     """Set the topic aside: keep the transcript, but the model remembers nothing before this point."""
     newest = conn.execute("SELECT max(msg_id) FROM messages WHERE session_id=?", (session_id,)).fetchone()[0] or 0
-    conn.execute("UPDATE sessions SET context_from=?, topic=NULL WHERE session_id=?", (newest, session_id))
+    conn.execute("UPDATE sessions SET context_from=?, topic=NULL, anchor=NULL WHERE session_id=?", (newest, session_id))
 
 
 def delete_session(conn: sqlite3.Connection, session_id: str) -> bool:
