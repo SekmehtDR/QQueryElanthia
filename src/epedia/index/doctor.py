@@ -80,6 +80,13 @@ def run(conn: sqlite3.Connection) -> list[Check]:
         "'material','recipe','general')").fetchone()
     pct = 100 * (row[1] or 0) / row[0] if row[0] else 0
     add("link graph covers knowledge pages", pct >= 70, f"{pct:.0f}% of {row[0]:,} pages have outgoing links")
+    # Item pages link through their templates as /index.php/Title; when that form was dropped none of them had links.
+    row = conn.execute(
+        "SELECT count(*), sum(EXISTS(SELECT 1 FROM page_links l WHERE l.from_page_id=p.page_id)) FROM pages p "
+        "WHERE is_redirect=0 AND ns IN (110, 112, 114)").fetchone()
+    pct = 100 * (row[1] or 0) / row[0] if row[0] else 0
+    add("link graph covers weapon, armor and shield pages", pct >= 70 or not row[0],
+        f"{pct:.0f}% of {row[0]:,} pages have outgoing links")
 
     # Typed facts: every table row on the materials page should be a fact, and every enriched page current.
     facts = _one(conn, "SELECT count(*) FROM facts")

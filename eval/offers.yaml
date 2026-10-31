@@ -1,0 +1,39 @@
+# Closing offers that were wrong in the conversation log (2026-10). Each case gives the question, its planned kind, the
+# page the answer was about (anchor), what was offered then (was) and the offers that must not come back (must_not).
+# `epedia eval --offers` replays these and every logged answer.
+
+- q: What color is Telothian?
+  kind: lore
+  anchor: Telothian
+  was: Drathrok's Duskruin 430/Auction
+  must_not: ["Drathrok's Duskruin 430/Auction"]
+
+- q: Who is Hodierna?
+  kind: lore
+  anchor: Hodierna
+  was: Shard
+  must_not: [Shard]
+
+- q: What can you tell me about the Dragon Priests?
+  kind: lore
+  anchor: "History on the Rooftop: The Dragon Priests"
+  was: Zoluren
+  must_not: [Zoluren, Humans]
+
+- q: Give me all creatures that live underwater
+  kind: creature
+  anchor: Living hunting ladder
+  was: Siksraja
+  must_not: [Siksraja]
+
+- q: How does crafting work?
+  kind: mechanics
+  anchor: Crafting
+  was: Returning players
+  must_not: [Returning players, "DragonRealms Updates (2013)"]
+
+- q: How do I start forging?
+  kind: mechanics
+  anchor: Forging guide
+  was: Study command
+  must_not: [Study command]

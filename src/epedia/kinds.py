@@ -87,11 +87,26 @@ DEFAULT_KIND_WEIGHTS: dict[str, dict[str, float]] = {
 DEFAULT_KIND_WEIGHTS["meta"] = {**{c: 0.9 for c in _COLS}, "meta": 1.4}
 DEFAULT_KIND_WEIGHTS["general"] = {"script": 0.9, "pc": 0.8}
 
-# A related page may be offered after an answer only if its kind is at least this favoured for the question kind.
-OFFER_MIN_WEIGHT = 1.0
 # Talk and user pages are context for an answer (who worked something out), never a thread to offer on their own.
 OFFER_EXCLUDED_PAGE_KINDS = frozenset({"log", "soft_redirect", "disambig", "category", "meta", "script", "talk", "user",
                                        "file", "site"})
+# A page linked from more articles than this is a hub everything mentions (Zoluren 924, Shard 525), not a next thread;
+# one the answer's own page names in its opening may be better known ("the Rakash", 236, for a Rakash weapon).
+OFFER_MAX_INLINKS = 200
+OFFER_MAX_INLINKS_NAMED = 400
+# Pages that list things rather than being about one: an event's auction and loot lists, yearly update digests.
+OFFER_LISTING_TITLE = re.compile(
+    r"/[^/]*\b(?:auctions?|loot|prizes|raffles?|merchants?|items|gifts?|darkbox)$|"
+    r"^(?:DragonRealms Updates|News Archives|elanthipedia:News Archives)\b|\b(?:gift|prize) list\b", re.I)
+# What an answer's page can lead to. An event's booths and their wares are a list, not a thread (Guildfest -> "Large
+# bin of miniature figurines"); a player's own character is a thread only when the question was about characters.
+OFFER_NOT_AFTER: dict[str, frozenset[str]] = {
+    "event": frozenset({"shop", "item", "recipe"}),
+    "news": frozenset({"shop", "item", "recipe"}),
+}
+OFFER_ONLY_FOR: dict[str, frozenset[str]] = {"pc": frozenset({"character"})}
+# An answer about a category page is a list of its members (the code-written tables): nothing to follow from it.
+OFFER_NO_ANCHOR_KINDS = frozenset({"category", "disambig", "meta", "site"})
 
 
 # ----------------------------------------------------------------------------------------------- kind rules

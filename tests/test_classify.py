@@ -63,6 +63,31 @@ def test_extract_links_skips_red_links_and_namespaces():
     assert extract_links(html) == ["Zoluren", "Hav'roth"]
 
 
+def test_extract_links_reads_every_way_the_wiki_writes_a_link():
+    # item pages link through their templates as /index.php/Title; sections and ?title= forms point at pages too
+    html = (
+        '<a href="/index.php/Graverobber_(2)" title="Graverobber (2)">g</a> '
+        '<a href="/Roars#Battle_Cries">r</a> <a href="/index.php?title=Kifa_Awrocis_(Siksraja)">k</a> '
+        '<a href="/index.php?title=Svidaw_sis&amp;action=edit">edit</a> <a href="/Svidaw_sis?action=history">h</a> '
+        '<a href="/index.php/Category:Weapons">c</a> <a href="/index.php/Post:Durability_2.0">p</a> '
+        '<a href="/index.php">home</a> <a href="/Roars">again</a>'
+    )
+    assert extract_links(html) == ["Graverobber (2)", "Roars", "Kifa Awrocis (Siksraja)", "Post:Durability 2.0"]
+
+
+def test_weapons_and_armor_in_the_main_namespace_are_items():
+    assert kind(0, "Svidaw sis", ["Definitions", "Weapons"]) == "item"
+    assert kind(0, "Tower shield", ["Definitions", "Shields"]) == "item"
+    assert kind(0, "Ribbed bone armor", ["Armor"]) == "item"
+    assert kind(0, "Ring vambraces (crafted)", ["Armor"]) == "recipe"
+    # overviews stay what they were; a more specific kind still wins
+    assert kind(0, "Inner Fire weapons", ["Definitions", "Weapons"]) == "mechanics"
+    assert kind(0, "Small edged weapons (crafted)", ["Weapons"]) == "general"
+    assert kind(0, "Roar helm", ["Armor", "Barbarian abilities"]) == "spell"
+    assert kind(0, "Foil", ["Definitions", "Weapons", "Disambiguation"]) == "disambig"
+    assert kind(0, "Parry", ["Definitions"]) == "mechanics"
+
+
 def test_soft_redirect_target_parsed_from_html():
     html = (
         '<div class="redirectMsg"><p>Redirect to:</p><ul class="redirectText"><li>'

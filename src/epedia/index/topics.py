@@ -5,7 +5,8 @@ crafted weapons...). Derived from what the wiki already says, with no hand-made 
 - a subpage `Hub/Thing` is a member (1.0);
 - a page the hub links to AND that links back is a close member (0.8); one direction only is a looser one (0.4).
 
-Hubs are knowledge pages (crafting, guide, mechanics, skill, guild, race) and the wiki's own category pages. A hub linked
+Hubs are knowledge pages (crafting, guide, mechanics, skill, guild, race), the base weapons and armor described in the
+main namespace ("Broadsword", whose variants are Weapon: pages) and the wiki's own category pages. A hub linked
 from a huge part of the wiki (Zoluren, Paladin...) is too general to say anything and is left out; each hub keeps its
 strongest members only. The question side (`family`) turns a name in the question into the weights retrieval favours.
 """
@@ -23,14 +24,15 @@ MAX_INBOUND = 1500  # more than this and the page is linked from everywhere: not
 MAX_MEMBERS = 1500
 MIN_MEMBERS = 3
 # A link alone does not make these part of a topic: they are people, chatter or stubs that merely mention it.
-LINK_SKIP = {"post", "news", "meta", "log", "script", "gm", "pc", "npc", "soft_redirect", "disambig", "category"}
+LINK_SKIP = {"post", "news", "meta", "log", "script", "gm", "pc", "npc", "soft_redirect", "disambig", "category",
+             "talk", "user", "file", "site"}
 
 
 def _hubs(conn: sqlite3.Connection) -> dict[int, str]:
     kinds = ",".join("?" * len(HUB_KINDS))
     rows = conn.execute(
         f"SELECT p.page_id, p.title FROM pages p WHERE p.is_redirect=0 AND (p.page_kind IN ({kinds}) OR "
-        "(p.page_kind='category' AND p.title LIKE 'Category:%')) AND "
+        "(p.page_kind='category' AND p.title LIKE 'Category:%') OR (p.page_kind='item' AND p.ns=0)) AND "
         "(SELECT count(*) FROM page_links l WHERE l.to_page_id = p.page_id) <= ?", (*HUB_KINDS, MAX_INBOUND)).fetchall()
     return {r[0]: r[1] for r in rows}
 

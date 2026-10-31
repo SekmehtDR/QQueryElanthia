@@ -806,6 +806,8 @@ def eval_cmd(
     conversations: bool = typer.Option(False, "--conversations", help="Run the scripted multi-turn dialogues instead"),
     full: bool = typer.Option(False, "--full", help="Also answer every question and score the answers for truthfulness, "
                               "run the refusal set and the end-to-end scripts (slow: one model answer each)"),
+    offers_: bool = typer.Option(False, "--offers", help="Replay the closing offer for every answer in the conversation "
+                                 "log, old next to new, and check the labelled cases in eval/offers.yaml (no model call)"),
 ) -> None:
     """Score retrieval quality on the question set (or, with --conversations, how well follow-ups are tracked).
     Every run is saved under eval/runs/ and compared with the previous run of the same kind."""
@@ -817,6 +819,25 @@ def eval_cmd(
     s = settings()
     conn = db.connect(s)
     ks = [int(x) for x in k.split(",")]
+    if offers_:
+        from .evalx.offers import run_offers
+
+        async def replay() -> None:
+            async with Ollama(s.ollama) as ol:
+                rows, metrics = await run_offers(s, conn, ol, Path("eval/offers.yaml"))
+            t = Table(title="closing offers: then and now")
+            for col in ("", "kind", "question", "about", "offered then", "offered now"):
+                t.add_column(col)
+            for r in rows:
+                mark = ("ok" if r["ok"] else "BAD") if r.get("case") else ("" if r["old"] == r["new"] else "*")
+                t.add_row(mark, r["kind"], r["q"][:60], r["anchor"] or "", r["old"] or "-", r["new"] or "-")
+            console.print(t)
+            saved, before = save_run("offers", metrics, rows, s)
+            console.print(deltas(metrics, before))
+            console.print(f"saved {saved}", style="dim")
+
+        run(replay())
+        return
     if conversations:
         path = Path(file if file != "eval/questions.yaml" else "eval/conversations.yaml")
 

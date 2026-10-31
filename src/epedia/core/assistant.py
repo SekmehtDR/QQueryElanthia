@@ -7,14 +7,13 @@ import json
 import logging
 import re
 import sqlite3
-import struct
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, AsyncIterator
 
 from ..config import Settings
 from ..index import topics
-from ..kinds import OFFER_EXCLUDED_PAGE_KINDS, OFFER_MIN_WEIGHT, QUESTION_KINDS
+from ..kinds import QUESTION_KINDS
 from ..llm import prompts
 from ..llm.ollama import Ollama, OllamaError
 from ..retrieval import resolve
@@ -23,17 +22,13 @@ from ..retrieval.titles import strip_game_name
 from ..util import now_text, page_url
 from ..wiki import history as page_history
 from ..wiki import timeline
-from . import capabilities, disciplines, grounding, hunting, materials, memory, turns, verify
+from . import capabilities, disciplines, grounding, hunting, materials, memory, offers, turns, verify
 from .attribution import attribute
 from .dates import UPCOMING, keep_ahead_lines, over_answer, split_by_time
 from .userinput import split_message
 
 log = logging.getLogger("epedia.assistant")
 
-OFFER_CHUNKS_PER_PAGE = 6  # only a page's opening chunks are compared: enough to tell what it is about, and fast
-OFFER_CLOSE_MARGIN = 0.06  # an offer must be about as close to the question as the closest candidate...
-OFFER_MAX_DISTANCE = 0.45  # ...and close in absolute terms (cosine distance); otherwise nothing is offered
-MIN_OFFER_INLINKS = 8  # a page must be linked from at least this many pages to be offered as a thread to pull on
 RECHECK_PRIOR = 8  # "are you sure?": passages of the last answer re-read (its cited ones first), before fresh results
 WHO_KNOWS_PASSAGES = 3  # "which player knows the most about X?": discussion and player pages added to the evidence
 
@@ -203,6 +198,12 @@ Event = Retrieval | Token | Revise | Done
 
 # A citation in a final answer: by the model [2], matched by code [2*], or not borne out by its passage [2?].
 ANY_CITE = re.compile(r"\[(\d+)[*?]?\]")
+_SUPPORTED_CITE = re.compile(r"\[(\d+)\*?\]")  # not [n?]: a citation its passage does not bear out
+
+
+def _cite_order(answer: str, n_sources: int) -> list[int]:
+    """Every supported citation in the answer, in order and with repeats (how often a page is cited says what it is about)."""
+    return [int(n) for n in _SUPPORTED_CITE.findall(answer) if 1 <= int(n) <= n_sources]
 LIST_LINE = re.compile(r"^[ \t]*(?:[-*•]|\d+[.)])\s.*\n(?:.*\n)*?[ \t]*(?:[-*•]|\d+[.)])\s", re.M)  # two list items
 
 # A link to an Elanthipedia page pasted into a message ("check the correct article: https://.../Elanthian_time"): the
@@ -417,7 +418,8 @@ class Assistant:
     async def retrieve_with_extras(
         self, plan: Plan, session_id: str | None = None
     ) -> tuple[list[dict], list[dict]]:
-        """(passages for the answer, runner-up hits that did not make the cut; used for 'related pages')."""
+        """(passages for the answer, runner-up hits that did not make the cut: none since offers are chosen from the
+        page the answer cites, core/offers.py)."""
         if plan.kind == "meta":
             return self._meta_passages(), []
         passages: list[dict] = []
@@ -455,7 +457,6 @@ class Assistant:
             passages[:0] = pinned
             prior = [*pinned, *prior]
         have = {p["chunk_id"] for p in prior}
-        extra_k = self.s.retrieval.related_k if self.s.retrieval.offer_related else 0
         qvec = (await self.ollama.embed(["search_query: " + plan.standalone_question]))[0]
         plan.qvec = qvec  # reused to pick related pages that are really about this question
         named = resolve.resolve(self.conn, plan.standalone_question)  # once: the avoid set and the topic family agree
@@ -465,7 +466,7 @@ class Assistant:
             avoid |= {r[0] for r in self.conn.execute(f"SELECT page_id FROM pages WHERE title IN ({marks})",
                                                        plan.avoid_titles)}
         hits: list[Hit] = search(
-            self.conn, plan.standalone_question, self.s.retrieval, self.s.wiki.base_url, qvec, k_final=k + extra_k,
+            self.conn, plan.standalone_question, self.s.retrieval, self.s.wiki.base_url, qvec, k_final=k,
             prior_chunk_ids=self._prior_chunk_ids(session_id) if plan.follow_up else None, kind=plan.kind,
             avoid_pages=avoid, topic_pages=topics.family(self.conn, plan.standalone_question, named) or None,
         )
@@ -520,76 +521,6 @@ class Assistant:
                             "url": page_url(self.s.wiki.base_url, r["title"], r["anchor"]),
                             "chunk_id": r["chunk_id"]})
         return out
-
-    def _related_pages(self, kind: str, passages: list[dict], extras: list[dict],
-                       seen: set[str] | frozenset[str] = frozenset(), qvec: list[float] | None = None) -> list[str]:
-        """Up to related_k titles worth offering as 'a thread to pull on' after the answer.
-
-        Candidates: runner-up search hits, then pages linked from the top-ranked passage's page (most linked-to
-        first). Offers stay within kinds this question kind favours, and never include logs, obsolete pages,
-        disambiguations or pages already used in the answer. The top-ranked page stands in for 'the page the
-        answer is about': citations are not known until after generation."""
-        cfg = self.s.retrieval
-        if not cfg.offer_related or kind == "meta" or not passages:
-            return []
-        weights = cfg.kind_weights.get(kind, {})
-        used = {p["title"] for p in passages} | set(seen)  # pages cited or offered earlier are not offered again
-        out: list[str] = []
-
-        def consider(title: str, page_kind: str | None) -> None:
-            if title in used or title in out or page_kind in OFFER_EXCLUDED_PAGE_KINDS:
-                return
-            if title.startswith("RanikMap"):  # map pages are not a thread anyone wants to pull on
-                return
-            if page_kind and weights.get(page_kind, 1.0) < OFFER_MIN_WEIGHT:
-                return
-            out.append(title)
-
-        # Candidates: pages the answer's own page links to (the community's idea of "related") and the runner-up
-        # search hits. Popular pages are not better offers: "Crossing" is linked from everywhere and is rarely what
-        # the conversation is about, so candidates are ranked by how close they are to the question itself.
-        top = passages[0].get("chunk_id")
-        row = self.conn.execute("SELECT page_id FROM chunks WHERE chunk_id=?", (top,)).fetchone() if top else None
-        if row:
-            for r in self.conn.execute(
-                "SELECT p.title, p.page_kind FROM page_links l JOIN pages p ON p.page_id=l.to_page_id "
-                "WHERE l.from_page_id=? AND p.is_log=0 AND p.is_obsolete=0 "
-                "AND (SELECT count(*) FROM page_links x WHERE x.to_page_id=p.page_id) >= ? "
-                "ORDER BY (SELECT count(*) FROM page_links x WHERE x.to_page_id=p.page_id) DESC LIMIT 40",
-                (row["page_id"], MIN_OFFER_INLINKS),
-            ):
-                consider(r["title"], r["page_kind"])
-        for e in extras:
-            n = self.conn.execute(
-                "SELECT count(*) FROM page_links l JOIN pages p ON p.page_id=l.to_page_id WHERE p.title=?",
-                (e["title"],),
-            ).fetchone()[0]
-            if n >= MIN_OFFER_INLINKS:
-                consider(e["title"], e.get("page_kind"))
-        if qvec is not None and out:
-            out = self._closest_to_question(out, qvec)
-        return out[: cfg.related_k]
-
-    def _closest_to_question(self, titles: list[str], qvec: list[float]) -> list[str]:
-        """Order candidate pages by how close their best chunk is to the question; drop the clearly unrelated.
-
-        A page is kept if it is within OFFER_CLOSE_MARGIN of the closest candidate and under OFFER_MAX_DISTANCE, so
-        when nothing fits the question well, nothing is offered."""
-        blob = struct.pack(f"{len(qvec)}f", *qvec)
-        marks = ",".join("?" * len(titles))
-        rows = self.conn.execute(
-            "SELECT p.title, min(vec_distance_cosine(v.embedding, ?)) AS d FROM pages p "
-            "JOIN chunks c ON c.page_id=p.page_id JOIN chunk_vec v ON v.chunk_id=c.chunk_id "
-            f"WHERE p.title IN ({marks}) AND c.ord < {OFFER_CHUNKS_PER_PAGE} GROUP BY p.title",
-            (blob, *titles),
-        ).fetchall()
-        dist = {r["title"]: r["d"] for r in rows if r["d"] is not None}
-        if not dist:
-            return titles
-        best = min(dist.values())
-        keep = [t for t in sorted(dist, key=dist.get)
-                if dist[t] <= best + OFFER_CLOSE_MARGIN and dist[t] <= OFFER_MAX_DISTANCE]
-        return keep
 
     # ------------------------------------------------------------------------------------ answering
 
@@ -689,7 +620,7 @@ class Assistant:
             self._persist(turn, plan.clarify, plan, [], [])
             yield Done(plan.clarify, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
-        passages, extras = await self.retrieve_with_extras(plan, session_id)
+        passages, _ = await self.retrieve_with_extras(plan, session_id)
         over_only = False
         if plan.kind == "event_news" and (UPCOMING.search(user_message) or UPCOMING.search(plan.standalone_question)):
             # "What is coming up next?" can only be answered by something still ahead. The small model cannot be trusted
@@ -710,12 +641,12 @@ class Assistant:
             text, used = prompts.format_passages(passages, max(1000, budget - over), date.today())
             system = self._answer_system(plan, text, hist)
         passages = passages[:used]
-        related = self._related_pages(plan.kind, passages, extras, memory.seen_titles(self.conn, session_id), plan.qvec)
         sources = [
             Source(i + 1, p["title"], p.get("section", ""), p["url"], p.get("chunk_id"), _snippet(p["text"]))
             for i, p in enumerate(passages)
         ]
-        yield Retrieval(sources, plan.standalone_question, plan.mode, plan.kind, [] if over_only else related)
+        # The offer is chosen after the answer, from the page it cites (offers.py); nothing is known yet to offer.
+        yield Retrieval(sources, plan.standalone_question, plan.mode, plan.kind, [])
 
         if over_only:
             answer = over_answer(passages, date.today(), self.s.persona.enabled)[0]
@@ -813,12 +744,16 @@ class Assistant:
             tail = "\n\n" + " ".join(notes)
             yield Token(tail)
             answer += tail
+        cited = sorted({int(n) for n in ANY_CITE.findall(answer) if 1 <= int(n) <= len(sources)})
+        # A thread to pull on: a page about the same subject as the page this answer cites most (core/offers.py).
+        anchor = offers.anchor_title([{"title": s.title} for s in sources], _cite_order(answer, len(sources)))
+        related = offers.related(self.conn, self.s.retrieval, plan.kind, anchor,
+                                 {p["title"] for p in passages} | memory.seen_titles(self.conn, session_id), plan.qvec)
         offer = prompts.offer_line(related) if self.s.persona.enabled else ""
         if offer and not answer.endswith("?"):
             tail = "\n\n" + offer
             yield Token(tail)
             answer += tail
-        cited = sorted({int(n) for n in ANY_CITE.findall(answer) if 1 <= int(n) <= len(sources)})
         # The record is of the final draft as the model wrote it (code then removed any pretended look-up from the text).
         record = {**checked.as_dict(), "revised": revised, **({"looped": True} if looped else {})}
         self._persist(turn, answer, plan, sources, related, cited=cited, verification=record, regenerated=revised)

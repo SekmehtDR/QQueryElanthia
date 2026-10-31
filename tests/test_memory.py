@@ -152,11 +152,6 @@ def test_the_planner_sees_earlier_questions_and_the_recent_turns(conn):
     assert "user: q3" in prompt and "assistant: a3" in prompt  # the last turns, in full
 
 
-def test_offers_skip_pages_already_cited_or_offered(conn):
-    a = make_assistant(conn, [])
-    assert a._related_pages("lore", [], [], {"Anything"}) == []  # no passages: nothing to offer, and no crash
-
-
 # --------------------------------------------------------------------------- the web API
 
 
@@ -234,23 +229,3 @@ def test_context_words_make_a_message_a_follow_up_but_named_subjects_do_not():
         assert ANAPHORA.search(text), text
     for text in ("Who is Hodierna?", "How do I start forging?", "What shops are in Riverhaven?"):
         assert not ANAPHORA.search(text), text
-
-
-def test_offers_are_ranked_by_closeness_to_the_question_not_by_popularity(conn):
-    import struct
-
-    def vec(x, y=0.0):
-        return struct.pack("768f", *([x, y] + [0.0] * 766))
-
-    def add_page(pid, title, x, y=0.0):
-        conn.execute("INSERT INTO pages(page_id, ns, title, title_norm, updated_at) VALUES (?, 0, ?, ?, ?)", (pid, title, title.lower(), "2026-01-01"))
-        conn.execute("INSERT INTO chunks(chunk_id, page_id, revid, ord, kind, title, section_path, text, token_est, content_hash) "
-                     "VALUES (?, ?, 1, 0, 'section', ?, '', 'x', 1, ?)", (pid, pid, title, str(pid)))
-        conn.execute("INSERT INTO chunk_vec(chunk_id, embedding) VALUES (?, ?)", (pid, vec(x, y)))
-
-    q = [1.0] + [0.0] * 767
-    add_page(1, "Black Spire", 1.0)  # about the question: same direction
-    add_page(2, "Crossing", 0.0, 1.0)  # a hub page about something else: orthogonal
-    a = make_assistant(conn, [])
-    assert a._closest_to_question(["Crossing", "Black Spire"], q) == ["Black Spire"]  # the unrelated hub is dropped
-    assert a._closest_to_question(["Crossing"], q) == []  # nothing close enough: no offer at all

@@ -12,7 +12,7 @@ import re
 import sqlite3
 import zlib
 from dataclasses import dataclass
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeRemainingColumn
 
@@ -31,6 +31,7 @@ _GUIDE_TITLE = re.compile(r"( guide| hunting ladder|walkthroughs?)$")
 _CRAFTING_TITLE = re.compile(r" (discipline|craft|techniques|products)$")
 _NEWS_TITLE = re.compile(r"^(News \d|DragonRealms Updates|The First Land Herald/)")
 _RANIK = re.compile(r"^RanikMap\d")
+_ARMS_OVERVIEW = re.compile(r"\b(?:weapons|armou?rs|shields)(?: \(crafted\))?$", re.I)
 
 NPC_CATS = {"NPCs", "Shopowner", "Shopowners", "Alterers", "Guild Leaders", "Emperor", "Crafting Society Masters"}
 PLACE_CATS = {"Cities", "Provinces", "Locations", "Landmarks", "Islands", "Docks", "Waterways", "Guildhalls",
@@ -45,6 +46,7 @@ LORE_CATS = {"Immortals", "History", "Lore", "Player-created lore", "Book", "Boo
              "Heavenly bodies", "Holidays", "Languages", "Artifacts", "Libraries"}
 EVENT_CATS = {"Events", "Festivals", "Quests", "Event Logs", "Current Prime Events", "Auctions", "Raffles"}
 NEWS_CATS = {"News", "DragonRealms Updates", "First Land Herald articles", "General announcements"}
+ARMS_CATS = {"Weapons", "Armor", "Shields"}
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,10 @@ def classify_page(
         return done("event")
     if NEWS_CATS & cats or _NEWS_TITLE.match(title):
         return done("news")
+    # A weapon, armor or shield described in the main namespace ("Svidaw sis", "Broadsword", "Ribbed bone armor") is
+    # the thing itself, though the wiki files the base nouns under Definitions; overviews have plural titles.
+    if ARMS_CATS & cats and not _ARMS_OVERVIEW.search(title):
+        return done("recipe" if title.endswith(" (crafted)") else "item")
     if "Definitions" in cats:
         return done("mechanics")
     if "/" in title and parent_kind not in (None, "general", "category"):
@@ -140,10 +146,12 @@ def classify_page(
 # ------------------------------------------------------------------ HTML helpers (regex: ~7x faster than bs4)
 
 _REDIRECT_TARGET = re.compile(r'class="redirectText".*?<a [^>]*title="([^"]+)"', re.S)
-_LINK = re.compile(r'<a href="/([^"?#]+)"([^>]*)>')
+_LINK = re.compile(r'<a href="/([^"]+)"([^>]*)>')
 _RED_LINK = re.compile(r'class="[^"]*\bnew\b')
 _SKIP_PREFIXES = ("File:", "Category:", "Special:", "Property:", "Property_talk:", "Template:", "Help:",
-                  "User:", "Talk:", "Form:", "Module:", "index.php", "images/", "MediaWiki:")
+                  "User:", "Talk:", "Form:", "Module:", "images/", "MediaWiki:")
+# index.php?title=X links that are about a page rather than to it (editing, history, a diff, a missing page)
+_NOT_A_VISIT = frozenset({"action", "redlink", "oldid", "diff", "curid", "printable"})
 MAX_LINKS_PER_PAGE = 300
 
 
@@ -157,6 +165,22 @@ def soft_redirect_target(html: str) -> str | None:
     return re.sub(r" \(page does not exist\)$", "", m.group(1).replace("&#39;", "'").replace("&amp;", "&"))
 
 
+def _link_title(href: str) -> str | None:
+    """The page a wiki href points at, or None. The wiki writes the same link three ways: `/Title`, `/index.php/Title`
+    (item pages, through their templates) and `/index.php?title=Title`; `#section` only says where on the page."""
+    if href.startswith("index.php?"):
+        query = parse_qs(href[len("index.php?"):].replace("&amp;", "&").split("#", 1)[0])
+        if _NOT_A_VISIT & query.keys() or "title" not in query:
+            return None
+        return query["title"][0].replace("_", " ")
+    if href.startswith("index.php/"):
+        href = href[len("index.php/"):]
+    path = href.split("#", 1)[0]
+    if not path or "?" in path or path.startswith("index.php"):  # "/Page?action=edit" and the like
+        return None
+    return unquote(path).replace("_", " ")
+
+
 def extract_links(html: str) -> list[str]:
     """Distinct article-like link targets (as titles with spaces), in page order, red links skipped."""
     seen: dict[str, None] = {}
@@ -164,8 +188,8 @@ def extract_links(html: str) -> list[str]:
         href, attrs = m.group(1), m.group(2)
         if _RED_LINK.search(attrs):
             continue
-        title = unquote(href).replace("_", " ")
-        if href.startswith(_SKIP_PREFIXES) or title.startswith(_SKIP_PREFIXES):
+        title = _link_title(href)
+        if not title or title.startswith(_SKIP_PREFIXES):
             continue
         seen.setdefault(title, None)
         if len(seen) >= MAX_LINKS_PER_PAGE:

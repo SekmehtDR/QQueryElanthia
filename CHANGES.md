@@ -1,7 +1,61 @@
 # Changes
 
-Latest version: **1.2.0** (2026-10-30). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.3.0** (2026-10-30). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.3.0: offers that fit the answer; a complete link graph (2026-10-30)
+
+The first steps towards layered answers ("tell me about svidaw sis": the weapon, what its Rakash name means, the people
+behind it, where it turns up in the story), which walk from a page to the pages it links to.
+
+### The closing offer is about what the answer was about
+
+Visitors noticed that "Want to hear about X next?" often had nothing to do with the question. The log showed why:
+"What color is Telothian?" offered *Drathrok's Duskruin 430/Auction*, "Who is Hodierna?" offered *Shard*, Tirost's
+lore offered *Zoluren* four times. The offer was picked from the top-ranked passage before the answer was written,
+from every page it links to with the most-linked first, then ranked by closeness to the question: hubs everything
+links to, and lists that merely mention the thing asked about.
+
+- **The offer is chosen after the answer, from the page it cites most** (not the first search hit: "What guild is
+  Binu?" ranked *Innu* first).
+- **A candidate must be about the same subject**: the two pages link to each other, share a topic family, or the
+  answer's page names it in its opening. Ranked by how close it is to that page, not to the question, so a weapon's
+  people or a goddess's consort can be offered even though they are not what was asked.
+- **Left out:** hubs linked from more than 200 articles (Zoluren, Shard; up to 400 when the page's opening names it, so a
+  Rakash weapon can offer the Rakash), auctions, loot, prize and merchant lists, yearly update digests, an event's
+  booths and wares, a player's character unless the question was about characters, unsorted pages that do not link
+  back, and anything after an answer about a category page. Item pages' template links no longer count towards how
+  well-known a page is.
+- Now: Hodierna -> Tamsine, Telothian -> Gamgweth, svidaw sis -> the Rakash, Taffelberry Faire -> Arthe Dale, Forging
+  guide -> Forging skill. Fewer offers (36% of logged answers, was 44%); none rather than a poor one.
+- **`epedia eval --offers`** replays the offer for every answer in the conversation log, then next to now, and checks
+  the labelled misses in `eval/offers.yaml` (all six pass). One embedding per question, no model call.
+
+### A complete link graph; weapons in the main namespace are items
+
+- **Links on item pages are read.** The wiki writes the same link three ways: `/Title`, `/index.php/Title` (how item,
+  weapon, armor and title pages link, through their templates) and `/index.php?title=Title`, and a link to a section
+  (`/Roars#Battle_Cries`) points at its page. Only the first was read, so no Armor or Title page and 10 of 65,922
+  Item pages had a single link. After `classify --all` the graph has 643,435 links (was 305,687); 97% of weapon, armor
+  and shield pages link somewhere (`Weapon:Svidaw sis` to Kifa Awrocis, the posts behind its stats and the Rakash).
+  Edit, history and diff links and links to missing pages are still skipped.
+- **A weapon, armor or shield described in the main namespace is an `item`**: "Svidaw sis", "Broadsword", "Tower
+  shield", "Ribbed bone armor" (263 pages; the base nouns were filed as `mechanics` because the wiki lists them under
+  Definitions). Overviews with plural titles ("Inner Fire weapons") and pages with a more specific kind keep theirs. The
+  base pages stay topic hubs, so a weapon's variants remain its family.
+- Topic families no longer take in talk, user, file or wiki-machinery pages, which now have links too.
+- `epedia doctor` checks that weapon, armor and shield pages have links.
+
+Retrieval eval unchanged (hit@5 0.940, hit@10 0.980, MRR 0.890). Rebuild after updating: `epedia classify --all`, then
+`epedia enrich --force` (rebuilds the topic graph). No wiki requests.
+
+Internals: new `core/offers.py` (`anchor_title`, `related`) replaces `Assistant._related_pages` and
+`_closest_to_question`; `Retrieval.related` is now empty and `Done.related` carries the offer (the page already read it
+from `done`); search no longer fetches runner-up hits for offers. `kinds.OFFER_MAX_INLINKS`, `OFFER_MAX_INLINKS_NAMED`,
+`OFFER_LISTING_TITLE`, `OFFER_NOT_AFTER`, `OFFER_ONLY_FOR`, `OFFER_NO_ANCHOR_KINDS`; `OFFER_MIN_WEIGHT` removed (no kind
+filter: a candidate is already about the same subject). New `evalx/offers.py`, `eval/offers.yaml`, `tests/test_offers.py`.
+`classify._link_title`, `_NOT_A_VISIT`, `ARMS_CATS`, `_ARMS_OVERVIEW`; `topics._hubs` takes main-namespace items;
+`topics.LINK_SKIP` adds talk/user/file/site. 9 new tests, 2 replaced; 446 in all.
 
 ## 1.2.0: materials by colour, partial lists, no more loops (2026-10-30)
 
