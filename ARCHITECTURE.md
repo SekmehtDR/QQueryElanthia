@@ -8,9 +8,11 @@ and when see `CHANGES.md`.
 
 A one-off **build** turns the player-run wiki Elanthipedia into a local search index: pages are downloaded as
 rendered HTML, converted to clean text, cut into section-sized chunks, labelled by kind, and stored in one SQLite
-file with both keyword (FTS5) and meaning (vector) indexes. At question time a **planner** model labels and
-rewrites the question, **hybrid search** finds the best chunks (favouring the right kind of page), and a local
-language model writes a cited answer in the voice of **Fennick**. A periodic **sync** keeps the index current.
+file with both keyword (FTS5) and meaning (vector) indexes, plus typed **facts** and a **link graph**. At question time
+a **planner** model labels and rewrites the question, **hybrid search** finds the best chunks (favouring the right kind of
+page) or code gathers them by what each part of the answer needs, and a local language model writes a cited answer in the
+voice of **Fennick**. Code then checks that answer against the passages it was written from, and writes anything that must
+be exact itself. A periodic **sync**, run by the web server, keeps the index current.
 
 ## The system at a glance
 
@@ -21,7 +23,7 @@ language model writes a cited answer in the voice of **Fennick**. A periodic **s
                                   │ SSE stream                │ async events
                           ┌───────▼───────────────────────────▼───────┐
                           │          core.Assistant  (Fennick)        │
-                          │   plan → retrieve → answer → persist      │
+                          │  plan → retrieve → answer → check → save  │
                           └──┬──────────┬─────────────┬───────────────┘
                  planner /   │          │ hybrid      │ structured item
                  answer LLM  │          │ search      │ questions
@@ -32,7 +34,7 @@ language model writes a cited answer in the voice of **Fennick**. A periodic **s
                   └──────────────┘  └───▲─────────┘ └─────────────────┘
                                         │ written by
         ┌───────────────────────────────┴──────────────────────────────────────────┐
-        │ BUILD / SYNC   discover → crawl → classify → smw → index → titles        │
+        │ BUILD / SYNC   discover → crawl → classify → smw → index → titles → enrich│
         └───────────────▲──────────────────────────────────────────────────────────┘
                         │ MediaWiki API (rate-limited, polite)
               ┌─────────┴──────────┐        ┌──────────────────────────┐
@@ -61,30 +63,34 @@ What each stage does:
 |------------|----------------|
 | `discover` | `allpages` per namespace → `pages`, `redirects`; remembers where it started so sync misses nothing |
 | `crawl`    | `action=parse` (templates expanded) → compressed HTML in `page_html`; 10 requests in flight, rate-limited |
-| `classify` | namespace + categories + title patterns → `page_kind`, `is_log`, `is_obsolete`; links → `page_links`; soft redirects → `redirects` |
+| `classify` | namespace + categories + title patterns → `page_kind`, `is_log`, `is_obsolete`; links in every form the wiki writes them (`/Title`, `/index.php/Title`, `?title=`, `#fragment`) → `page_links`; soft redirects → `redirects` |
 | `smw`      | Semantic MediaWiki properties (weight, damage, cost…) → `item_properties` and one `stats` chunk per item page |
 | `index`    | HTML → text blocks → ~450-token chunks → FTS5 rows + 768-dim vectors (unchanged text reuses its vector by hash) |
 | `titles`   | page and redirect titles → `titles_fts`, so "choke" finds "Choke command" |
-| `enrich`   | indexed pages → typed `facts` (crafting materials from the Category:Crafting materials tables; `index/extract/`), and the topic graph `topic_hubs` / `page_topics` from categories, subpages and links (`index/topics.py`). Pure code, runs after `index` in every update |
+| `enrich`   | indexed pages → typed `facts` (materials, crafting disciplines, what names mean; `index/extract/`), and the topic graph `topic_hubs` / `page_topics` from categories, subpages and links (`index/topics.py`). Each extractor keeps its own revision per page (`enriched`). Pure code, runs after `index` in every update |
 
 ### The knowledge layer
 
-Beyond text chunks the index carries three derived layers, all rebuilt by the pipeline (no hand-made links):
+Beyond text chunks the index carries derived layers, all rebuilt by the pipeline (no hand-made links):
 
-- **Auto-sync:** the web server's lifespan runs `jobs.auto_delta`, which starts a `delta` job every `web.auto_sync_minutes`
-  (skipping a round while another job runs); there is no external scheduler.
-- **Facts** (`facts`): tables read by registered extractors, so tools compare in code. `core/materials.py` ranks materials
-  (weapons by hardness with density capped at 7.5, armor by resistances, bows by wood affinity, leather/cloth/bone/stone by
-  their deciding stat) with each rule cited to the page that states it; `core/hunting.py` does the same for the ladder, and
-  `core/disciplines.py` lists the crafting skills, their disciplines and guides from the Crafting page's own list.
+- **Facts** (`facts`): structured data read by registered extractors, so tools compare in code. `core/materials.py` ranks
+  materials (weapons by hardness with density capped at 7.5, armor by resistances, bows by wood affinity, leather/cloth/bone/
+  stone by their deciding stat) and answers "which metals are blue?", with each rule cited to the page that states it;
+  `core/hunting.py` does the same for the ladder, and `core/disciplines.py` lists the crafting skills, their disciplines and
+  guides from the Crafting page's own list.
+- **What names mean** (`index/extract/names.py`, domain `name_meaning`): 172 stated meanings, read only from fixed phrasings
+  that name a language (`X (Rakash for "...")`, `X means "..." in Rakash`). A sentence that does not say what it is naming
+  gives nothing. `core/names.py` answers a pure "what does X mean?" in code and supplies the meaning to layered answers.
 - **Names** (`retrieval/resolve.py`): a name in the question resolves through the title index; a name reaching different
-  kinds of page is narrowed by the question's own words (`kinds.INTENT_WORDS`: cast, wield, hunt...) or asked about; an
-  acronym like SIS sets aside pages that merely contain the letters.
+  kinds of page is narrowed by the question's own words (`kinds.INTENT_WORDS`: cast, wield, hunt...) or asked about, with
+  buttons; an acronym like SIS sets aside pages that merely contain the letters.
 - **Topics** (`page_topics`): the family of pages around a hub such as Crafting; retrieval favours them when the question
-  names the hub.
+  names the hub, and the closing offer draws on them.
+- **Edit history** (`revisions`, `field_values`; `wiki/history.py`, `wiki/timeline.py`): who changed what on a page, and the
+  infobox facts of old versions, so a page scribbled over is not taken at face value.
 
 `epedia doctor` checks the lot (revision lag, full-text/vector parity, link coverage, facts, table-versus-page agreement,
-rules still on their pages).
+meanings and known languages, rules still on their pages).
 
 ### From HTML to chunks
 
@@ -100,37 +106,108 @@ rules still on their pages).
 
 ## One question's journey
 
+Most of the path is deciding what must not be left to the model. Anything code can answer exactly, it answers itself.
+
 ```
- "which one is lighter?"            (turn 2 of a conversation about armor)
+ "how much does it weigh?"           (turn 3 of a conversation about the svidaw sis)
         │
         ▼
- ┌─ PLAN (qwen3:8b, JSON schema, temperature 0) ─────────────────────────────────────────┐
- │  standalone_question  "Which version of the aged leather combat armor … is lighter?"  │
- │  follow_up = true     kind = item        mode = search | items (+ items_query)        │
+ ┌─ ANSWERED BY RULE, before the planner ────────────────────────────────────────────────┐
+ │  the clock · a request for a story (declined, then what the wiki says about its names)│
+ │  "are you sure?" / "try again" · a crafting table, on a first message                 │
  └───────────────────────────────────────────────────────────────────────────────────────┘
-        │ kind = meta ─────────► greeting / "who are you": answer from a truthful blurb,
-        │                         no search at all
+        ▼
+ ┌─ PLAN (qwen3:8b, JSON schema, temperature 0) ─────────────────────────────────────────┐
+ │  reads the last 4 turns, earlier questions, and "Current subject: Svidaw sis"         │
+ │  standalone_question  "How much does a svidaw sis weigh?"                             │
+ │  follow_up = true     kind = item        mode = search | items (+ items_query)        │
+ │  left the pronoun standing? code appends " (about Svidaw sis)"                        │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
+        │ kind = meta ─────► greeting / "who are you": a truthful blurb, no search
+        ▼
+ ┌─ GATES, in code, no model ────────────────────────────────────────────────────────────┐
+ │  the wiki never mentions it ► decline, naming what is missing (core/grounding.py)     │
+ │  a name of two sorts of thing ► ask, with buttons (resolve.choices)                   │
+ │  "what should I hunt?" with no ranks ► ask for ranks                                  │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
         ▼
  ┌─ RETRIEVE ────────────────────────────────────────────────────────────────────────────┐
- │  follow-up?  ► start with the previous answer's own passages                          │
- │  items mode? ► live Semantic MediaWiki query → a table passage (local SQL if offline) │
- │  hybrid search (below) → top chunks, max 3 per page, plus runner-ups for "related"    │
+ │  written by code, the whole answer: materials · disciplines · hunting ladder ·        │
+ │     "what does X mean?"                                                               │
+ │  an open question about one thing ► layered passages (below), no search               │
+ │  otherwise: follow-up? the last answer's passages first · items mode? a Semantic      │
+ │     MediaWiki table · linked page? its passages first · then hybrid search            │
+ │  recent edits of the top pages come along as a passage                                │
  └───────────────────────────────────────────────────────────────────────────────────────┘
         ▼
  ┌─ ANSWER (qwen3:8b, streamed) ─────────────────────────────────────────────────────────┐
- │  system = persona + kind-specific shape hint + numbered passages                      │
- │  history = last 4 turns (each capped)         user = the standalone question          │
+ │  system = persona + shape hint OR layered outline + today + what was asked earlier    │
+ │           (code-written: questions and cited pages) + numbered passages               │
+ │  history = the last exchange only, its answer clipped                                 │
+ │  user = the standalone question                                                       │
  └───────────────────────────────────────────────────────────────────────────────────────┘
         ▼
- text tokens ──► soften_refusal ──► attribute ──► one closing offer appended BY CODE
- (the draft,     a tacked-on        lines the model    (a popular page linked from the top page,
-  streamed)      "nothing on that"  left uncited get    never a map, script, log or obsolete page)
-                 becomes an honest  a [n*] tag where
-                 caveat             one passage clearly matches
+ ┌─ CHECK AND FINISH, in code ───────────────────────────────────────────────────────────┐
+ │  drop repeated lines (and stop a looping draft) · tag uncited lines [n*]              │
+ │  layered: exact headings, fixed order, a part nothing backs goes                      │
+ │  verify: a citation its passage does not bear out becomes [n?]                        │
+ │  a name no passage has, or a pretended look-up ► one rewrite, at temperature 0        │
+ │  notes: one honesty note · edit-history cautions · "(OOC) [8] is a player's log"      │
+ │  offer: chosen now, from the page the answer cites most (core/offers.py)              │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
         ▼
- `done` event carries the FINAL text (draft + fixes) → the page repaints it; the same text is saved
- persisted: messages(role, content, kind, mode, sources) → next turn's "previous answer"
+ `done` event carries the FINAL text → the page repaints it; the same text is saved
+ saved: messages (question, answer, sources, cited, offer) · turns (timings, plan, checks, votes) · sessions.anchor
 ```
+
+### Layered answers
+
+"Tell me about svidaw sis" should not be eight passages of one stat sheet. Namespaces are only page formats (storyline,
+systems and people all sit in Main), so the hierarchy is over what a page is about: page kind plus the link graph.
+
+```
+ open_question(the person's own words)     the words after "what is" must be exactly a page's name, so
+        │                                  "what is the weight of a svidaw sis?" stays narrow
+        ▼
+ kinds.LAYER_TABLE[page kind] ─► kinds.LAYERS[table]     thing · person · lore · place · system · creature
+        │
+        ▼  for each part, by its page kinds:
+   pages it links to or from ──┐
+   pages naming it in the text ┼─► one chunk per page ─► ranked by closeness to the SUBJECT'S opening
+   name facts, language page ──┘                         (not the question, so echoes are not favoured)
+   role-play logs, only for what nothing else fills      linked ≤ 0.40, mention only ≤ 0.34
+        │
+        ▼
+ thing:  (what it is)  Where it comes from  The name and its people  In the story
+        │              an empty part gives its slots to what it is; only its own pages ► an ordinary answer
+        ▼
+ model writes under code's outline ─► layers.tidy: exact headings, table order, an uncited part kept (tagged) only if
+                                      its own passages say it ─► layers.log_note: code always labels a log
+```
+
+A narrow question stays narrow and offers the rest: "the story behind Svidaw sis". The page's chip asks "Tell me about the
+story behind Svidaw sis", which is recognised as focused and leaves out the practical parts (shops, loot, training).
+
+### What a conversation remembers
+
+| | what it is | who reads it |
+|---|---|---|
+| history (last 4 turns) | the messages themselves | the planner, to work out what a message means |
+| last exchange | that question and its answer, clipped to 600 characters | the answer step |
+| `memory.summary` | each earlier question and the pages it cited, built from stored rows, never by a model | the answer step |
+| `sessions.anchor` | the page the conversation is about; moves when a question names something and its answer rests on it | code and the planner |
+| `sessions.topic` | a label for the reader ("Talking about") | the page |
+
+A small model given its own earlier answers repeats them, and what it repeats it has not read from the passages. "Set this
+topic aside" sets `context_from` and clears topic and anchor; every memory helper honours that boundary.
+
+### The closing offer
+
+Chosen after the answer, in code, from the page it cites most (`core/offers.py`). A candidate must be about the same subject:
+the two pages link to each other, share a topic family, or the page's opening names it. Hubs linked from more than 200
+articles, listings (auctions, loot, yearly digests), an event's booths, a player's character unless the question was about
+characters, and anything after a category page are left out; nothing is offered rather than something poor. `epedia eval
+--offers` replays the conversation log, old against new.
 
 ### Source tagging: showing where each line came from
 
@@ -170,7 +247,7 @@ A small local model cites unreliably, so the program checks its work instead of 
 ### Question kinds steer page kinds
 
 Ten question kinds (item, crafting, place, character, lore, creature, mechanics, event_news, meta, general) and
-28 page kinds meet in a weight matrix (`kinds.py`, overridable in `epedia.toml`). A small slice:
+32 page kinds meet in a weight matrix (`kinds.py`, overridable in `epedia.toml`). A small slice:
 
 ```
                        guide  crafting  shop  place   npc   pc    lore  creature
@@ -181,8 +258,9 @@ Ten question kinds (item, crafting, place, character, lore, creature, mechanics,
 ```
 
 Page kinds come from `classify`: namespace first (Post, Category, Weapon/Armor/Shield/Item/Title), then
-categories (`Player Characters` → pc, `Shops` → shop, `Bestiary` → creature…), then title patterns
-(`… guide`, `… skill`, `Name/Logs/…`). Role-play logs and obsolete pages are demoted globally.
+categories (`Player Characters` → pc, `Shops` → shop, `Bestiary` → creature, a base weapon or armor in Main → item…), then
+title patterns (`… guide`, `… skill`, `Name/Logs/…`). Role-play logs and obsolete pages are demoted globally. Discussion and
+the wiki's own machinery rank below articles and never compete for names (`kinds.SITE_NAMESPACES`).
 
 ## Data model
 
@@ -196,10 +274,14 @@ One SQLite file (WAL mode), `data/wiki.db`:
   categories (JSON) │       | stats │
   *_revid markers   │
                     ├──< item_properties   (Semantic MediaWiki: prop, text, number)
-                    └──< page_links ──►    (from → to; related-page suggestions)
+                    ├──< page_links ──►    (from → to; offers, layered answers, topics)
+                    ├──< facts             (domain, entity, group, attribute, value)
+                    └──< enriched          (page, domain, revid: what each extractor has read)
 
  redirects (from_title → to_page_id)   titles_fts (page + redirect titles)   smw_properties (catalog)
- sessions ──< messages (role, content, standalone_q, mode, kind, sources JSON)
+ topic_hubs ──< page_topics (hub, page, weight)     revisions · field_values (edit history)
+ sessions (owner, topic, anchor, context_from) ──< messages (role, content, standalone_q, mode, kind, sources, cited, related)
+                                               └─< turns    (timings, plan, retrieval signals, checks, error, vote)
  state (key/value: cursors, primary_source, schema_version)   sync_log · sync_pages
 ```
 
@@ -227,16 +309,19 @@ pages the source lacks, and winds `sync.cursor` back to the source's newest edit
 cover the gap.
 
 ```
-  every hour (Task Scheduler or `watch`)                     weekly
-  ───────────────────────────────────────                    ──────
+  every hour (the web server, `jobs.auto_delta`)              on request (Index panel, `sync --full-scan`)
+  ──────────────────────────────────────────────             ────────────
   allrevisions since cursor ──► edited / new pages           full scan: re-walk allpages, compare touched/
   logevents (delete, move)  ──► removed / renamed pages       lastrevid, drop vanished pages
   edited Template/Module    ──► embeddedin → pages that re-render without a new revision
           │
           ▼
-  reconcile (prop=info) → crawl → classify → smw → index → titles          cursor advances only to
-                                                                           what the source really has
+  reconcile (prop=info) → crawl → classify → smw → index → titles → enrich      cursor advances only to
+                                                                                what the source really has
 ```
+
+The first round fires 120 seconds after the server starts; `[web] auto_sync_minutes = 0` turns it off. There is no external
+scheduler, on purpose.
 
 ## The web interface
 
@@ -245,7 +330,7 @@ Everything on the page lives in one `#app` container, so the header, chat and in
 ```
  DESKTOP (default): fills the window up to a wide column         MOBILE: a phone-width column
 ┌─────────────────────────────────────────────────────────────┐    ┌─────────────────────────┐
-│ Fennick [v1.0.0] a traveler's…   [D|M] [Index] [New chat]   │    │ Fennick [v1.0.0]        │
+│ Fennick [v1.6.0] a traveler's…   [D|M] [Index] [New chat]   │    │ Fennick [v1.6.0]        │
 ├─────────────────────────────────────────────────────────────┤    │ [D|M] [Index] [New]     │
 │ (folded until [Index]: pages crawled / searchable)          │    ├─────────────────────────┤
 ├─────────────────────────────────────────────────────────────┤    │       (portrait)        │
@@ -286,6 +371,14 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   "Jump to latest" button appears. One answer runs at a time, errors show a "Try again" button, and a dropped
   connection is reported as possibly incomplete.
 
+- **Votes and review.** 👍 / 👎 under each answer (a thumbs-down asks why) go on its turn record. Past chats opens with
+  "Worth a look" (`feedback.review`, this computer only): thumbs-down, failures, names no page has, figures that do not match.
+  Marked lines and rewritten drafts are noted on an entry but do not put it there, because most answers have one. "Copy as
+  eval" copies a skeleton for `eval/questions.yaml`, to check and paste by hand. `epedia chats` reads the same from the terminal.
+- **Clarifying buttons.** `done` carries `choices`; a click sends the message with `pin`, which counts only as the answer to
+  a clarifying question and answers the original question from that page. Rare today: the wiki tells same-named pages apart
+  with "(1)", so few names are really ambiguous.
+
 - **Index panel.** Shows last delta, last full refresh, newest edit seen, source and pending work
   (`jobs.index_info`, read from `sync_log` and `state`), with **Delta update**, **Full refresh**, **Fill**, **Fetch history**,
   **Rebuild knowledge** (`enrich --force`), **Health check** (`doctor`, its output is the job log) and **Stop**. It also
@@ -320,39 +413,44 @@ loopback. A job that exits, is stopped, or fails to spawn is always recorded as 
 server stops any running job when it shuts down.
 
 FastAPI serves one static page and a few JSON endpoints: `POST /api/chat` (Server-Sent Events: `sources`, `token`,
-`done` with the final text and related pages, `error`), `/api/persona`, `/api/version`, `/api/status`,
-`/api/sessions`, `GET /api/index/info`, `POST /api/index/start|stop`, and `/static/*` (portraits, `render.js`).
+`revise`, `done` with the final text, related pages and any choices, `error`), `/api/persona`, `/api/version`, `/api/status`,
+`/api/sessions`, `/api/recent-questions`, `POST /api/turns/{id}/feedback`, `GET /api/review/turns`,
+`GET /api/review/turns/{id}/eval`, `GET /api/index/info`, `POST /api/index/start|stop`, and `/static/*` (portraits, `render.js`).
 
 ## Persona
 
 Fennick is a **voice, not a source**. The persona prompt gives him a short backstory and rules: first person only
 for framing; every fact cited from a passage; relay the wiki's hedges and source tier; mechanics out of character
 and in CAPS commands; one closing offer. Because an 8B model follows factual rules far better than stylistic
-ones, style directives sit beside the passages (`FRAMING`, `SHAPE_HINTS`) and anything that must be exact (the
-offer, tagging uncited lines, softening a misplaced "nothing on that") is done in code. `persona.enabled = false`
-restores plain answers.
+ones, style directives sit beside the passages (`FRAMING`, `SHAPE_HINTS`, the layered outline) and anything that must be
+exact (the offer, headings, tagging uncited lines, labelling a role-play log, softening a misplaced "nothing on that") is
+done in code. `persona.enabled = false` restores plain answers.
 
 ## Module map
 
 ```
  src/epedia/
- ├─ cli.py ............. typer commands (init, discover, crawl, classify, smw, index, sync, ask, serve, eval …)
+ ├─ cli.py ............. typer commands (init, discover, crawl, classify, smw, index, sync, ask, serve, eval, chats, feedback …)
  ├─ config.py .......... pydantic settings: epedia.toml + epedia.local.toml + EPEDIA_* environment
- ├─ kinds.py ........... question kinds, page kinds, the weight matrix
+ ├─ kinds.py ........... question kinds, page kinds, the weight matrix, offer rules, the layer tables, kind rules
  ├─ db.py .............. schema, migrations, transaction(), state helpers
- ├─ jobs.py ............ index job runner (child sync process, stop, status) and index_info for the Index panel
+ ├─ jobs.py ............ index job runner (child sync process, stop, status), auto-sync, index_info for the Index panel
  ├─ buildinfo.py ....... version, git commit, models, index size (read live, cached for a minute)
- ├─ wiki/    client (rate limit, maxlag, retries) · discover · crawl · smw · sync
+ ├─ wiki/    client (rate limit, maxlag, retries, failover) · discover · crawl · smw · sync · history · timeline (edit trust rules)
  ├─ text/    html2md (HTML → blocks) · chunker · stats (item stat sheets)
- ├─ index/   indexer (chunks, vectors, titles) · classify (kinds, links, soft redirects) · enrich · extract/ (materials, crafting) ·
- │           topics (hub families) · doctor (integrity report)
+ ├─ index/   indexer (chunks, vectors, titles) · classify (kinds, links, soft redirects) · enrich ·
+ │           extract/ (materials, crafting, names) · topics (hub families) · reset · doctor (integrity report)
  ├─ retrieval/ search (hybrid, scoring, topic/avoid hooks) · titles (normalisation) · resolve (names → pages, by kind)
  ├─ llm/     ollama (embed, chat, JSON-schema chat) · prompts (planner, persona, shapes, passages)
- ├─ core/    assistant (plan → retrieve → answer) · attribution (tag uncited lines) · memory · dates (past/upcoming notes on passages) ·
- │           items_tool (SMW ask + local fallback) · hunting (ladder) · materials (best-material rankings)
- ├─ frontends/web/  app.py (FastAPI) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
- └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, voice checklist)
- tests/  pytest suite + saved action=parse fixtures       eval/questions.yaml  the evaluation set
+ ├─ core/    assistant (the whole path) · layers (layered answers) · offers (the closing offer) · names (what names mean) ·
+ │           memory (conversations, summary, anchor) · turns (the record of each turn) · feedback (votes, review, eval export) ·
+ │           grounding (decline what the wiki never mentions) · verify (check the answer) · attribution (tag uncited lines) ·
+ │           capabilities · dates (past/upcoming) · userinput (pasted text) · items_tool (SMW ask + local fallback) ·
+ │           hunting (ladder) · materials (rankings, colours) · disciplines
+ ├─ frontends/web/  app.py (FastAPI) · access (owner or visitor) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
+ └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, scripts, refusals) · faithfulness · offers (replay) · layers (which pages each part reads)
+ tests/  pytest suite + saved action=parse fixtures
+ eval/   questions · conversations · scripts · refusals · offers · layers (yaml)     runs/ (git-ignored results)
  tools/  make_fennick.py (draws the portrait)
 ```
 
@@ -366,5 +464,7 @@ restores plain answers.
 - **Hybrid search.** Game wikis are full of exact names (items, spells, places) that meaning-search alone misses.
 - **Be a polite crawler.** Rate-limited, `maxlag`, identifying User-Agent, resumable; one source is primary.
 - **Honest persona.** Grounded facts, cited, hedges relayed; nothing in the voice is allowed to be evidence.
+- **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
+- **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.0.0 (2026-10-22)_
+_Last updated: 1.6.0 (2026-10-31)_

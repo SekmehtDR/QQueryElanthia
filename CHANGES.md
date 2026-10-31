@@ -703,4 +703,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.0.0 (2026-10-22)_
+_Last updated: 1.6.0 (2026-10-31)_

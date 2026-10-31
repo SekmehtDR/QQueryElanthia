@@ -28,7 +28,7 @@ Build the index once (several hours, mostly the rate-limited crawl of about 117,
 resume):
 
 ```powershell
-.\.venv\Scripts\epedia pipeline    # discover, crawl, classify, smw, index, titles
+.\.venv\Scripts\epedia pipeline    # discover, crawl, classify, smw, index, titles, enrich
 .\.venv\Scripts\epedia monitor     # progress, in another window
 ```
 
@@ -55,13 +55,25 @@ Stopping the server also stops any job started from its Index panel.
 | "Can't find anything" on every question | The index is empty: Index panel, **Re-index**. |
 | "Address already in use" | It is already running, or use `serve --port 9000`. |
 
+## Asking
+
+- **"Tell me about svidaw sis"** answers in short parts: what it is, where it comes from, the name and its people, where it
+  turns up in the story. People, gods, places, spells and creatures each have their own parts. Parts with nothing behind them
+  are left out. A player's role-play log can fill a story nothing else tells, and is always labelled as one.
+- **"How much does a svidaw sis weigh?"** stays narrow, and offers "the story behind Svidaw sis" afterwards.
+- **"What does svidaw sis mean?"** gives the wiki's own wording, with the page that says so.
+- **Follow-ups** work: "what guild is he in?" still means the person you were asking about several questions ago. The "Talking
+  about" chip's × sets the topic aside and starts fresh.
+- The closing "Want to hear about..." is a page about the same subject as the answer, or nothing.
+
 ## The web page
 
 - Answers stream with numbered citation badges: solid when cited by the model, dashed when matched by code, dotted
   with a "?" when the page does not clearly support the line.
-- 👍 / 👎 under each answer; a thumbs-down asks what went wrong. Review them with `epedia feedback`.
+- 👍 / 👎 under each answer; a thumbs-down asks what went wrong.
 - The start screen lists the last 20 questions asked. **Past chats** opens, and **Delete all chats** clears, every
-  conversation on the page, visitors' included. **About** tells who Fennick is.
+  conversation on the page, visitors' included. It opens with **Worth a look**: answers people disliked, that failed, or that
+  named things or figures their pages do not have. **About** tells who Fennick is.
 - **Index** (this computer only) runs updates and shows index health.
 
 ## Share it
@@ -91,8 +103,12 @@ them. Keep `[web] host` at `127.0.0.1`.
 | `epedia sync` | Fetch only what changed (the web server does this hourly) |
 | `epedia sync --full-scan` | Re-compare every page |
 | `epedia fill` | Fetch missing pages from the configured source |
+| `epedia chats list [--flagged]` | Chats, or the answers worth a look |
+| `epedia chats show <session>` | One conversation as it went |
+| `epedia chats export <turn> [--eval]` | One answer's full record, or a question for the evaluation set |
 | `epedia feedback [turn]` | Thumbs-down answers, or one in its conversation |
 | `epedia eval [--full]` | Retrieval quality; `--full` adds answers, refusals and conversations |
+| `epedia eval --layers` / `--offers` | Which pages each part of an answer reads / the closing offers, old against new |
 | `epedia doctor` | Index health check |
 | `epedia show "Page"` | How a page was converted and chunked |
 | `epedia search "..." --explain` | Retrieval only, with ranks and weights |
@@ -104,7 +120,9 @@ environment variables):
 
 - `[wiki]` sources, namespaces (all of the wiki's by default), request rates
 - `[retrieval]` result counts, boosts, namespace and kind weights
-- `[chat]` history, temperature, `regenerate` (rewrite a draft that names things no page has; `"off"` to disable)
+- `[chat]` `history_turns` (what the planner reads), `answer_history_turns` (what the answer is written with), temperature,
+  `regenerate` (rewrite a draft that names things no page has; `"off"` to disable), `layered_answers` (`false` for plain
+  answers to "tell me about X")
 - `[persona]` `name`, `enabled = false` for plain answers
 - `[web]` `auto_sync_minutes` (0 = off), `access_code`, `visitor_turns_per_hour`
 
@@ -125,6 +143,7 @@ Citation links always point at elanthipedia.play.net. Ask a server's owner befor
 Pages are fetched rendered (`action=parse`), converted to text, classified (shop, creature, spell, talk page, ...),
 chunked by section and embedded. A question is planned (rewritten to stand alone, labelled with a kind), searched
 (BM25 + vectors, fused, weighted by kind and namespace) and answered by the model from the retrieved passages only.
+A question about the whole of something reads each side of it from its own sort of page, through the wiki's links, instead.
 Code then checks the answer against those passages: unsupported citations are marked, an invented name or a pretended
 look-up triggers one rewrite, and questions about things the wiki never mentions are declined without the model.
 Each stage is keyed by revision, so reruns and updates only touch what changed.
