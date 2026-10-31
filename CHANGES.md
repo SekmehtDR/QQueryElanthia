@@ -1,7 +1,31 @@
 # Changes
 
-Latest version: **1.6.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.6.1** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.6.1: web chat works again; fixes from a code review (2026-10-31)
+
+### Web chat
+
+- **In 1.6.0 no question could be asked from a freshly loaded page.** The function that sends a question used a value it was
+  never given, so every question failed with an error before reaching the server. Reload the page if it shows that error. A
+  new test now runs that function, because a syntax check cannot see this, and testing the server directly goes around it.
+
+### Fixed
+
+- **Hunting advice could use the wrong numbers.** Every number from the last few messages counted and the match goes by the
+  lowest, so "50 ranks of forging" followed by "300 offense and 280 defense" got creatures for 50 ranks. What is said now
+  counts first; from earlier only ranks stated as combat ranks count, and the latest of them.
+- **A question naming its own subject could get the old one added:** "Who is Hodierna and what is her domain?" picked up
+  "(about Svidaw sis)" and the weapon's passages because it says "her".
+- **With the persona off, earlier questions never reached the model.**
+- **Turning offers off now also stops "the story behind X".**
+- **A role-play log could become what the offer was based on,** because code's own label on it counted as a citation.
+- **A clarifying button now gets the answer the question would have had,** in parts where it asked about the whole thing,
+  and without a second call to the planner.
+- **Big subjects read their closest linked pages,** not an arbitrary 200.
+- **"Worth a look" is thumbs-down first and then newest,** and older problems are no longer missed behind many fine answers.
+- **`chats list --owner` finds older chats, and `--frontend all` is sorted and keeps to `--limit`.**
 
 ## 1.6.0: long conversations keep their subject; what to review (2026-10-31)
 
@@ -703,4 +727,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.6.0 (2026-10-31)_
+_Last updated: 1.6.1 (2026-10-31)_

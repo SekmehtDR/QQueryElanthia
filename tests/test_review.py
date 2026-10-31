@@ -129,6 +129,12 @@ def test_the_review_list_and_export_are_for_this_computer_only(web):
     assert client.get("/api/review/turns/999/eval", headers=LOCAL).status_code == 404
 
 
+def test_the_function_that_sends_a_question_is_given_the_pin_it_sends(web):
+    # node --check cannot see an undefined name: this one stopped every question on the page in 1.6.0
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "async function runAsk(text, signal, pin) {" in html and "runAsk(text, ctl.signal, pin)" in html
+
+
 def test_the_page_lists_them_and_offers_clarifying_buttons(web):
     client, *_ = web
     html = (STATIC / "index.html").read_text(encoding="utf-8")

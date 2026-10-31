@@ -247,6 +247,7 @@ class Plan:
     avoid_titles: list[str] = field(default_factory=list)  # "try again": pages already shown, left out of the search
     pinned: list[int] = field(default_factory=list)  # pages the person linked to: their passages lead
     asked: str = ""  # the person's own words: what they asked about, before the planner rewrote it
+    picked: int | None = None  # the page a clarifying question's button chose
     layer_table: tuple = ()  # a layered answer's parts (core/layers.py); empty for any other answer
     outline: str = ""  # those parts as the model is told them, with the passage numbers each may use
     earlier: str = ""  # the conversation before the last exchange, written by code (memory.summary)
@@ -275,7 +276,10 @@ class Assistant:
         if earlier:  # questions older than the last two turns: enough to keep the thread without the answers
             user += "Earlier questions in this conversation, oldest first:\n" + "\n".join(f"- {t}" for t in earlier) + "\n\n"
         anchor = memory.get_anchor(self.conn, session_id) if session_id and hist else None
-        pointing = bool(anchor) and len(message.split()) <= SHORT_MESSAGE_WORDS and bool(POINTS_BACK.search(message))
+        # "Who is Hodierna and what is her domain?" says "her" but needs nothing from earlier
+        names_own = bool(hist) and resolve.names_something(resolve.resolve(self.conn, message))
+        pointing = (bool(anchor) and len(message.split()) <= SHORT_MESSAGE_WORDS and bool(POINTS_BACK.search(message))
+                    and not names_own)
         if pointing:  # beside the question, where the 8B model reads it: "it" several turns on is still this page
             user = f"Current subject of the conversation: {anchor}\n\n{user}"
         user += f"Most recent turns:\n{convo}\n"
@@ -309,7 +313,7 @@ class Assistant:
             # The 8B planner resolves "it" correctly but often forgets to say follow_up: a question it had to rewrite
             # using the conversation is a follow-up whatever the flag says.
             rewritten = _norm(q) != _norm(message)
-            leans_on_context = len(message.split()) <= SHORT_MESSAGE_WORDS and bool(ANAPHORA.search(message))
+            leans_on_context = len(message.split()) <= SHORT_MESSAGE_WORDS and bool(ANAPHORA.search(message)) and not names_own
             follow_up = bool(hist) and (bool(data.get("follow_up")) or rewritten or leans_on_context) and kind != "meta"
             topic = re.sub(r"\s+", " ", str(data.get("topic") or "")).strip()[:40]
             clarify = str(data.get("clarify") or "").strip()
@@ -383,8 +387,14 @@ class Assistant:
 
     def _hunt_ranks(self, plan: Plan, user_message: str, session_id: str | None = None) -> list[int]:
         """Combat ranks the person gave, in this message or in what they said earlier in the conversation."""
-        earlier = memory.user_messages(self.conn, session_id) if session_id else []
-        return hunting.parse_ranks(plan.standalone_question, user_message, *earlier)
+        now = hunting.parse_ranks(plan.standalone_question, plan.asked, user_message)
+        if now or not session_id:  # what they say now is what counts: the match goes by the lowest number it is given
+            return now
+        for text in reversed(memory.user_messages(self.conn, session_id)):
+            earlier = hunting.stated_combat_ranks(text)
+            if earlier:
+                return earlier
+        return []
 
     def _property_catalog(self) -> str:
         rows = self.conn.execute(
@@ -532,9 +542,11 @@ class Assistant:
     def _layered_passages(self, plan: Plan) -> list[dict]:
         """"Tell me about svidaw sis": each part of the answer read from its own sort of page, decided from the person's
         own words, so asking this in the middle of a conversation counts too. Empty for anything else."""
-        if (not self.s.chat.layered_answers or plan.mode != "search" or plan.pinned or plan.material or plan.avoid_titles):
+        if (not self.s.chat.layered_answers or plan.mode != "search" or (plan.pinned and not plan.picked) or plan.material
+                or plan.avoid_titles):
             return []
-        subject = layers.open_question(self.conn, plan.asked or plan.standalone_question)
+        asked = plan.asked or plan.standalone_question
+        subject = layers.picked_subject(self.conn, plan.picked, asked) if plan.picked else layers.open_question(self.conn, asked)
         found = layers.gather(self.conn, subject, self.s.retrieval.k_final, self.s.wiki.base_url) if subject else []
         if found:
             plan.layer_table = layers.table_for(subject)
@@ -621,15 +633,18 @@ class Assistant:
         if chosen:
             linked = [pin]
             memory.set_anchor(self.conn, session_id, chosen)
-        plan = (early or self._fiction_plan(asked) or self._recheck_plan(asked, hist, session_id)
-                or await self.plan(hist, user_message, session_id))
-        if chosen:  # the question they first asked, about the page they chose: not "I meant the spell X"
-            asked_first = memory.user_messages(self.conn, session_id, 2)[0]
-            plan.standalone_question = f"{asked_first.rstrip(' ?.!')} ({asked.strip().removeprefix('I meant ')})?"
+        first = memory.clarified_question(self.conn, session_id) if chosen else None
+        if first:  # the question they first asked, about the page they chose: known already, so no planner
+            which = asked.strip().removeprefix("I meant ")
+            plan = Plan(f"{(first['standalone_q'] or first['content']).rstrip(' ?.!')} ({which})?", kind=first["kind"] or "general",
+                        asked=first["content"], picked=pin)
+        else:
+            plan = (early or self._fiction_plan(asked) or self._recheck_plan(asked, hist, session_id)
+                    or await self.plan(hist, user_message, session_id))
         turn.mark("planner")
         turn.plan = plan
         plan.pinned = linked
-        plan.asked = asked
+        plan.asked = plan.asked or asked
         memory.note_plan(self.conn, turn.user_msg_id, plan.standalone_question, plan.mode, plan.kind)
         if kind_override in QUESTION_KINDS:
             plan.kind = kind_override
@@ -808,13 +823,14 @@ class Assistant:
             yield Token(tail)
             answer += tail
         cited = sorted({int(n) for n in ANY_CITE.findall(answer) if 1 <= int(n) <= len(sources)})
+        rests_on = _cite_order(answer, len(sources))  # before the note below, whose [n] is code's label, not a citation
         log_note = layers.log_note(cited, passages)  # never left to the model: a player's story is not the wiki's
         if log_note:
             tail = "\n\n" + log_note
             yield Token(tail)
             answer += tail
         # A thread to pull on: a page about the same subject as the page this answer cites most (core/offers.py).
-        anchor = offers.anchor_title([{"title": s.title} for s in sources], _cite_order(answer, len(sources)))
+        anchor = offers.anchor_title([{"title": s.title} for s in sources], rests_on)
         seen = memory.seen_titles(self.conn, session_id)
         related = offers.related(self.conn, self.s.retrieval, plan.kind, anchor, {p["title"] for p in passages} | seen, plan.qvec)
         rest = self._rest_of_it(plan, anchor)
@@ -855,7 +871,8 @@ class Assistant:
 
     def _rest_of_it(self, plan: Plan, anchor: str | None) -> str | None:
         """After a narrow question about one thing, whose answer is about that thing: its story, in words the chip can ask."""
-        if (not self.s.chat.layered_answers or plan.layer_table or plan.mode != "search" or plan.kind == "meta" or not anchor):
+        if (not self.s.chat.layered_answers or not self.s.retrieval.offer_related or plan.layer_table or plan.mode != "search"
+                or plan.kind == "meta" or not anchor):
             return None
         subject = layers.about(self.conn, plan.standalone_question)
         if subject is None or anchor not in {c.title for c in subject.pages}:

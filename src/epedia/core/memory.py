@@ -115,6 +115,13 @@ def summary(conn: sqlite3.Connection, session_id: str, skip: int = 1) -> str:
     return "Earlier in this conversation (what the user asked, not a source of facts):\n" + "\n".join(lines)
 
 
+def clarified_question(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
+    """The question a clarifying question was asked about: as typed, as planned, and its kind."""
+    return conn.execute(
+        "SELECT content, standalone_q, kind FROM messages WHERE session_id=? AND msg_id>? AND role='user' AND mode='clarify' "
+        "ORDER BY msg_id DESC LIMIT 1", (session_id, _context_from(conn, session_id))).fetchone()
+
+
 def last_assistant(conn: sqlite3.Connection, session_id: str) -> sqlite3.Row | None:
     """The last answer since the context boundary that did not fail: setting a topic aside must set all of it aside."""
     return conn.execute(
@@ -308,17 +315,19 @@ def delete_sessions(conn: sqlite3.Connection, owner: str | None = None, frontend
     return cur.rowcount
 
 
-def list_sessions(conn: sqlite3.Connection, frontend: str = "web", limit: int = 50, owner: str | None = None) -> list[dict]:
+def list_sessions(conn: sqlite3.Connection, frontend: str | None = "web", limit: int = 50, owner: str | None = None) -> list[dict]:
     """Conversations that have at least one question, newest first, for the Past chats list. With `owner`, only that
-    person's; without, everyone's (the owner's view, each row saying whose it is)."""
+    person's ("visitors" for everyone but the local owner); without, everyone's (the owner's view, each row saying whose
+    it is). `frontend` None means every front end."""
     rows = conn.execute(
         "SELECT s.session_id, substr(coalesce(s.title, (SELECT m.content FROM messages m WHERE m.session_id=s.session_id "
         "AND m.role='user' ORDER BY m.msg_id LIMIT 1)), 1, 60) AS title, s.topic, coalesce(s.updated_at, s.created_at) AS updated_at, "
         "coalesce(s.owner, 'local') AS owner, "
         "(SELECT count(*) FROM messages m WHERE m.session_id=s.session_id AND m.role='user') AS questions "
-        "FROM sessions s WHERE s.frontend=? AND questions > 0 AND (? IS NULL OR coalesce(s.owner, 'local') = ?) "
+        "FROM sessions s WHERE (? IS NULL OR s.frontend=?) AND questions > 0 AND (? IS NULL OR "
+        "(CASE WHEN ?='visitors' THEN coalesce(s.owner, 'local') != 'local' ELSE coalesce(s.owner, 'local') = ? END)) "
         "ORDER BY updated_at DESC, s.rowid DESC LIMIT ?",
-        (frontend, owner, owner, limit),
+        (frontend, frontend, owner, owner, owner, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 

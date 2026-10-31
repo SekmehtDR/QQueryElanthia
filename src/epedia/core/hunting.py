@@ -22,6 +22,7 @@ HUNT_FIT = re.compile(
 )
 
 _RANKS = re.compile(r"(\d[\d,]*)\s*(?:combat\s+)?ranks?\b", re.I)
+_COMBAT_RANKS = re.compile(r"(\d[\d,]*)\s*combat\s+ranks?\b", re.I)
 _OFFENSE_WORD = r"(?:offen[sc]e|offensive|attack)"
 _DEFENSE_WORD = r"(?:defen[sc]e|defensive|evasion)"
 _WORD_THEN_NUMBER = [re.compile(rf"\b{w}\b\D{{0,14}}(\d[\d,]*)", re.I) for w in (_OFFENSE_WORD, _DEFENSE_WORD)]
@@ -59,6 +60,18 @@ def parse_ranks(*texts: str) -> list[int]:
                 n = _num(m.group(1))
                 if n is not None and 0 < n <= 3000 and n not in found:
                     found.append(n)
+    return found
+
+
+def stated_combat_ranks(text: str) -> list[int]:
+    """Only ranks a message says are for fighting ("200 offense", "150 combat ranks"), not "50 ranks of forging": what may
+    be read from earlier in a conversation, where a bare number could be about anything."""
+    found: list[int] = []
+    for pat in (*_labelled(text), _COMBAT_RANKS):
+        for m in pat.finditer(text):
+            n = _num(m.group(1))
+            if n is not None and 0 < n <= 3000 and n not in found:
+                found.append(n)
     return found
 
 

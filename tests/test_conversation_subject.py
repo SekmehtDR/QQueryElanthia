@@ -7,7 +7,7 @@ import pytest
 
 from epedia.config import Settings
 from epedia.core import memory
-from epedia.core.assistant import Assistant, Done, Token
+from epedia.core.assistant import Assistant, Done, Plan, Token
 from epedia.db import connect
 from epedia.llm import prompts
 
@@ -167,7 +167,7 @@ def test_ranks_given_earlier_in_the_conversation_are_used(conn):
     sid = memory.new_session(conn, "web")
     memory.add_message(conn, sid, "user", "I have 200 offense and 180 defense")
     a = Assistant(Settings(), conn, Model())
-    plan = type("P", (), {"standalone_question": "What should I hunt?"})()
+    plan = Plan("What should I hunt?")
     assert a._hunt_ranks(plan, "what should I hunt?", sid) == [200, 180]
     memory.clear_context(conn, sid)
     assert a._hunt_ranks(plan, "what should I hunt?", sid) == []

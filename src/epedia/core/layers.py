@@ -25,7 +25,7 @@ from .verify import SUPPORT_COVERAGE
 
 LAYER_MAX_DISTANCE = 0.40  # cosine distance to the subject's opening; further than this a page is about something else
 MENTION_MAX_DISTANCE = 0.34  # a page that only names it must be closer: past this it is in passing (Estate Rights, a musk hog)
-CANDIDATES = 200  # pages looked at per layer: a hub's links and mentions run to thousands, and the closest are wanted
+CANDIDATES = 200  # pages read per part: a hub's links run to hundreds, so those whose openings are closest to the subject's
 FOCUSED_OWN_SLOTS = 2  # "the story behind X" still says what X is, but only that much
 LOG_LABEL = "(A player's role-play log, not official lore.)"
 
@@ -70,9 +70,9 @@ def _subject(conn: sqlite3.Connection, res: Resolution | None, focused: bool) ->
     return Subject(main, pages, focused)
 
 
-def open_question(conn: sqlite3.Connection, message: str) -> Subject | None:
-    """The subject of a question that asks about a whole thing, or None. The words after "what is" must be exactly a
-    page's name, so "what is the weight of a svidaw sis?" stays narrow without a list of attribute words."""
+def _whole_thing(conn: sqlite3.Connection, message: str) -> tuple[Resolution, bool] | None:
+    """(the name, whether only its story is asked for) when a message asks about a whole thing. The words after "what is"
+    must be exactly a page's name, so "what is the weight of a svidaw sis?" stays narrow without a list of attribute words."""
     text = message.strip().replace("’", "'")
     m = _FOCUS.match(text)
     focused = bool(m)
@@ -83,7 +83,23 @@ def open_question(conn: sqlite3.Connection, message: str) -> Subject | None:
     res = resolve.resolve(conn, x)
     if res is None or normalize(res.span) != normalize(x):
         return None
-    return _subject(conn, res, focused)
+    return res, focused
+
+
+def open_question(conn: sqlite3.Connection, message: str) -> Subject | None:
+    """The subject of a question that asks about a whole thing, or None."""
+    found = _whole_thing(conn, message)
+    return _subject(conn, found[0], found[1]) if found else None
+
+
+def picked_subject(conn: sqlite3.Connection, page_id: int, message: str) -> Subject | None:
+    """The same for a name that reached two sorts of thing, once a clarifying question's button has said which."""
+    found = _whole_thing(conn, message)
+    if not found:
+        return None
+    res, focused = found
+    picked = [c for c in res.candidates if c.page_id == page_id]
+    return _subject(conn, Resolution(res.span, res.candidates, chosen=picked), focused) if picked else None
 
 
 def about(conn: sqlite3.Connection, question: str) -> Subject | None:
@@ -101,15 +117,17 @@ def _lead_vector(conn: sqlite3.Connection, page_id: int) -> bytes | None:
     return row[0] if row else None
 
 
-def _linked(conn: sqlite3.Connection, page_ids: list[int], kinds: frozenset[str]) -> set[int]:
+def _linked(conn: sqlite3.Connection, page_ids: list[int], kinds: frozenset[str], lead: bytes) -> set[int]:
     if not kinds:
         return set()
     ids, want = ",".join("?" * len(page_ids)), ",".join("?" * len(kinds))
     return {r[0] for r in conn.execute(
-        f"SELECT p.page_id FROM pages p WHERE p.is_redirect=0 AND p.is_log=0 AND p.is_obsolete=0 AND p.page_kind IN ({want}) AND "
+        f"SELECT p.page_id FROM pages p JOIN chunks c ON c.page_id=p.page_id AND c.ord=0 JOIN chunk_vec v ON v.chunk_id=c.chunk_id "
+        f"WHERE p.is_redirect=0 AND p.is_log=0 AND p.is_obsolete=0 AND p.page_kind IN ({want}) AND "
         f"p.page_id IN (SELECT to_page_id FROM page_links WHERE from_page_id IN ({ids}) UNION "
-        f"SELECT from_page_id FROM page_links WHERE to_page_id IN ({ids})) LIMIT {CANDIDATES}",
-        [*kinds, *page_ids, *page_ids])}
+        f"SELECT from_page_id FROM page_links WHERE to_page_id IN ({ids})) "
+        f"ORDER BY vec_distance_cosine(v.embedding, ?) LIMIT {CANDIDATES}",
+        [*kinds, *page_ids, *page_ids, lead])}
 
 
 def _mentioning(conn: sqlite3.Connection, name: str, kinds: frozenset[str], logs: bool) -> dict[int, int]:
@@ -182,7 +200,7 @@ def _fill_layer(conn: sqlite3.Connection, layer: Layer, subject: Subject, lead: 
         for m in meanings[:layer.slots]:
             out.append({**names.passage(m, base_url), "layer": layer.key})
     room = layer.slots - len(out)
-    linked = _linked(conn, own, layer.page_kinds)
+    linked = _linked(conn, own, layer.page_kinds, lead)
     if layer.meanings:
         linked |= _language_pages(conn, meanings)
     chunks = _chunks_for(conn, linked - taken - set(own), subject.name)

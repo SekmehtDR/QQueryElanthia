@@ -481,10 +481,7 @@ def chats_list(
         console.print(f"{len(rows)} shown. `chats show <session>` reads the chat; `chats export <turn> --eval` makes an eval question.",
                       markup=False, highlight=False)
         return
-    rows = memory.list_sessions(conn, which, limit) if which else [
-        *memory.list_sessions(conn, "web", limit), *memory.list_sessions(conn, "cli", limit)]
-    if owner:
-        rows = [r for r in rows if (r["owner"] != "local" if owner == "visitors" else r["owner"] == owner)]
+    rows = memory.list_sessions(conn, which, limit, owner)
     for r in rows:
         who = "you" if r["owner"] == "local" else "visitor"
         console.print(f"{r['session_id']}  {(r['updated_at'] or '')[:16]}  {who}  {r['questions']}q  {r['title'] or ''}",

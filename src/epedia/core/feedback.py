@@ -126,9 +126,9 @@ def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = N
         "t.verify_json, u.content AS question, u.standalone_q, a.mode, a.kind FROM turns t JOIN messages u ON u.msg_id=t.user_msg_id "
         "LEFT JOIN messages a ON a.msg_id=t.assistant_msg_id WHERE (? IS NULL OR t.frontend=?) AND (? IS NULL OR t.started_at >= ?) "
         "AND (? IS NULL OR (CASE WHEN ?='visitors' THEN coalesce(t.owner, 'local') != 'local' ELSE coalesce(t.owner, 'local')=? END)) "
-        "ORDER BY t.feedback='down' DESC, t.turn_id DESC LIMIT ?",
-        (frontend, frontend, since, since, owner, owner, owner, limit * 10 if flagged else limit),
-    ).fetchall()
+        "ORDER BY coalesce(t.feedback, '')='down' DESC, t.turn_id DESC",  # no limit here: most turns are not on the list
+        (frontend, frontend, since, since, owner, owner, owner),
+    )
     out = []
     for r in rows:
         row = {k: r[k] for k in r.keys() if k not in ("verify_json", "feedback_reason")}

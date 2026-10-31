@@ -147,7 +147,8 @@ data/         wiki.db and logs (git-ignored)
 - Pass large JSON to child processes on stdin (Windows command lines are limited to ~32k characters).
 - A non-breaking space does not glue text to an inline badge; wrap the pair in a `nowrap` span (`render.js`).
 - Check the page's script with `node --check` after editing `static/index.html` (a duplicate `const` once broke
-  the whole page); `tests/test_web.py` does this.
+  the whole page); `tests/test_web.py` does this. It cannot see an undefined name, which stopped every question in 1.6.0:
+  `tests/js/run_send.js` runs the sending function. Driving `/api/chat` directly proves nothing about the page.
 
 ## Definition of done for a change
 

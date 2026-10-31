@@ -117,6 +117,11 @@ def resolve(conn: sqlite3.Connection, question: str) -> Resolution | None:
     return None
 
 
+def names_something(res: Resolution | None) -> bool:
+    """Whether the name found is really a subject, rather than an everyday word that happens to have a page (weigh, buy)."""
+    return res is not None and any(c.kind not in LOOSE_KINDS for c in res.candidates)
+
+
 def clarify(res: Resolution) -> str:
     """The question to ask when a name reaches different kinds of page and the question does not say which."""
     seen: dict[str, Entity] = {}

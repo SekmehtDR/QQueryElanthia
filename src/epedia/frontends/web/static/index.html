@@ -729,7 +729,7 @@ function cancelRun() {
   if (runCtl) runCtl.abort();
   runCtl = null; busy = false; syncSend();
 }
-async function runAsk(text, signal) {
+async function runAsk(text, signal, pin) {
   if (viewingVisitor) {  // a question while reading a visitor's chat is the owner's own: a fresh conversation
     viewingVisitor = false; sessionId = null; setTopic(null); log.innerHTML = '';
   }

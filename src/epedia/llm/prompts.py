@@ -253,7 +253,7 @@ def build_answer_system(kind: str, passages_text: str, name: str, *, persona: bo
     lead = RECHECK if recheck else RETRY if retry else ""
     if not persona:
         base = NEUTRAL_ANSWER_SYSTEM.replace("{passages}", passages_text)
-        return "\n\n".join(x for x in (lead, outline, base) if x)
+        return "\n\n".join(x for x in (lead, outline, earlier, base) if x)
     parts = [PERSONA_BLOCK.replace("{name}", name)]
     hint = outline or SHAPE_HINTS.get(kind)
     if hint:
