@@ -74,7 +74,7 @@ Stopping the server also stops any job started from its Index panel.
 - The start screen lists the last 20 questions asked. **Past chats** opens, and **Delete all chats** clears, every
   conversation on the page, visitors' included. It opens with **Worth a look**: answers people disliked, that failed, or that
   named things or figures their pages do not have; then **What people liked**. Opening a visitor's chat shows what they said
-  about each answer, and your own 👍 / 👎 there sits beside theirs. **About** tells who Fennick is, and the version number opens **What's new**.
+  about each answer, and your own 👍 / 👎 there sits beside theirs. **About** tells who Fennick is, and **✦ What's new**, beside the version number, says what has changed.
 - **Index** (this computer only) runs updates and shows index health.
 
 ## Share it
@@ -92,7 +92,8 @@ A Cloudflare quick tunnel gives a temporary public link while your computer, Oll
 2. `winget install --id Cloudflare.cloudflared`, then `cloudflared tunnel --url http://localhost:8765` and share the
    printed link and the code.
 
-Visitors enter the code once, see only their own chats, and get no Index panel or Past chats. They are limited to 40
+Visitors are greeted by Fennick, who asks for the code and says to contact Sekmeht if it isn't accepted (change that name in
+`LOGIN_PAGE`, `frontends/web/access.py`). They enter it once, see only their own chats, and get no Index panel or Past chats. They are limited to 40
 questions an hour, and at most two answers are written at once. Their questions, and how each answer was reached, are stored in your database: tell
 them. Keep `[web] host` at `127.0.0.1`.
 

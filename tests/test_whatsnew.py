@@ -64,10 +64,12 @@ def test_a_commit_that_leaves_whats_new_alone_is_refused():
     assert text.startswith("#!/bin/sh") and "src/epedia/core/whatsnew.json" in text and "exit 1" in text
 
 
-def test_the_badge_is_a_real_button_that_opens_a_dialog():
+def test_a_button_beside_the_version_opens_a_dialog_and_draws_the_eye():
     html = HTML.read_text(encoding="utf-8")
-    assert '<button type="button" class="ver" id="pver"' in html and '<dialog id="whatsnew"' in html
-    assert "getElementById('pver').addEventListener('click', openWhatsNew)" in html
+    assert '<span class="ver" id="pver"' in html and 'id="whatsnewbtn"' in html and "What's new</button>" in html and '<dialog id="whatsnew"' in html
+    assert html.index('id="pver"') < html.index('id="whatsnewbtn"')
+    assert "getElementById('whatsnewbtn').addEventListener('click', openWhatsNew)" in html
+    assert "header button.whatsnew.fresh" in html and "prefers-reduced-motion: reduce) { header button.whatsnew.fresh { animation:none" in html
 
 
 def test_the_about_window_keeps_its_look():
@@ -79,4 +81,4 @@ def test_the_about_window_keeps_its_look():
 def test_the_pages_code_really_runs():
     script = Path(__file__).parent / "js" / "run_whatsnew.js"
     out = subprocess.run(["node", str(script), str(HTML)], capture_output=True, text=True, encoding="utf-8", timeout=30)
-    assert out.stdout.count("ok ") == 6 and "BAD" not in out.stdout and "THREW" not in out.stdout, out.stdout + out.stderr
+    assert out.stdout.count("ok ") == 10 and "BAD" not in out.stdout and "THREW" not in out.stdout, out.stdout + out.stderr

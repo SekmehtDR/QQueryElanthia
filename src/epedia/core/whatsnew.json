@@ -1,10 +1,19 @@
 [
   {
+    "version": "1.8.0",
+    "date": "2026-10-31",
+    "fennick": "Anyone arriving at my door used to get a plain little box and no greeting at all, which is no way for a bard to behave. Now I say hello myself, and if your code won't open the satchel, I'll tell you who to ask. And since a note nobody reads is no use to anyone, there's a shiny button now, right up top. You found it. Well done.",
+    "changes": [
+      "The sign-in screen now greets you as Fennick, and says to ask Sekmeht for the current code if yours isn't accepted.",
+      "A \"What's new\" button sits beside the version number, and glows until you have seen the latest update."
+    ]
+  },
+  {
     "version": "1.7.0",
     "date": "2026-10-31",
-    "fennick": "It was put to me that I rearrange this satchel constantly and never tell a soul. Fair. So now there's a page for it: click my little version number any time, and you'll find me owning up to what changed. And when you give one of my answers a thumb, the trail of how I got there goes with it, so the next fix starts from what really happened rather than from my excuses.",
+    "fennick": "It was put to me that I rearrange this satchel constantly and never tell a soul. Fair. So now there's a page for it, and you'll find me here owning up to what changed. And when you give one of my answers a thumb, the trail of how I got there goes with it, so the next fix starts from what really happened rather than from my excuses.",
     "changes": [
-      "The version number at the top opens this window, newest update first, and it stays current with every update.",
+      "A What's new window shows each update, newest first, and stays current with every update.",
       "Each answer now keeps how it was reached: your question, how it was understood, the pages read and the first draft. A thumbs up or down marks that for review, to fix what went wrong and protect what works."
     ]
   },

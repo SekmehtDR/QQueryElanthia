@@ -114,29 +114,66 @@ class TurnLimiter:
         return max(1, int((self.window - (time.monotonic() - min(recent))) // 60) + 1)
 
 
+# What a visitor through the tunnel sees first: Fennick himself. His portrait is under /static/, which needs no code.
 LOGIN_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Fennick · sign in</title>
+<title>Fennick · come in</title>
 <style>
-:root{--bg:#fbf8f1;--ink:#2a2118;--muted:#7a6c5a;--line:#e3d9c6;--accent:#b5651d}
-@media (prefers-color-scheme: dark){:root{--bg:#171410;--ink:#f1e9da;--muted:#a39580;--line:#3a3329;--accent:#e0a35a}}
-body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
-form{width:min(92vw,360px);padding:24px;border:1px solid var(--line);border-radius:14px}
-h1{font-size:1.2rem;margin:0 0 4px}p{color:var(--muted);margin:0 0 16px;font-size:.92rem}
-input,button{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;font:inherit;border:1px solid var(--line);background:transparent;color:var(--ink)}
-button{margin-top:10px;background:var(--accent);border-color:var(--accent);color:var(--bg);cursor:pointer}
-#err{color:#d24a3a;min-height:1.4em;margin-top:8px;font-size:.9rem}
+:root{--bg:#e9e2d0;--paper:#fbf5e6;--ink:#3b2f22;--muted:#7a6a52;--edge:#d8c8a4;--accent:#b5651d;--on-accent:#fffaf0;--bad:#b23a2a}
+@media (prefers-color-scheme: dark){:root{--bg:#16140f;--paper:#2a241a;--ink:#efe6d2;--muted:#b3a58c;--edge:#4a3f2c;--accent:#d9a066;--on-accent:#1f1a12;--bad:#f0907f}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--ink);font:16px/1.55 Georgia,'Iowan Old Style',serif}
+main{width:min(100%,460px);padding:28px 28px 24px;background:var(--paper);border:1px solid var(--edge);border-radius:8px;box-shadow:0 10px 30px rgba(40,30,15,.22)}
+.portrait{display:block;width:150px;height:150px;margin:0 auto 14px;border-radius:50%;border:3px solid var(--edge);object-fit:cover}
+h1{margin:0;text-align:center;font-size:1.55rem;font-weight:700}
+.sub{margin:2px 0 16px;text-align:center;color:var(--muted);font-style:italic;font-size:.95rem}
+.says{position:relative;margin:0 0 16px;padding:12px 14px;border:1px solid var(--edge);border-radius:10px}
+.says::before{content:"";position:absolute;top:-8px;left:50%;width:14px;height:14px;margin-left:-7px;background:var(--paper);border-left:1px solid var(--edge);border-top:1px solid var(--edge);transform:rotate(45deg)}
+.says p{margin:0}.says p+p{margin-top:.6em}
+form{font-family:system-ui,sans-serif}
+.how{margin:0 0 12px;padding-left:1.3em;font-size:.92rem}.how li{margin:.25em 0}
+label{display:block;margin-bottom:4px;font-size:.85rem;font-weight:600;color:var(--muted)}
+input,button{width:100%;padding:11px 12px;border-radius:8px;font:inherit}
+input{border:1px solid var(--edge);background:transparent;color:var(--ink)}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{margin-top:10px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);font-weight:600;cursor:pointer}
+button[disabled]{opacity:.65;cursor:wait}
+#err{margin-top:12px;font-family:Georgia,'Iowan Old Style',serif;color:var(--bad)}#err:empty{display:none}
 </style></head><body>
-<form id="f"><h1>Fennick</h1><p>Enter the access code you were given.</p>
-<input id="c" type="password" autocomplete="current-password" autofocus aria-label="Access code">
-<button type="submit">Come in</button><div id="err" role="alert"></div></form>
+<main>
+<img class="portrait" src="/static/fennick_large.png" alt="Fennick, a Halfling Bard in a green feathered cap, with his lute" width="150" height="150">
+<h1>Hello there, come on in!</h1>
+<p class="sub">Halfling, Bard, keeper of an alarmingly heavy satchel</p>
+<div class="says">
+<p>I'm Fennick. I carry a satchel of notes on all of Elanthia, and I'm glad of any excuse to open it. I just need your access code first. I don't make the rules. Well, Sekmeht makes the rules.</p>
+</div>
+<form id="f">
+<ol class="how">
+<li>Enter your access code below.</li>
+<li>If it isn't accepted, please reach out to Sekmeht for the current valid access code.</li>
+</ol>
+<label for="c">Access code</label>
+<input id="c" type="password" autocomplete="current-password" autofocus required>
+<button id="go" type="submit">Come in</button>
+<div id="err" role="alert"></div>
+</form>
+</main>
 <script>
+const err = document.getElementById('err'), code = document.getElementById('c'), go = document.getElementById('go');
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();
-  const r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({code: document.getElementById('c').value})});
-  if (r.ok) location.reload();
-  else document.getElementById('err').textContent = r.status === 429 ? 'Too many tries. Wait a few minutes.' : 'That code is not right.';
+  err.textContent = ''; go.disabled = true;
+  try {
+    const r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({code: code.value})});
+    if (r.ok) { location.reload(); return; }
+    err.textContent = r.status === 429
+      ? "That's a lot of tries, friend. Let's both rest a few minutes. If it still won't open after that, please reach out to Sekmeht for the current valid access code."
+      : "Hmm, that one doesn't open my satchel. The code may have changed. Please reach out to Sekmeht for the current valid access code.";
+    code.select();
+  } catch (x) {
+    err.textContent = "I can't seem to reach my satchel just now. Give it a moment and try again.";
+  }
+  go.disabled = false;
 });
 </script></body></html>
 """

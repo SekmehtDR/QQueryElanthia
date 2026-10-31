@@ -1,7 +1,16 @@
 # Changes
 
-Latest version: **1.7.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.8.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.8.0: Fennick at the door; a What's new button (2026-10-31)
+
+- **A "✦ What's new" button beside the version number,** filled so it reads as a button, with a gentle glow and a dot until this
+  browser has opened the latest update. The version number itself is a plain, warmer pill again. No motion if the reader asks for
+  reduced motion, though the dot stays.
+- **The access-code screen is now Fennick:** his portrait, a greeting in his voice, and plain instructions: enter your access code, and
+  if it isn't accepted, reach out to Sekmeht for the current one. A wrong code, too many tries and a lost connection each get an
+  answer from him, and a wrong code repeats who to ask.
 
 ## 1.7.0: What's new; votes that can be worked through (2026-10-31)
 
@@ -753,4 +762,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.7.0 (2026-10-31)_
+_Last updated: 1.8.0 (2026-10-31)_

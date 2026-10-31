@@ -1,3 +1,7 @@
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -226,3 +230,22 @@ def test_a_tunnelled_request_is_refused_outright_when_no_access_code_is_set(tmp_
         assert client.post("/login", json={"code": "anything goes"}, headers=TUNNEL).status_code == 403
         assert client.get("/api/persona", headers=TUNNEL).status_code == 403
         assert client.get("/api/persona").status_code == 200  # the owner is unaffected
+
+
+def test_the_door_is_fennick_with_the_instructions_and_who_to_ask(client):
+    page = client.get("/", headers=TUNNEL)
+    assert page.status_code == 401
+    text = page.text
+    assert '<img class="portrait" src="/static/fennick_large.png"' in text
+    assert client.get("/static/fennick_large.png", headers=TUNNEL).status_code == 200  # he can be seen before any code
+    assert "Hello there, come on in!" in text and "Enter your access code below." in text and "please reach out to Sekmeht for the current valid access code" in text
+    assert CODE not in text  # never gives the code away
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_the_doors_own_script_answers_each_outcome_as_fennick():
+    script = Path(__file__).parent / "js" / "run_login.js"
+    from epedia.frontends.web.access import LOGIN_PAGE
+
+    out = subprocess.run(["node", str(script)], input=LOGIN_PAGE, capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert out.stdout.count("ok ") == 5 and "BAD" not in out.stdout and "THREW" not in out.stdout, out.stdout + out.stderr
