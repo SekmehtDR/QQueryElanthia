@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from ...buildinfo import build_info, git_commit
 from ...config import Settings
-from ...core import feedback, memory
+from ...core import feedback, memory, whatsnew
 from ...core.assistant import Assistant, Done, Retrieval, Revise, Token
 from ...db import connect, get_state
 from ...index.reset import clear_index
@@ -320,6 +320,10 @@ def create_app(settings: Settings) -> FastAPI:
     async def version(request: Request) -> dict:
         info = await build()
         return info if access.is_local(request) else public_build(info)
+
+    @app.get("/api/whats-new")
+    async def whats_new() -> dict:
+        return {"releases": whatsnew.recent()}
 
     @app.get("/api/persona")
     async def persona(request: Request) -> dict:

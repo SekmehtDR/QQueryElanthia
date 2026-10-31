@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from ..util import utcnow_iso
+from .turns import unpack_chain
 
 # The reasons a thumbs-down offers (the page shows the labels; the keys are what is stored).
 REASONS = {
@@ -45,7 +46,8 @@ def record(conn: sqlite3.Connection, turn_id: int, vote: str | None, reasons: li
     note = (note or "").strip()[:MAX_NOTE] if vote == "down" else ""
     reason = json.dumps({"reasons": picked, "note": note}, ensure_ascii=False) if (picked or note) else None
     columns = "owner_feedback=?, owner_feedback_reason=?, owner_feedback_at=?" if reviewing else "feedback=?, feedback_reason=?, feedback_at=?"
-    conn.execute(f"UPDATE turns SET {columns} WHERE turn_id=?",
+    # a changed vote has not been worked through, whatever was done about the old one
+    conn.execute(f"UPDATE turns SET {columns}, processed_at=NULL, processed_note=NULL WHERE turn_id=?",
                  (vote, reason, utcnow_iso() if vote else None, turn_id))
     return {"vote": vote, "reasons": picked, "note": note}
 
@@ -92,7 +94,8 @@ def conversation(conn: sqlite3.Connection, turn_id: int) -> dict[str, Any] | Non
         "LEFT JOIN turns tt ON tt.assistant_msg_id = m.msg_id WHERE m.session_id=? AND m.msg_id<=? ORDER BY m.msg_id",
         (t["session_id"], upto),
     ).fetchall()
-    record_ = {k: t[k] for k in t.keys()}
+    record_ = {k: t[k] for k in t.keys() if k != "chain"}
+    record_["chain"] = unpack_chain(t["chain"])
     for k in ("plan_json", "grounding_json", "verify_json"):
         record_[k.removesuffix("_json")] = json.loads(record_.pop(k)) if t[k] else None
     record_.update(parse_reason(record_.pop("feedback_reason")))
@@ -182,3 +185,21 @@ def eval_item(conn: sqlite3.Connection, turn_id: int) -> str | None:
         item["mode"] = t["mode"]
     return ("# Check before adding to eval/questions.yaml: expect_pages is only what this answer cited.\n"
             + yaml.safe_dump([item], allow_unicode=True, sort_keys=False, width=110))
+
+
+def queue(conn: sqlite3.Connection, include_processed: bool = False, limit: int = 100) -> list[dict]:
+    """Real votes still to be worked through, thumbs-down first: each with its conversation up to that answer and everything
+    recorded on the way to it (what the planner was given and decided, the passages, what the model was sent, its drafts, the
+    checks, the version that wrote it). Answers from before chains were kept have an empty one."""
+    rows = conn.execute(
+        "SELECT turn_id FROM turns WHERE (feedback IS NOT NULL OR owner_feedback IS NOT NULL) AND (? OR processed_at IS NULL) "
+        "ORDER BY (coalesce(feedback, '')='down' OR coalesce(owner_feedback, '')='down') DESC, turn_id DESC LIMIT ?",
+        (int(include_processed), limit)).fetchall()
+    return [c for c in (conversation(conn, r[0]) for r in rows) if c]
+
+
+def mark_processed(conn: sqlite3.Connection, turn_id: int, note: str) -> bool:
+    """Record what was done about a vote, so the next run does not start on it again."""
+    cur = conn.execute("UPDATE turns SET processed_at=?, processed_note=? WHERE turn_id=? AND (feedback IS NOT NULL OR owner_feedback IS NOT NULL)",
+                       (utcnow_iso(), note.strip(), turn_id))
+    return cur.rowcount > 0

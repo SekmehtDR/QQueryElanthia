@@ -74,7 +74,7 @@ Stopping the server also stops any job started from its Index panel.
 - The start screen lists the last 20 questions asked. **Past chats** opens, and **Delete all chats** clears, every
   conversation on the page, visitors' included. It opens with **Worth a look**: answers people disliked, that failed, or that
   named things or figures their pages do not have; then **What people liked**. Opening a visitor's chat shows what they said
-  about each answer, and your own 👍 / 👎 there sits beside theirs. **About** tells who Fennick is.
+  about each answer, and your own 👍 / 👎 there sits beside theirs. **About** tells who Fennick is, and the version number opens **What's new**.
 - **Index** (this computer only) runs updates and shows index health.
 
 ## Share it
@@ -93,7 +93,7 @@ A Cloudflare quick tunnel gives a temporary public link while your computer, Oll
    printed link and the code.
 
 Visitors enter the code once, see only their own chats, and get no Index panel or Past chats. They are limited to 40
-questions an hour, and at most two answers are written at once. Their questions are stored in your database: tell
+questions an hour, and at most two answers are written at once. Their questions, and how each answer was reached, are stored in your database: tell
 them. Keep `[web] host` at `127.0.0.1`.
 
 ## Commands
@@ -108,6 +108,7 @@ them. Keep `[web] host` at `127.0.0.1`.
 | `epedia chats show <session>` | One conversation as it went |
 | `epedia chats export <turn> [--eval]` | One answer's full record, or a question for the evaluation set |
 | `epedia feedback [turn]` | Thumbs-down answers, or one in its conversation |
+| `epedia feedback-queue` / `feedback-done` | Votes to work through, each with how its answer was reached / mark one handled |
 | `epedia eval [--full]` | Retrieval quality; `--full` adds answers, refusals and conversations |
 | `epedia eval --layers` / `--offers` | Which pages each part of an answer reads / the closing offers, old against new |
 | `epedia doctor` | Index health check |

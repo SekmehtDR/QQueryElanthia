@@ -9,9 +9,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import zlib
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from .. import __version__
 from ..util import utcnow_iso
 
 STEPS = ("planner", "retrieve", "ttft")
@@ -25,6 +27,7 @@ class Turn:
         self.user_msg_id = user_msg_id
         self.closed = False
         self.plan: Any = None  # set once the question is planned, so a turn that fails later still records it
+        self.chain: dict = {}  # how the answer was reached: the passages, what the model was sent, its drafts
         self._t0 = time.monotonic()
         self._marks: dict[str, int] = {}
 
@@ -62,10 +65,19 @@ class Turn:
         plan = plan if plan is not None else self.plan
         self.conn.execute(
             "UPDATE turns SET assistant_msg_id=?, planner_ms=?, retrieve_ms=?, ttft_ms=?, total_ms=?, plan_json=?, "
-            "grounding_json=?, verify_json=?, regenerated=?, error=? WHERE turn_id=?",
+            "grounding_json=?, verify_json=?, regenerated=?, error=?, chain=?, version=? WHERE turn_id=?",
             (assistant_msg_id, self._marks.get("planner"), self._marks.get("retrieve"), self._marks.get("ttft"),
-             self.elapsed_ms(), _json(plan), _json(grounding), _json(verify), int(regenerated), error, self.turn_id),
+             self.elapsed_ms(), _json(plan), _json(grounding), _json(verify), int(regenerated), error, pack_chain(self.chain),
+             __version__, self.turn_id),
         )
+
+
+def pack_chain(chain: dict) -> bytes | None:
+    return zlib.compress(json.dumps(chain, ensure_ascii=False, default=str).encode("utf-8")) if chain else None
+
+
+def unpack_chain(blob: bytes | None) -> dict:
+    return json.loads(zlib.decompress(blob)) if blob else {}
 
 
 def _json(value: Any) -> str | None:

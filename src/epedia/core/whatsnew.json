@@ -1,0 +1,60 @@
+[
+  {
+    "version": "1.7.0",
+    "date": "2026-10-31",
+    "fennick": "It was put to me that I rearrange this satchel constantly and never tell a soul. Fair. So now there's a page for it: click my little version number any time, and you'll find me owning up to what changed. And when you give one of my answers a thumb, the trail of how I got there goes with it, so the next fix starts from what really happened rather than from my excuses.",
+    "changes": [
+      "The version number at the top opens this window, newest update first, and it stays current with every update.",
+      "Each answer now keeps how it was reached: your question, how it was understood, the pages read and the first draft. A thumbs up or down marks that for review, to fix what went wrong and protect what works."
+    ]
+  },
+  {
+    "version": "1.6.2",
+    "date": "2026-10-31",
+    "fennick": "Ask me a follow-up now and I'll keep hold of who we were talking about, even a few questions later. I also carry less of my own earlier chatter into each answer, which turns out to cut down on me making things up. A wiser bard might have guessed. And those thumbs under my answers do get read, so if I've got something wrong, or right, do say.",
+    "changes": [
+      "Follow-ups like \"what guild is he in?\" keep their subject through a longer conversation.",
+      "A name that could mean two different things now gets buttons, so you can just pick one.",
+      "Fixed hunting advice: \"200 offense and 180 defense\" was being misread, and older numbers could override the ones you just gave.",
+      "Thumbs up and down, with your reason and note, are kept with the conversation and reviewed to improve answers.",
+      "For about 45 minutes on 2026-10-31 this page could not send questions. That was a bug in an update, and it is fixed. If you still see that error, reload the page."
+    ]
+  },
+  {
+    "version": "1.5.0",
+    "date": "2026-10-31",
+    "fennick": "Ask me to tell you about something and you'll get more than a stat sheet now: what it is, where it comes from, what its name means, who its people are, where it turns up in the story. Ask me how much it weighs and I'll just tell you, then offer you the rest.",
+    "changes": [
+      "\"Tell me about X\" answers in short headed sections, each drawn from its own sort of page.",
+      "Narrow questions stay narrow, and end by offering the story behind the thing.",
+      "A player's role-play log can fill in a story nothing else tells, and is always labelled as one, not official lore.",
+      "The sections can be uneven: a fact may land under the wrong heading. Check the linked pages."
+    ]
+  },
+  {
+    "version": "1.4.0",
+    "date": "2026-10-31",
+    "fennick": "Half the names in my notes mean something, and I'd been walking right past them. A svidaw sis, it turns out, is Rakash for \"throwing beater\", which is more honest than most weapon names.",
+    "changes": [
+      "\"What does X mean?\" gives the wiki's own wording for about 120 names, with a link to the page that says so."
+    ]
+  },
+  {
+    "version": "1.3.0",
+    "date": "2026-10-30",
+    "fennick": "I'd fallen into a bad habit of finishing every answer by offering you the nearest big city, whatever you'd asked about. Now I only offer a thread that belongs to what we were just talking about, and if I haven't got one, I'll hold my tongue.",
+    "changes": [
+      "The closing \"Want to hear about...\" is now about the same subject as the answer, or left out."
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "date": "2026-10-30",
+    "fennick": "Someone asked me for every blue metal and I handed them a clay jar. I've since gone through the material pages properly. I've also been told I repeat myself, so I've stopped doing that. I've stopped doing that.",
+    "changes": [
+      "\"Which metals are blue?\" and the like are answered from every material's own page, for metals, woods, leathers, cloths, stones and bones.",
+      "A list written from only a few pages now says it is partial, and how to ask for a fuller one.",
+      "An answer that starts repeating itself is stopped and cleaned up."
+    ]
+  }
+]

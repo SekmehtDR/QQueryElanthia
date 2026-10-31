@@ -11,7 +11,7 @@ import sqlite_vec
 
 from .config import Settings
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -261,6 +261,7 @@ def migrate(conn: sqlite3.Connection, settings: Settings) -> None:
     _migrate_v4(conn)
     _migrate_v5(conn)
     _migrate_v6(conn)
+    _migrate_v7(conn)
     if get_state(conn, "schema_version") != str(SCHEMA_VERSION):
         set_state(conn, "schema_version", str(SCHEMA_VERSION))
     if get_state(conn, "embed_model") is None:
@@ -307,6 +308,15 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS ix_links_to ON page_links(to_page_id);
         """
     )
+
+
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    """How each answer was reached, kept with it (the exact prompt and drafts cannot be rebuilt when someone votes later), and
+    whether a vote on it has been worked through."""
+    _ensure_column(conn, "turns", "chain", "BLOB")  # zlib-compressed JSON: core/turns.py
+    _ensure_column(conn, "turns", "version", "TEXT")
+    _ensure_column(conn, "turns", "processed_at", "TEXT")
+    _ensure_column(conn, "turns", "processed_note", "TEXT")
 
 
 def _migrate_v6(conn: sqlite3.Connection) -> None:

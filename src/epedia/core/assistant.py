@@ -248,6 +248,7 @@ class Plan:
     pinned: list[int] = field(default_factory=list)  # pages the person linked to: their passages lead
     asked: str = ""  # the person's own words: what they asked about, before the planner rewrote it
     picked: int | None = None  # the page a clarifying question's button chose
+    planner_input: str = ""  # exactly what the planner was given, kept for working out what went wrong
     layer_table: tuple = ()  # a layered answer's parts (core/layers.py); empty for any other answer
     outline: str = ""  # those parts as the model is told them, with the passage numbers each may use
     earlier: str = ""  # the conversation before the last exchange, written by code (memory.summary)
@@ -320,7 +321,7 @@ class Assistant:
             if (kind == "meta" or len(clarify) > 200
                     or (hist and (follow_up or anchor or resolve.resolve(self.conn, q) is not None))):
                 clarify = ""  # trusted only when the conversation gives no subject to draw on
-            return Plan(q, mode, iq, follow_up=follow_up, kind=kind, topic=topic, clarify=clarify, material=material)
+            return Plan(q, mode, iq, follow_up=follow_up, kind=kind, topic=topic, clarify=clarify, material=material, planner_input=user)
         except (OllamaError, KeyError, ValueError) as exc:
             log.warning("planner failed (%s); falling back to plain search", exc)
             return Plan(message, material=material)
@@ -718,6 +719,7 @@ class Assistant:
             plan.outline = layers.outline(passages[:used], plan.layer_table) if plan.layer_table else ""
             system = self._answer_system(plan, text, continuing)
         passages = passages[:used]
+        turn.chain["passages"] = passages  # with whatever code wrote, as the model and the checks saw them
         sources = [
             Source(i + 1, p["title"], p.get("section", ""), p["url"], p.get("chunk_id"), _snippet(p["text"]))
             for i, p in enumerate(passages)
@@ -759,6 +761,7 @@ class Assistant:
         if plan.mode in ("recheck", "retry"):
             user_turn = f"{asked.strip()} (This is about my last question: {plan.standalone_question})"
         messages = [{"role": "system", "content": system}, *hist, {"role": "user", "content": user_turn}]
+        turn.chain["sent_to_model"] = messages
         lead = ""
         if plan.mode == "fiction":  # the decline leads, in code; the model answers what the wiki says about the names
             lead = capabilities.decline_fiction(plan.names, self.s.persona.enabled) + "\n\n"
@@ -786,6 +789,7 @@ class Assistant:
             finally:
                 if hasattr(stream, "aclose"):
                     await stream.aclose()
+            turn.chain.setdefault("drafts", []).append({"temperature": temperature, "text": "".join(chunks), "looped": looped})
             answer = self._clean_draft("".join(chunks), passages)
             if plan.layer_table:  # the exact headings, in order; a part its passages do not back goes
                 answer = layers.tidy(answer, plan.layer_table, passages)
@@ -802,6 +806,7 @@ class Assistant:
             if lead:
                 yield Token(lead)
             strict = prompts.strict_addendum(checked.unknown_entities, bool(checked.fake_actions))
+            turn.chain["told_on_rewrite"] = strict
             messages = [{"role": "system", "content": f"{system}\n\n{strict}"}, *messages[1:]]
             temperature = 0.0
         # The final text: unsupported citations marked [n?], pretended look-ups removed, and one note on what is left.

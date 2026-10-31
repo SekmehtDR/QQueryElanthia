@@ -191,7 +191,8 @@ def test_page_polish_welcome_input_scroll_and_error_handling(client):
 def test_page_has_an_about_fennick_page_with_his_story_and_how_he_works(client):
     html = client.get("/").text
     assert 'id="aboutbtn"' in html and html.index('id="vmob"') < html.index('id="aboutbtn"') < html.index('id="pastbtn"')
-    about = html[html.index('<dialog id="about"'):html.index("</dialog>")]
+    start = html.index('<dialog id="about"')
+    about = html[start:html.index("</dialog>", start)]
     assert "<h2 id=\"about-title\">Hi, I'm Fennick!</h2>" in about  # it opens with his greeting
     assert about.index("Where I come from") < about.index("Out of character")  # the story, then the OOC part
     assert "Made by Sekmeht" in about and "Grounded in Elanthipedia, and nothing else." in about

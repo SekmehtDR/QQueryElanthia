@@ -377,6 +377,12 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   figures that do not match; then "What people liked".
   Marked lines and rewritten drafts are noted on an entry but do not put it there, because most answers have one. "Copy as
   eval" copies a skeleton for `eval/questions.yaml`, to check and paste by hand. `epedia chats` reads the same from the terminal.
+- **What's new.** The version badge opens a dialog from `core/whatsnew.json` (`GET /api/whats-new`, read on every request): each
+  update hand-written in Fennick's voice, then plainly out of character. With the persona off, only the plain part. A
+  pre-commit hook (`tools/hooks`) refuses a commit that leaves it alone.
+- **The chain.** Each turn keeps how its answer was reached (`turns.chain`, compressed): passages, what the model was sent, its
+  drafts, what it was told on a rewrite; with `plan_json` (including the planner's input), the checks and the version. A vote marks it
+  for `epedia feedback-queue`; `feedback-done` records what was done. Deleting a chat deletes all of it. See CLAUDE.md, "Process our feedback".
 - **Clarifying buttons.** `done` carries `choices`; a click sends the message with `pin`, which counts only as the answer to
   a clarifying question and answers the original question from that page. Rare today: the wiki tells same-named pages apart
   with "(1)", so few names are really ambiguous.
@@ -469,4 +475,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.6.2 (2026-10-31)_
+_Last updated: 1.7.0 (2026-10-31)_

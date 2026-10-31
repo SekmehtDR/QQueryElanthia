@@ -1,0 +1,8 @@
+#!/bin/sh
+# What's new must keep up: every commit, documentation included, says something in it. It is hand-written, because Fennick's
+# voice needs a writer. Installed with: git config core.hooksPath tools/hooks
+if ! git diff --cached --name-only | grep -qx 'src/epedia/core/whatsnew.json'; then
+  echo "Refused: this commit does not update src/epedia/core/whatsnew.json (what the page's What's new shows)." >&2
+  echo "Add what players would notice to the newest entry, or a new entry for a new version." >&2
+  exit 1
+fi

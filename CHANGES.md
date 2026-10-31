@@ -1,7 +1,20 @@
 # Changes
 
-Latest version: **1.6.2** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.7.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.7.0: What's new; votes that can be worked through (2026-10-31)
+
+- **The version number at the top of the page opens a "What's new" window:** each recent update told by Fennick, then plainly,
+  out of character, newest first. With the persona off, only the plain part. Everyone can open it, visitors included. It is read
+  fresh on every open, and every commit must update it: a pre-commit hook refuses one that does not.
+- **Each answer keeps how it was reached, and a vote marks it for processing.** The exact prompt and drafts cannot be rebuilt
+  when someone votes later, so every turn records them. Say "process our feedback" here to work through the votes (see CLAUDE.md):
+  `epedia feedback-queue` gives each with its whole chain, and `epedia feedback-done` records what was done.
+
+Internals: `core/whatsnew.json` and `tools/hooks/pre-commit` (`git config core.hooksPath tools/hooks`); `turns.chain`, `version`,
+`processed_at`, `processed_note`, schema 7; the planner's input is kept on the plan; a changed vote returns to the queue. Deleting a chat
+deletes its chains. The About and What's new dialogs share one paper style (`dialog.paper`).
 
 ## 1.6.2: reviewing what people said (2026-10-31)
 
@@ -740,4 +753,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.6.2 (2026-10-31)_
+_Last updated: 1.7.0 (2026-10-31)_

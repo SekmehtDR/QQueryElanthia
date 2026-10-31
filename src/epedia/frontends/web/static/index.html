@@ -24,37 +24,43 @@
   header .brand { display:flex; align-items:center; gap:12px; min-width:0; }
   header .controls { display:flex; align-items:center; gap:8px; }
   header h1 { font-size:1.15rem; margin:0; flex:0 0 auto; }
-  header .ver { font-size:.72rem; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; cursor:default; white-space:nowrap; }
+  header .ver { font-size:.72rem; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; cursor:pointer; white-space:nowrap; }
+  header .ver:hover { color:var(--accent); border-color:var(--accent); }
   header button[aria-expanded="true"] { color:var(--accent); border-color:var(--accent); }
   header button { background:none; border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:5px 12px; cursor:pointer; font:inherit; font-size:.9rem; }
   header button:hover { color:var(--ink); border-color:var(--muted); }
   /* About Fennick: a page from his notes, opened over the chat */
   :root { --paper:#fbf5e6; --paper-ink:#3b2f22; --paper-edge:#d8c8a4; --paper-muted:#7a6a52; }
   @media (prefers-color-scheme: dark) { :root { --paper:#2a241a; --paper-ink:#efe6d2; --paper-edge:#4a3f2c; --paper-muted:#b3a58a; } }
-  dialog#about { border:0; padding:0; background:transparent; color:var(--paper-ink); width:min(640px, calc(100vw - 32px)); max-height:calc(100dvh - 48px); }
-  dialog#about::backdrop { background:rgba(10, 8, 5, .62); backdrop-filter:blur(2px); }
-  dialog#about[open] { animation:about-in .18s ease-out; }
+  dialog.paper { border:0; padding:0; background:transparent; color:var(--paper-ink); width:min(640px, calc(100vw - 32px)); max-height:calc(100dvh - 48px); }
+  dialog.paper::backdrop { background:rgba(10, 8, 5, .62); backdrop-filter:blur(2px); }
+  dialog.paper[open] { animation:about-in .18s ease-out; }
   @keyframes about-in { from { opacity:0; transform:translateY(8px) scale(.98); } }
-  #about .sheet { position:relative; background:var(--paper); border:1px solid var(--paper-edge); border-radius:6px;
+  .paper .sheet { position:relative; background:var(--paper); border:1px solid var(--paper-edge); border-radius:6px;
     padding:30px 34px 24px; max-height:calc(100dvh - 48px); overflow-y:auto;
     box-shadow:0 18px 50px rgba(0,0,0,.45), inset 0 0 60px color-mix(in srgb, var(--paper-edge) 45%, transparent);
     font:16px/1.6 Georgia, "Iowan Old Style", "Palatino Linotype", serif; }
-  #about .about-x { position:absolute; top:10px; right:12px; width:34px; height:34px; border-radius:50%; border:1px solid var(--paper-edge);
+  .paper .about-x { position:absolute; top:10px; right:12px; width:34px; height:34px; border-radius:50%; border:1px solid var(--paper-edge);
     background:transparent; color:var(--paper-muted); font-size:1.3rem; line-height:1; cursor:pointer; }
-  #about .about-x:hover { color:var(--paper-ink); border-color:var(--paper-muted); }
-  #about .about-portrait { display:block; margin:0 auto 12px; width:200px; height:200px; border-radius:50%;
+  .paper .about-x:hover { color:var(--paper-ink); border-color:var(--paper-muted); }
+  .paper .about-portrait { display:block; margin:0 auto 12px; width:200px; height:200px; border-radius:50%;
     box-shadow:0 6px 22px rgba(0,0,0,.35); }
-  #about h2 { text-align:center; margin:0; font-size:1.7rem; letter-spacing:.01em; }
-  #about .about-sub { text-align:center; margin:2px 0 18px; color:var(--paper-muted); font-style:italic; }
-  #about h3 { margin:20px 0 6px; font-size:1.08rem; border-bottom:1px solid var(--paper-edge); padding-bottom:4px; }
-  #about h3 .ooc { color:var(--paper-muted); font-weight:400; font-size:.9em; }
-  #about p { margin:0 0 .75em; }
-  #about ul { margin:0 0 .75em; padding-left:1.2em; font-family:system-ui, sans-serif; font-size:.94rem; }
-  #about li { margin:.35em 0; }
-  #about .cite-demo { display:inline-block; padding:0 6px; border:1px dotted var(--paper-muted); border-radius:999px; font-size:.75em; font-weight:700; color:var(--paper-muted); }
-  #about .about-foot { text-align:center; color:var(--paper-muted); font-style:italic; font-size:.9rem; margin:16px 0 0; }
-  html[data-view="mobile"] #about .sheet { padding:24px 18px 18px; }
-  html[data-view="mobile"] #about .about-portrait { width:150px; height:150px; }
+  .paper h2 { text-align:center; margin:0; font-size:1.7rem; letter-spacing:.01em; }
+  .paper .about-sub { text-align:center; margin:2px 0 18px; color:var(--paper-muted); font-style:italic; }
+  .paper h3 { margin:20px 0 6px; font-size:1.08rem; border-bottom:1px solid var(--paper-edge); padding-bottom:4px; }
+  .paper h3 .ooc { color:var(--paper-muted); font-weight:400; font-size:.9em; }
+  .paper p { margin:0 0 .75em; }
+  .paper ul { margin:0 0 .75em; padding-left:1.2em; font-family:system-ui, sans-serif; font-size:.94rem; }
+  .paper li { margin:.35em 0; }
+  .paper .cite-demo { display:inline-block; padding:0 6px; border:1px dotted var(--paper-muted); border-radius:999px; font-size:.75em; font-weight:700; color:var(--paper-muted); }
+  .paper .release { margin-top:22px; padding-top:4px; }
+  .paper .release:first-of-type { margin-top:10px; }
+  .paper .release h3 { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+  .paper .release h3 .when { color:var(--paper-muted); font-weight:400; font-size:.8em; white-space:nowrap; }
+  .paper .ooc-label { margin:.6em 0 .2em; color:var(--paper-muted); font-family:system-ui, sans-serif; font-size:.8rem; font-weight:600; letter-spacing:.03em; }
+  .paper .about-foot { text-align:center; color:var(--paper-muted); font-style:italic; font-size:.9rem; margin:16px 0 0; }
+  html[data-view="mobile"] .paper .sheet { padding:24px 18px 18px; }
+  html[data-view="mobile"] .paper .about-portrait { width:150px; height:150px; }
   /* Desktop / Mobile switch */
   .viewtoggle { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   .viewtoggle button { border:0; border-radius:0; display:inline-flex; align-items:center; gap:6px; }
@@ -307,7 +313,7 @@
 <body>
 <div id="app">
 <header>
-  <div class="brand"><h1 id="pname">Ask about DragonRealms</h1><span class="ver" id="pver" hidden></span><span class="tag" id="ptag"></span></div>
+  <div class="brand"><h1 id="pname">Ask about DragonRealms</h1><button type="button" class="ver" id="pver" aria-haspopup="dialog" aria-controls="whatsnew" hidden></button><span class="tag" id="ptag"></span></div>
   <div class="controls">
   <div class="viewtoggle" role="group" aria-label="Layout">
     <button id="vdesk" type="button" aria-pressed="true" title="Desktop layout">
@@ -323,7 +329,15 @@
   <button id="new" type="button" title="Start a fresh conversation">New chat</button>
   </div>
 </header>
-<dialog id="about" aria-labelledby="about-title">
+<dialog id="whatsnew" class="paper" aria-labelledby="whatsnew-title">
+  <div class="sheet">
+    <button type="button" class="about-x" id="whatsnewclose" aria-label="Close">×</button>
+    <h2 id="whatsnew-title">What's new</h2>
+    <p class="about-sub" id="whatsnew-sub"></p>
+    <div id="whatsnewlist"></div>
+  </div>
+</dialog>
+<dialog id="about" class="paper" aria-labelledby="about-title">
   <div class="sheet">
     <button type="button" class="about-x" id="aboutclose" aria-label="Close">×</button>
     <img class="about-portrait" src="/static/fennick_large.png" alt="Fennick, a Halfling Bard in a green feathered cap, with his lute" width="200" height="200">
@@ -626,7 +640,8 @@ async function loadPersona() {
       if (b.chat_model) ver.title = ['QQueryElanthia ' + b.version + (b.commit ? ' (commit ' + b.commit + ')' : ''),
         'chat model ' + b.chat_model + ' · embeddings ' + b.embed_model,
         b.pages.toLocaleString() + ' pages · last updated ' + (b.last_sync || 'never'),
-        'reading from the ' + b.source + ' wiki'].join('\n');
+        'reading from the ' + b.source + ' wiki', '', "Click for what's new"].join('\n');
+      else ver.title = "What's new";
       ver.hidden = false;
     }
     if (persona.local === false) {  // a visitor through a tunnel: no Index panel or Past chats (the server refuses both)
@@ -941,6 +956,42 @@ async function resumeChat(id) {
   setPastVisible(false);
   toEnd(true);
 }
+// What's new: the version badge opens each update, in Fennick's voice and then plainly. With the persona off, only plainly.
+const whatsnew = document.getElementById('whatsnew');
+function renderWhatsNew(releases, inVoice) {
+  const list = document.getElementById('whatsnewlist');
+  list.innerHTML = '';
+  document.getElementById('whatsnew-sub').textContent = inVoice ? 'What has changed in the satchel' : 'Recent updates';
+  releases.forEach(r => {
+    const box = document.createElement('section'); box.className = 'release';
+    const h = document.createElement('h3');
+    const name = document.createElement('span'); name.textContent = 'Version ' + r.version;
+    const when = document.createElement('span'); when.className = 'when'; when.textContent = r.date;
+    h.append(name, when); box.append(h);
+    if (inVoice) {
+      const said = document.createElement('p'); said.textContent = r.fennick; box.append(said);
+      const label = document.createElement('div'); label.className = 'ooc-label'; label.textContent = '(OOC) What changed'; box.append(label);
+    }
+    const ul = document.createElement('ul');
+    r.changes.forEach(c => { const li = document.createElement('li'); li.textContent = c; ul.append(li); });
+    box.append(ul); list.append(box);
+  });
+}
+async function openWhatsNew() {
+  if (typeof whatsnew.showModal === 'function') whatsnew.showModal(); else whatsnew.setAttribute('open', '');
+  whatsnew.querySelector('.sheet').scrollTop = 0;
+  try {
+    const r = await fetch('/api/whats-new');
+    if (!r.ok) throw new Error(r.status);
+    renderWhatsNew((await r.json()).releases, !persona || persona.enabled !== false);
+  } catch (e) {
+    document.getElementById('whatsnewlist').textContent = 'Could not load the latest updates. Try again in a moment.';
+  }
+}
+document.getElementById('pver').addEventListener('click', openWhatsNew);
+document.getElementById('whatsnewclose').addEventListener('click', () => whatsnew.close());
+whatsnew.addEventListener('click', e => { if (e.target === whatsnew) whatsnew.close(); });  // the backdrop, not the page
+whatsnew.addEventListener('close', () => document.getElementById('pver').focus());
 // About Fennick: a page from his notes. Closes with the ×, Escape (the dialog's own), or a click outside the page.
 const about = document.getElementById('about');
 document.getElementById('aboutbtn').addEventListener('click', () => {

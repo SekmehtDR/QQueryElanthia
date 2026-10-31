@@ -454,6 +454,47 @@ def classify(
     console.print(f"page_links: {conn.execute('SELECT count(*) FROM page_links').fetchone()[0]:,}")
 
 
+@app.command("feedback-queue")
+def feedback_queue(
+    include_processed: bool = typer.Option(False, "--all", help="Include votes already worked through"),
+    out: str = typer.Option("data/feedback/queue.json", help="Where to write the full records (data/ is git-ignored)"),
+    limit: int = typer.Option(100, help="How many"),
+) -> None:
+    """Real votes still to be worked through, thumbs-down first, each with the whole chain to that answer. The first step of
+    "process our feedback": see CLAUDE.md."""
+    import json as _json
+    from pathlib import Path
+
+    from .core import feedback
+
+    conn = db.connect(settings())
+    rows = feedback.queue(conn, include_processed, limit)
+    target = Path(out)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_json.dumps(rows, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    for r in rows:
+        t = r["turn"]
+        votes = [v for v in (t["feedback"], f"you: {t['owner_feedback']}" if t["owner_feedback"] else None) if v]
+        asked = next((m["content"] for m in reversed(r["messages"]) if m["role"] == "user"), "")
+        why = ", ".join(feedback.REASONS.get(x, x) for x in t["reasons"])
+        typer.echo(f"#{t['turn_id']}  {', '.join(votes)}  v{t.get('version') or '?'}  {'chain' if t['chain'] else 'no chain'}  "
+                   f"{asked[:80]!r}" + (f"  [{why}]" if why else "") + (f"  note: {t['note']}" if t["note"] else ""))
+    typer.echo(f"{len(rows)} to work through; full records in {target}")
+
+
+@app.command("feedback-done")
+def feedback_done(
+    turns_: list[int] = typer.Argument(..., metavar="TURN...", help="Turn ids from feedback-queue"),
+    note: str = typer.Option(..., help="What was done about it: the fix and its eval question, or why nothing was"),
+) -> None:
+    """Record what was done about a vote, so it leaves the queue. A later change of vote puts it back."""
+    from .core import feedback
+
+    conn = db.connect(settings())
+    for t in turns_:
+        typer.echo(f"#{t}: " + ("done" if feedback.mark_processed(conn, t, note) else "no vote on that turn"))
+
+
 chats_app = typer.Typer(help="Read the conversations people had with the assistant: what to look at, one chat, one answer.")
 app.add_typer(chats_app, name="chats")
 
