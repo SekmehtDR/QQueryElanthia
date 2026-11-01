@@ -83,6 +83,15 @@ def html_to_blocks(html: str) -> list[Block]:
     return html_to_page(html).blocks
 
 
+def _strip_editing_instructions(root: Tag) -> None:
+    """The wiki's collapsed notes telling editors how to fill in a table. They are not knowledge: the model once answered from them,
+    and read "change the i to a w" as being about the prizes."""
+    for table in root.find_all("table", class_="mw-collapsible"):
+        first = table.find("th")
+        if first and first.get_text(strip=True).casefold().startswith("editing instructions"):
+            table.decompose()
+
+
 def html_to_page(html: str) -> ParsedPage:
     soup = BeautifulSoup(html, "lxml")
     root = soup.select_one("div.mw-parser-output") or soup.body or soup
@@ -96,6 +105,7 @@ def html_to_page(html: str) -> ParsedPage:
             el.decompose()
     for el in list(root.find_all(style=re.compile(r"display\s*:\s*none", re.I))):
         el.decompose()
+    _strip_editing_instructions(root)
     notices = _strip_banners(root, html)
 
     blocks = [Block(None, None, None)]

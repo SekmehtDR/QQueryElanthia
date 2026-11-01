@@ -11,7 +11,7 @@ import sqlite_vec
 
 from .config import Settings
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -262,6 +262,7 @@ def migrate(conn: sqlite3.Connection, settings: Settings) -> None:
     _migrate_v5(conn)
     _migrate_v6(conn)
     _migrate_v7(conn)
+    _migrate_v8(conn)
     if get_state(conn, "schema_version") != str(SCHEMA_VERSION):
         set_state(conn, "schema_version", str(SCHEMA_VERSION))
     if get_state(conn, "embed_model") is None:
@@ -306,6 +307,23 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
           PRIMARY KEY (from_page_id, to_page_id)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS ix_links_to ON page_links(to_page_id);
+        """
+    )
+
+
+def _migrate_v8(conn: sqlite3.Connection) -> None:
+    """A thumbs-down's own copy of its conversation, so it can be worked through after the chat is deleted. No foreign key on
+    purpose; turn ids are never reused (AUTOINCREMENT)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vote_records (
+          turn_id        INTEGER PRIMARY KEY,
+          captured_at    TEXT NOT NULL,
+          record         BLOB,
+          diagnosis      TEXT,
+          processed_at   TEXT,
+          processed_note TEXT
+        )
         """
     )
 

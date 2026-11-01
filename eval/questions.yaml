@@ -171,3 +171,16 @@
 - q: "Show me the math, how many ranks?"
   history: ["How many ranks to make a half-handled riste in glaes?"]
   expect_pages: ["Weaponsmithing products", "Crafting", "Tailoring player guide"]
+# Raffles and auctions: answered in code (core/event_prizes.py), from a real thumbs-down on 2026-11-01.
+- q: "Give me a list of the items from here Hollow_Eve_Festival_458/Raffles"
+  kind: event_news
+  expect_pages: ["Hollow Eve Festival 458/Raffles"]
+  history:
+  - "What have been some of the current raffle prizes at this years HE?"
+  - "That's what im looking for, show me the raffles and their outcomes."
+- q: "What have been some of the current raffle prizes at this years HE?"
+  kind: event_news
+  expect_pages: ["Hollow Eve Festival 458/Raffles"]
+- q: "What sold at the Guildfest 453 auction?"
+  kind: event_news
+  expect_pages: ["Guildfest 453/Auction"]

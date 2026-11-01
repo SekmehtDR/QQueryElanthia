@@ -158,3 +158,45 @@ def set_aside(conn: sqlite3.Connection, res: Resolution) -> set[int]:
         if pid not in keep and token in re.split(r"[^a-z0-9]+", norm):
             out.add(pid)
     return out
+
+
+MAX_TITLE_WORDS = 8
+
+
+def named_pages(conn: sqlite3.Connection, text: str) -> list[str]:
+    """Pages a message names outright, in order: the longest run of words that is exactly a title. One word is too weak a sign
+    ("Crossing" in a sentence is not asking for that page) unless it has a subpage's slash."""
+    words = re.sub(r"[_\s]+", " ", text or "").split(" ")
+    words = [w.strip(".,;:!?\"'()[]") for w in words if w]
+    spans = {}
+    for i in range(len(words)):
+        for n in range(1, MAX_TITLE_WORDS + 1):
+            if i + n <= len(words) and (n > 1 or "/" in words[i]):
+                spans[" ".join(words[i:i + n]).casefold()] = (i, n)
+    if not spans:
+        return []
+    keys = list(spans)
+    found = {}
+    for start in range(0, len(keys), 500):  # SQLite's limit on how many values one query takes
+        part = keys[start:start + 500]
+        for r in conn.execute(f"SELECT title, lower(title) FROM pages WHERE lower(title) IN ({','.join('?' * len(part))})", part):
+            found[r[1]] = r[0]
+    chosen: list[tuple[int, int, str]] = []
+    for key, title in sorted(found.items(), key=lambda kv: -spans[kv[0]][1]):  # longest first, so a subpage beats its parent
+        i, n = spans[key]
+        if not any(i < j + m and j < i + n for j, m, _ in chosen):
+            chosen.append((i, n, title))
+    return [t for _, _, t in sorted(chosen)]
+
+
+def explicit_pages(conn: sqlite3.Connection, text: str) -> list[str]:
+    """Pages a message points at on purpose: a subpage's slash, a title typed with underscores, or one in quotes. Saying "the crossing"
+    in a sentence is an ordinary question, and the search and the names step already handle it."""
+    low = (text or "").casefold()
+    out = []
+    for title in named_pages(conn, text):
+        t = title.casefold()
+        if "/" in t or t.replace(" ", "_") in low and " " in t or f'"{t}"' in low:
+            if conn.execute("SELECT 1 FROM pages WHERE title=? AND is_redirect=0", (title,)).fetchone():
+                out.append(title)
+    return out

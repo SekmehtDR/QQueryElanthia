@@ -128,6 +128,11 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     for title, needle in craft_ranks_rules():
         found = _one(conn, "SELECT count(*) FROM chunks WHERE title=? AND instr(text, ?)", title, needle)
         add(f"rule still on {title}", found > 0, f'"{needle}"' if found else f'"{needle}" not found: update core/craft_ranks.py')
+    prizes = _one(conn, "SELECT count(*) FROM facts WHERE domain='event_prize'")
+    raffle_pages = _one(conn, "SELECT count(*) FROM pages WHERE title LIKE '%/Raffles' AND title NOT LIKE 'Talk:%' AND is_redirect=0")
+    add("festival prizes are readable", prizes > 0 or not raffle_pages, f"{prizes:,} prizes and lots from the raffle and auction pages")
+    leftover = _one(conn, "SELECT count(*) FROM chunks WHERE instr(text, 'Editing Instructions')")
+    add("no editing instructions are searchable", leftover == 0, f"{leftover} sections still have them: see text/html2md.py" if leftover else "none")
     tiers = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='craft_tier' AND attribute='base' AND value_num IS NOT NULL")
     add("every crafting tier has a rank figure", tiers == 12, f"{tiers} of 12 tiers")
     products = _one(conn, "SELECT count(*) FROM facts WHERE domain='craft_product' AND attribute='tier' AND value_num IS NOT NULL")

@@ -103,6 +103,7 @@ def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         state["conn"] = connect(settings)
+        feedback.capture_missing(state["conn"])  # thumbs-downs from before their conversations were kept
         state["ollama"] = Ollama(settings.ollama)
         state["assistant"] = Assistant(settings, state["conn"], state["ollama"])
         # always running: the page can switch automatic updates on or off, and the loop reads that setting every minute

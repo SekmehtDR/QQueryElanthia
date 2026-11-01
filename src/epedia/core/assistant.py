@@ -26,6 +26,7 @@ from . import (
     capabilities,
     craft_ranks,
     disciplines,
+    event_prizes,
     grounding,
     hunting,
     layers,
@@ -228,7 +229,7 @@ LIST_LINE = re.compile(r"^[ \t]*(?:[-*â€¢]|\d+[.)])\s.*\n(?:.*\n)*?[ \t]*(?:[-*â
 # page is read directly instead of searching for the words of its address.
 WIKI_LINK = re.compile(r"https?://(?:www\.)?elanthipedia\.play\.net/(?:index\.php\?title=|wiki/)?([^\s?#&<>\"')\]]+)"
                        r"[^\s<>\"')\]]*", re.I)
-PINNED_CHUNKS = 4  # a linked page's opening passages that lead the evidence
+PINNED_OTHERS = 2  # how many passages from other pages may follow a page the person pointed at
 
 
 @dataclass
@@ -475,6 +476,7 @@ class Assistant:
                 passages.append(p)
                 k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
         mats = (plan.prebuilt or craft_ranks.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+                or event_prizes.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
                 or materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url))
         if mats:
             passages = list(mats)  # replaces an items-tool lookup too: the ranking is the whole evidence
@@ -497,6 +499,7 @@ class Assistant:
             pinned = [p for p in self._pinned_passages(plan.pinned) if p["chunk_id"] not in {q["chunk_id"] for q in prior}]
             passages[:0] = pinned
             prior = [*pinned, *prior]
+            k = max(PINNED_OTHERS, k - len(pinned))  # the page asked for keeps its slots: other pages only get what is left
         have = {p["chunk_id"] for p in prior}
         qvec = (await self.ollama.embed(["search_query: " + plan.standalone_question]))[0]
         plan.qvec = qvec  # reused to pick related pages that are really about this question
@@ -660,7 +663,7 @@ class Assistant:
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
         if plan.kind != "meta" and plan.mode in ("search", "items") and not plan.prebuilt:
-            plan.prebuilt = self._craft_ranks(asked, plan, session_id)
+            plan.prebuilt = self._craft_ranks(asked, plan, session_id) or self._event_prizes(asked, plan, session_id)
         gate = grounding.Gate()
         if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt and not plan.pinned:
             # Something the wiki never mentions cannot be answered from it: say so in code, without the model, so it
@@ -918,14 +921,19 @@ class Assistant:
                 ids.append(row[0])
             return f'"{row[1]}"'
 
-        return WIKI_LINK.sub(swap, text), ids
+        text = WIKI_LINK.sub(swap, text)
+        for title in resolve.explicit_pages(self.conn, text):  # typed out, not linked: "items from Hollow_Eve_Festival_458/Raffles"
+            row = self.conn.execute("SELECT page_id FROM pages WHERE title=?", (title,)).fetchone()
+            if row and row[0] not in ids:
+                ids.append(row[0])
+        return text, ids
 
     def _pinned_passages(self, page_ids: list[int]) -> list[dict]:
         out: list[dict] = []
         for pid in page_ids:
             for r in self.conn.execute(
                 "SELECT chunk_id, title, section_path, anchor, text FROM chunks WHERE page_id=? ORDER BY ord LIMIT ?",
-                (pid, PINNED_CHUNKS),
+                (pid, self.s.retrieval.k_final),  # asking for a page means reading it, as far as there is room
             ):
                 out.append({"title": r["title"], "section": r["section_path"], "text": r["text"],
                             "url": page_url(self.s.wiki.base_url, r["title"], r["anchor"]), "chunk_id": r["chunk_id"]})
@@ -986,6 +994,13 @@ class Assistant:
         ready = craft_ranks.passage(self.conn, asked, base, earlier)
         return ready or craft_ranks.passage(self.conn, plan.standalone_question, base, earlier[1:])
 
+    def _event_prizes(self, asked: str, plan: Plan, session_id: str) -> list[dict] | None:
+        """The person's own words first, then the planner's: "who won these?" needs the questions before it."""
+        base = self.s.wiki.base_url
+        earlier = list(reversed(memory.recent_questions(self.conn, session_id)))[1:]  # the newest is this question
+        return (event_prizes.passage(self.conn, asked, base, earlier)
+                or event_prizes.passage(self.conn, plan.standalone_question, base, earlier))
+
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,
         and (with no conversation to resolve and nothing pasted) the crafting tables. Saves the planner call."""
@@ -995,6 +1010,8 @@ class Assistant:
             return None
         question = strip_game_name(asked.strip()) or asked
         base = self.s.wiki.base_url
+        if prizes := event_prizes.passage(self.conn, question, base):
+            return Plan(question, kind="event_news", prebuilt=prizes)
         ready = craft_ranks.passage(self.conn, question, base) or materials.passage(self.conn, question, base)
         if not ready and (disc := disciplines.passage(self.conn, question, base)):
             ready = [disc]

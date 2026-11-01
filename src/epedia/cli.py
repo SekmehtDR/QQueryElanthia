@@ -459,16 +459,30 @@ def feedback_queue(
     include_processed: bool = typer.Option(False, "--all", help="Include votes already worked through"),
     out: str = typer.Option("data/feedback/queue.json", help="Where to write the full records (data/ is git-ignored)"),
     limit: int = typer.Option(100, help="How many"),
+    again: bool = typer.Option(True, "--retest/--no-retest", help="Try each thumbs-down's question on this version (retrieval only; needs Ollama)"),
 ) -> None:
-    """Real votes still to be worked through, thumbs-down first, each with the whole chain to that answer. The first step of
-    "process our feedback": see CLAUDE.md."""
+    """Real votes still to be worked through, thumbs-down first, each with the whole conversation and every turn's chain, where it
+    first went wrong and what to try. The first step of "process our feedback": see CLAUDE.md."""
     import json as _json
     from pathlib import Path
 
-    from .core import feedback
+    from .core import diagnose, feedback
+    from .core.assistant import Assistant
+    from .llm.ollama import Ollama
 
-    conn = db.connect(settings())
+    s = settings()
+    conn = db.connect(s)
     rows = feedback.queue(conn, include_processed, limit)
+
+    async def try_again() -> None:
+        async with Ollama(s.ollama) as ol:
+            assistant = Assistant(s, conn, ol)
+            for r in rows:
+                if r.get("diagnosis") and r["messages"]:
+                    r["retest"] = await diagnose.retest(assistant, conn, r)
+
+    if again and any(r.get("diagnosis") and r["messages"] for r in rows):
+        run(try_again())
     target = Path(out)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(_json.dumps(rows, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
@@ -479,6 +493,19 @@ def feedback_queue(
         why = ", ".join(feedback.REASONS.get(x, x) for x in t["reasons"])
         typer.echo(f"#{t['turn_id']}  {', '.join(votes)}  v{t.get('version') or '?'}  {'chain' if t['chain'] else 'no chain'}  "
                    f"{asked[:80]!r}" + (f"  [{why}]" if why else "") + (f"  note: {t['note']}" if t["note"] else ""))
+        found = r.get("diagnosis")
+        if found:
+            typer.echo(f"    first failure: {found['first_failure']}")
+            for f in found["findings"]:
+                typer.echo(f"    - {f['says']}")
+            for x in found["suggestions"]:
+                typer.echo(f"    try: {x}")
+        again_ = r.get("retest")
+        if again_:
+            typer.echo("    on this version: " + (f"could not check ({again_['error']})" if again_.get("error")
+                       else "written by code now" if again_.get("written_by_code")
+                       else "retrieval looks fixed" if again_.get("looks_fixed")
+                       else "; ".join(again_.get("still") or []) or "nothing to compare (no page named)"))
     typer.echo(f"{len(rows)} to work through; full records in {target}")
 
 

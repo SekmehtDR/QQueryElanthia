@@ -1,7 +1,35 @@
 # Changes
 
-Latest version: **1.10.1** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.12.0** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.12.0: raffles and auctions, written by code (2026-11-01)
+
+- **"What's being raffled at this year's Hollow Eve?" now gets the real list:** each item with who won it, the same item grouped on one line ("treasure map (2): Erolith, Drachekrieger"),
+  the most won first. "This year's" means the festival's newest page. Past 25 different items it shows the most won and links to the rest.
+- **Also by code:** who won one item, what one person won, what was in a numbered raffle, and "who won these?" after a raffle question.
+- **Auctions work the same way, with who bought it and for how much.** A raffle question reads only raffle pages and an auction question only auction pages. If this year's
+  festival has no auction page yet, it says so and gives the latest one.
+- **Editing instructions are gone from the search,** on all 14 pages that had them. They told editors how to fill in a table, and the model kept answering from them.
+- **A page typed out is read:** a slash, underscores or quotes (`Hollow_Eve_Festival_458/Raffles`), or a link, and it now reads the whole page as far as there is room, with fewer other
+  pages crowding it out.
+
+Known limits: the same item means the same words, so slightly different wordings stay on separate lines. A festival's name and year come from the page's title.
+
+Internals: `core/event_prizes.py`; extractor `index/extract/event_prizes.py` (domain `event_prize`); `html2md._strip_editing_instructions`; `resolve.named_pages` and `explicit_pages`;
+`epedia doctor` checks prizes and leftover instructions. After updating: set `indexed_revid` to NULL on pages with the instructions, run `epedia index`, then `epedia enrich`.
+
+## 1.11.0: a vote keeps the whole conversation; a thumbs-down says where it failed (2026-11-01)
+
+- **A thumbs up or down now keeps its own copy of the conversation so far:** every question and answer, and for every turn the passages, the prompt, the drafts and the checks.
+  Deleting the chat, or all chats, leaves that copy alone until the vote is worked through (only the note stays) or taken back. The About window says so.
+- **Code says where it thinks the answer first went wrong and what to try,** in Past chats under "Worth a look" and in `epedia feedback-queue`: a page the question named but
+  the search did not read, one block of text filling the slots, "not listed" when the page has tables, a list made from tables, a person asking the same thing again. These are
+  suggestions and change nothing. A failure it has no check for says "unclear", and no model is asked.
+- **`epedia feedback-queue` tries each thumbs-down's question again on the current version,** retrieval only, because it may be fixed already (`--no-retest` skips it).
+- **The eval export includes the earlier answers,** as comments for whoever checks it by hand.
+
+Internals: `core/diagnose.py`; table `vote_records` (schema 8); `feedback.conversation` returns `earlier`, the record of each turn before the voted one.
 
 ## 1.10.1: no flash on refresh; mobile fits (2026-11-01)
 
@@ -810,4 +838,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.10.1 (2026-11-01)_
+_Last updated: 1.12.0 (2026-11-01)_

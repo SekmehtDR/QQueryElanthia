@@ -137,12 +137,13 @@ def test_an_owners_review_vote_is_queued_beside_the_visitors(conn, settings):
     assert got["turn"]["owner_feedback"] == "down" and got["turn"]["owner_reasons"] == ["missed"] and got["turn"]["feedback"] is None
 
 
-def test_deleting_a_chat_deletes_its_chain_and_its_place_in_the_queue(conn, settings):
+def test_deleting_a_chat_deletes_its_turns_but_a_vote_stays_in_the_queue_with_its_own_copy(conn, settings):
     sid = memory.new_session(conn, "web")
     t = ask(conn, sid, settings, "Binu is a Necromancer [1].").turn_id
     feedback.record(conn, t, "down")
     memory.delete_session(conn, sid)
-    assert feedback.queue(conn) == [] and conn.execute("SELECT count(*) FROM turns WHERE turn_id=?", (t,)).fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM turns WHERE turn_id=?", (t,)).fetchone()[0] == 0
+    assert [r["turn"]["turn_id"] for r in feedback.queue(conn)] == [t]
 
 
 def test_the_commands_write_the_queue_and_mark_it_done(conn, settings, tmp_path, monkeypatch):

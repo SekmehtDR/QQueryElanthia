@@ -219,6 +219,7 @@
   #past .review { padding:6px var(--gutter) 2px; font-size:.82rem; color:var(--muted); }
   #past li.flagged .why { display:block; color:#c9742f; font-size:.78rem; }
   #past li.flagged.liked .why { color:var(--muted); }
+  #past li.flagged .diag { display:block; color:var(--muted); font-size:.76rem; white-space:normal; }
   .theirvote { margin-top:8px; padding:6px 10px; border-left:3px solid #c9742f; color:var(--muted); font-size:.85rem; }
   #past li.flagged .copy { flex:none; border:1px solid var(--line); background:none; color:var(--muted); border-radius:8px; padding:2px 8px; font:inherit; font-size:.78rem; cursor:pointer; }
   #past li.flagged .copy:hover { border-color:var(--accent); color:var(--accent); }
@@ -393,7 +394,8 @@
         him back to write it again, and a line its page doesn't quite support gets a dotted <span class="cite-demo">1?</span>.</li>
       <li><b>He can be wrong.</b> He can misread a page; the page itself can be outdated, because players write the
         wiki; and his copy can lag a little behind the real one. Click any numbered badge to check the source yourself.
-        If an answer is off, a 👎 helps Sekmeht teach him better. Fennick takes it personally, but only for a minute.</li>
+        If an answer is off, a 👎 helps Sekmeht teach him better. Fennick takes it personally, but only for a minute. A 👍 or 👎 keeps a
+        copy of that conversation so far for Sekmeht to review, even if the chat is deleted, until it has been dealt with.</li>
       <li><b>Whose is what:</b> Fennick and the program around him are Sekmeht's work, open source under the
         <a href="https://github.com/SekmehtDR/QQueryElanthia/blob/main/LICENSE" target="_blank" rel="noopener">Apache License 2.0</a>.
         What he knows is not: it comes from <a href="https://elanthipedia.play.net/" target="_blank" rel="noopener">Elanthipedia</a>,
@@ -936,9 +938,12 @@ function showTheirVote(msg, m) {
 async function loadReview() {
   const box = document.getElementById('reviewbox');
   const said = r => [...r.flags, ...(r.reasons || []).map(k => reasonLabel(k))].join(', ') + (r.note ? ': ' + r.note : '');
-  const rowHtml = (r, cls) => `<li class="flagged${cls}"><button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">` +
-      (r.owner && r.owner !== 'local' ? '<span class="who">visitor</span>' : '') + `${esc(r.question)}</span>` +
-      `<span class="why">${esc(said(r))}</span></button>` +
+  // Where code thinks it first went wrong and what to try. Suggestions only: working through a vote is still by hand.
+  const diag = d => !d ? '' : `<span class="diag">First failure: ${esc(d.first_failure)}. ${esc(d.suggestions[0] || '')}</span>`;
+  const rowHtml = (r, cls) => `<li class="flagged${cls}"><button type="button" class="pick" data-id="${esc(r.session_id || '')}"><span class="ttl">` +
+      (r.owner && r.owner !== 'local' ? '<span class="who">visitor</span>' : '') +
+      (r.chat_deleted ? '<span class="who">chat deleted</span>' : '') + `${esc(r.question)}</span>` +
+      `<span class="why">${esc(said(r))}</span>${diag(r.diagnosis)}</button>` +
       `<button type="button" class="copy" data-eval="${r.turn_id}" title="Copy as a question for the evaluation set">Copy as eval</button></li>`;
   try {
     const [rows, liked] = await Promise.all(['/api/review/turns?limit=8', '/api/review/turns?liked=true&limit=8'].map(async u => (await fetch(u)).json()));
@@ -951,7 +956,7 @@ async function loadReview() {
 }
 document.getElementById('reviewbox').addEventListener('click', async e => {
   const copy = e.target.closest('[data-eval]'), pick = e.target.closest('.pick');
-  if (pick) { resumeChat(pick.dataset.id); return; }
+  if (pick) { if (pick.dataset.id) resumeChat(pick.dataset.id); return; }
   if (!copy) return;
   try {
     const d = await (await fetch('/api/review/turns/' + copy.dataset.eval + '/eval')).json();

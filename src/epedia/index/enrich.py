@@ -11,6 +11,7 @@ from typing import Any
 from ..db import set_state, transaction
 from .extract import REGISTRY
 from .extract import crafting as _crafting  # noqa: F401  (registers itself)
+from .extract import event_prizes as _event_prizes  # noqa: F401  (registers itself)
 from .extract import materials as _materials  # noqa: F401  (registers itself)
 from .extract import names as _names  # noqa: F401  (registers itself)
 from .topics import build as build_topics

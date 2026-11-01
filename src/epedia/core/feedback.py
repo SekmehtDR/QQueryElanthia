@@ -5,18 +5,26 @@ disliked it.
 A vote lives in `turns.feedback` ("up" or "down"), `turns.feedback_reason` (JSON: the reasons picked and a note) and
 `turns.feedback_at`. That is the vote of whoever asked. The owner reading a visitor's chat votes in `turns.owner_feedback*`
 instead, so reviewing never replaces what the visitor said. Votes come only from people clicking on the page; nothing writes
-one on anyone's behalf. Deleting a conversation deletes its turns, votes included."""
+one on anyone's behalf. Deleting a conversation deletes its turns, votes included.
+
+A vote also takes a copy of the whole conversation so far into `vote_records`, with everything recorded for every turn and, for a
+thumbs-down, what `diagnose` makes of it. That copy outlives the chat, until the vote is worked through (then only the note stays) or
+taken back. What people liked is worth learning from too, and worth a regression case."""
 
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Any
 
 import yaml
 
 from ..util import utcnow_iso
-from .turns import unpack_chain
+from . import diagnose
+from .turns import pack_chain, unpack_chain
+
+log = logging.getLogger(__name__)
 
 # The reasons a thumbs-down offers (the page shows the labels; the keys are what is stored).
 REASONS = {
@@ -49,7 +57,45 @@ def record(conn: sqlite3.Connection, turn_id: int, vote: str | None, reasons: li
     # a changed vote has not been worked through, whatever was done about the old one
     conn.execute(f"UPDATE turns SET {columns}, processed_at=NULL, processed_note=NULL WHERE turn_id=?",
                  (vote, reason, utcnow_iso() if vote else None, turn_id))
+    _keep_record(conn, turn_id)
     return {"vote": vote, "reasons": picked, "note": note}
+
+
+def _keep_record(conn: sqlite3.Connection, turn_id: int) -> None:
+    """A turn with a vote has a record, as of the latest vote; one without has none. A failure here must not lose the vote."""
+    try:
+        row = conn.execute("SELECT feedback, owner_feedback FROM turns WHERE turn_id=?", (turn_id,)).fetchone()
+        if row is None:
+            return
+        if not row[0] and not row[1]:
+            conn.execute("DELETE FROM vote_records WHERE turn_id=?", (turn_id,))
+            return
+        got = conversation(conn, turn_id)
+        found = json.dumps(diagnose.diagnose(conn, got), ensure_ascii=False) if "down" in (row[0], row[1]) else None
+        conn.execute("INSERT OR REPLACE INTO vote_records(turn_id, captured_at, record, diagnosis) VALUES (?, ?, ?, ?)",
+                     (turn_id, utcnow_iso(), pack_chain(got), found))
+    except Exception:
+        log.exception("could not keep the record of vote %s", turn_id)
+
+
+def capture_missing(conn: sqlite3.Connection) -> int:
+    """Records for votes cast before records existed. Returns how many."""
+    rows = conn.execute("SELECT turn_id FROM turns WHERE (feedback IS NOT NULL OR owner_feedback IS NOT NULL) "
+                        "AND turn_id NOT IN (SELECT turn_id FROM vote_records)").fetchall()
+    for r in rows:
+        _keep_record(conn, r[0])
+    return len(rows)
+
+
+def stored(conn: sqlite3.Connection, turn_id: int) -> dict[str, Any] | None:
+    """A kept record with its diagnosis and whether it has been worked through, or None."""
+    r = conn.execute("SELECT * FROM vote_records WHERE turn_id=?", (turn_id,)).fetchone()
+    if r is None:
+        return None
+    got = unpack_chain(r["record"])
+    got["diagnosis"] = json.loads(r["diagnosis"]) if r["diagnosis"] else None
+    got["turn"].update(processed_at=r["processed_at"], processed_note=r["processed_note"])
+    return got
 
 
 def parse_reason(text: str | None) -> dict:
@@ -82,26 +128,32 @@ def votes(conn: sqlite3.Connection, vote: str | None = "down", since: str | None
     return out[:limit]
 
 
+def _turn_record(t: sqlite3.Row) -> dict[str, Any]:
+    out = {k: t[k] for k in t.keys() if k != "chain"}
+    out["chain"] = unpack_chain(t["chain"])
+    for k in ("plan_json", "grounding_json", "verify_json"):
+        out[k.removesuffix("_json")] = json.loads(out.pop(k)) if t[k] else None
+    out.update(parse_reason(out.pop("feedback_reason")))
+    own = parse_reason(out.pop("owner_feedback_reason"))
+    out.update(owner_reasons=own["reasons"], owner_note=own["note"])
+    return out
+
+
 def conversation(conn: sqlite3.Connection, turn_id: int) -> dict[str, Any] | None:
-    """A voted turn with the conversation up to and including it, and its full record (plan, retrieval signals,
-    checks), for working out what went wrong."""
+    """A voted turn with the conversation up to and including it, and the full record (plan, retrieval signals, passages, what the
+    model was sent, drafts, checks) of it and of every turn before it, for working out what went wrong: the first answer to miss
+    is usually the real failure."""
     t = conn.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone()
     if t is None:
         return None
     upto = t["assistant_msg_id"] or t["user_msg_id"]
     msgs = conn.execute(
-        "SELECT m.msg_id, m.role, m.content, m.standalone_q, m.mode, m.kind, tt.feedback, tt.owner_feedback FROM messages m "
+        "SELECT m.msg_id, m.role, m.content, m.standalone_q, m.mode, m.kind, m.sources, m.cited, tt.feedback, tt.owner_feedback FROM messages m "
         "LEFT JOIN turns tt ON tt.assistant_msg_id = m.msg_id WHERE m.session_id=? AND m.msg_id<=? ORDER BY m.msg_id",
         (t["session_id"], upto),
     ).fetchall()
-    record_ = {k: t[k] for k in t.keys() if k != "chain"}
-    record_["chain"] = unpack_chain(t["chain"])
-    for k in ("plan_json", "grounding_json", "verify_json"):
-        record_[k.removesuffix("_json")] = json.loads(record_.pop(k)) if t[k] else None
-    record_.update(parse_reason(record_.pop("feedback_reason")))
-    own = parse_reason(record_.pop("owner_feedback_reason"))
-    record_.update(owner_reasons=own["reasons"], owner_note=own["note"])
-    return {"turn": record_, "messages": [dict(m) for m in msgs]}
+    earlier = conn.execute("SELECT * FROM turns WHERE session_id=? AND turn_id<? ORDER BY turn_id", (t["session_id"], turn_id)).fetchall()
+    return {"turn": _turn_record(t), "earlier": [_turn_record(e) for e in earlier], "messages": [dict(m) for m in msgs]}
 
 
 # Marked lines and rewritten drafts are noted on an entry but do not put it on the list: most answers have one, and a list
@@ -152,6 +204,8 @@ def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = N
         row.update(owner_reasons=own["reasons"], owner_note=own["note"])
         row["checks"] = json.loads(r["verify_json"]) if r["verify_json"] else {}
         row["flags"] = why_flagged(row)
+        kept = conn.execute("SELECT diagnosis FROM vote_records WHERE turn_id=?", (r["turn_id"],)).fetchone()
+        row["diagnosis"] = json.loads(kept[0]) if kept and kept[0] else None
         if liked:
             row["flags"] = [t for t, cast in (("thumbs up", row["feedback"]), ("your thumbs up", row["owner_feedback"])) if cast == "up"]
             keep = bool(row["flags"])
@@ -161,29 +215,50 @@ def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = N
             out.append(row)
         if len(out) >= limit:
             break
+    if flagged and not liked and since is None and frontend == "web":
+        out = sorted([*out, *_deleted_chats(conn, owner)], key=lambda x: ("thumbs down" in x["flags"] or "your thumbs down" in x["flags"], x["turn_id"]), reverse=True)[:limit]
+    return out
+
+
+def _deleted_chats(conn: sqlite3.Connection, owner: str | None) -> list[dict]:
+    """Thumbs-downs still to be worked through whose chat is gone: there is nothing to open, but the record is there."""
+    out = []
+    for r in conn.execute("SELECT turn_id FROM vote_records WHERE processed_at IS NULL AND diagnosis IS NOT NULL "
+                          "AND turn_id NOT IN (SELECT turn_id FROM turns)").fetchall():
+        got = stored(conn, r[0])
+        t = got["turn"]
+        who = t.get("owner") or "local"
+        if owner is not None and not (who != "local" if owner == "visitors" else who == owner):
+            continue
+        asked = next((m["content"] for m in reversed(got["messages"]) if m["role"] == "user"), "")
+        out.append({"turn_id": t["turn_id"], "session_id": None, "chat_deleted": True, "owner": who, "question": asked,
+                    "reasons": t.get("reasons") or [], "note": t.get("note") or "", "checks": t.get("verify") or {},
+                    "flags": ["thumbs down" if t.get("feedback") == "down" else "your thumbs down"], "diagnosis": got["diagnosis"]})
     return out
 
 
 def eval_item(conn: sqlite3.Connection, turn_id: int) -> str | None:
     """A turn as a skeleton for eval/questions.yaml, to check and paste by hand: nothing joins the evaluation set by itself,
     and the pages it expects are only what the answer cited, which is the first thing to doubt in a bad answer."""
-    t = conn.execute(
-        "SELECT t.session_id, t.user_msg_id, u.content, u.standalone_q, u.kind, u.mode, a.sources, a.cited FROM turns t "
-        "JOIN messages u ON u.msg_id=t.user_msg_id LEFT JOIN messages a ON a.msg_id=t.assistant_msg_id WHERE t.turn_id=?",
-        (turn_id,)).fetchone()
-    if t is None:
+    got = conversation(conn, turn_id) or stored(conn, turn_id)
+    if got is None or not got["messages"]:
         return None
-    cited = set(json.loads(t["cited"])) if t["cited"] else set()
-    sources = json.loads(t["sources"]) if t["sources"] else []
+    msgs, turn = got["messages"], got["turn"]
+    asked = next((m for m in msgs if m["msg_id"] == turn.get("user_msg_id")), msgs[-1])
+    said = next((m for m in msgs if m["msg_id"] == turn.get("assistant_msg_id")), {})
+    cited = set(json.loads(said["cited"])) if said.get("cited") else set()
+    sources = json.loads(said["sources"]) if said.get("sources") else []
     pages = list(dict.fromkeys(s["title"] for s in sources if s.get("n") in cited and s.get("title")))
-    earlier = [r[0] for r in conn.execute("SELECT content FROM messages WHERE session_id=? AND role='user' AND msg_id<? ORDER BY msg_id",
-                                          (t["session_id"], t["user_msg_id"]))]
-    item: dict[str, Any] = {"q": t["content"], "kind": t["kind"] or "general", "expect_pages": pages}
-    if earlier:
-        item["history"] = earlier
-    if t["mode"] and t["mode"] != "search":
-        item["mode"] = t["mode"]
+    before = [m for m in msgs if m["msg_id"] < asked["msg_id"]]
+    item: dict[str, Any] = {"q": asked["content"], "kind": asked.get("kind") or "general", "expect_pages": pages}
+    if before:
+        item["history"] = [m["content"] for m in before if m["role"] == "user"]
+    if asked.get("mode") and asked["mode"] != "search":
+        item["mode"] = asked["mode"]
+    # the answers are for whoever checks this by hand, so comments: an evaluation case replays only the questions
+    leading = "".join(f"# {m['role']}: " + " ".join((m["content"] or "").split()) + "\n" for m in before)
     return ("# Check before adding to eval/questions.yaml: expect_pages is only what this answer cited.\n"
+            + (f"# The conversation before it:\n{leading}" if leading else "")
             + yaml.safe_dump([item], allow_unicode=True, sort_keys=False, width=110))
 
 
@@ -191,15 +266,21 @@ def queue(conn: sqlite3.Connection, include_processed: bool = False, limit: int 
     """Real votes still to be worked through, thumbs-down first: each with its conversation up to that answer and everything
     recorded on the way to it (what the planner was given and decided, the passages, what the model was sent, its drafts, the
     checks, the version that wrote it). Answers from before chains were kept have an empty one."""
-    rows = conn.execute(
-        "SELECT turn_id FROM turns WHERE (feedback IS NOT NULL OR owner_feedback IS NOT NULL) AND (? OR processed_at IS NULL) "
-        "ORDER BY (coalesce(feedback, '')='down' OR coalesce(owner_feedback, '')='down') DESC, turn_id DESC LIMIT ?",
-        (int(include_processed), limit)).fetchall()
-    return [c for c in (conversation(conn, r[0]) for r in rows) if c]
+    capture_missing(conn)
+    rows = conn.execute("SELECT turn_id FROM vote_records WHERE ? OR processed_at IS NULL ORDER BY diagnosis IS NOT NULL DESC, turn_id DESC LIMIT ?",
+                        (int(include_processed), limit)).fetchall()
+    return [c for c in (stored(conn, r[0]) for r in rows) if c]
 
 
 def mark_processed(conn: sqlite3.Connection, turn_id: int, note: str) -> bool:
-    """Record what was done about a vote, so the next run does not start on it again."""
-    cur = conn.execute("UPDATE turns SET processed_at=?, processed_note=? WHERE turn_id=? AND (feedback IS NOT NULL OR owner_feedback IS NOT NULL)",
-                       (utcnow_iso(), note.strip(), turn_id))
-    return cur.rowcount > 0
+    """Record what was done about a vote, so the next run does not start on it again. A kept copy of the conversation has done its
+    job, so only the note and the diagnosis stay."""
+    now, note = utcnow_iso(), note.strip()
+    live = conn.execute("UPDATE turns SET processed_at=?, processed_note=? WHERE turn_id=? AND (feedback IS NOT NULL OR owner_feedback IS NOT NULL)",
+                        (now, note, turn_id)).rowcount
+    got = stored(conn, turn_id)
+    if got:
+        keep = ("turn_id", "feedback", "owner_feedback", "reasons", "note", "version", "owner")
+        slim = {"turn": {**{k: got["turn"].get(k) for k in keep}, "chain": {}}, "earlier": [], "messages": []}
+        conn.execute("UPDATE vote_records SET record=?, processed_at=?, processed_note=? WHERE turn_id=?", (pack_chain(slim), now, note, turn_id))
+    return bool(live or got)

@@ -79,7 +79,8 @@ Beyond text chunks the index carries derived layers, all rebuilt by the pipeline
   `core/hunting.py` does the same for the ladder, and `core/disciplines.py` lists the crafting skills, their disciplines and
   guides from the Crafting page's own list. `core/craft_ranks.py` answers "how many ranks to mastercraft X in Y?": workability
   (materials table), multiplier (the Crafting page's formula), tier (`craft_product`, every products page's Difficulty column) and rank
-  figure (`craft_tier`, the Crafting chart, then the Tailoring player guide).
+  figure (`craft_tier`, the Crafting chart, then the Tailoring player guide). `core/event_prizes.py` answers what was raffled or auctioned and who
+  won it, from each festival's own table (`event_prize`).
 - **What names mean** (`index/extract/names.py`, domain `name_meaning`): 172 stated meanings, read only from fixed phrasings
   that name a language (`X (Rakash for "...")`, `X means "..." in Rakash`). A sentence that does not say what it is naming
   gives nothing. `core/names.py` answers a pure "what does X mean?" in code and supplies the meaning to layered answers.
@@ -456,7 +457,7 @@ done in code. `persona.enabled = false` restores plain answers.
  │           memory (conversations, summary, anchor) · turns (the record of each turn) · feedback (votes, review, eval export) ·
  │           grounding (decline what the wiki never mentions) · verify (check the answer) · attribution (tag uncited lines) ·
  │           capabilities · dates (past/upcoming) · userinput (pasted text) · items_tool (SMW ask + local fallback) ·
- │           hunting (ladder) · materials (rankings, colours) · disciplines · craft_ranks (ranks to mastercraft)
+ │           hunting (ladder) · materials (rankings, colours) · disciplines · craft_ranks (ranks to mastercraft) · event_prizes (raffles, auctions)
  ├─ frontends/web/  app.py (FastAPI) · access (owner or visitor) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
  └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, scripts, refusals) · faithfulness · offers (replay) · layers (which pages each part reads)
  tests/  pytest suite + saved action=parse fixtures
@@ -477,4 +478,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.10.1 (2026-11-01)_
+_Last updated: 1.12.0 (2026-11-01)_

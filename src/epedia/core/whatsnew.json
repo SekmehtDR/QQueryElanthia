@@ -1,5 +1,23 @@
 [
   {
+    "version": "1.12.0",
+    "date": "2026-11-01",
+    "fennick": "Ask me who won what at the raffles and I used to read you the instructions for filling in the form. Twice, I'm told, with confidence. Now I read the actual table: what's been drawn at this year's festival, who won it, and if ten people won the same thing, that's one line. Auctions too, though I keep the two apart.",
+    "changes": [
+      "Ask what's being raffled or auctioned at a festival, and you get the items and who won them, with repeats grouped.",
+      "You can also ask who won one item, what one person won, or what was in a numbered raffle.",
+      "Typing out a page's name, like Hollow_Eve_Festival_458/Raffles, now reads that page."
+    ]
+  },
+  {
+    "version": "1.11.0",
+    "date": "2026-11-01",
+    "fennick": "When someone tells me I got it wrong, I used to remember only the last thing I said. A poor way to learn: it's usually the first wrong turn that matters. Now a thumbs down keeps the whole conversation, so Sekmeht and I can walk back and find where I went astray.",
+    "changes": [
+      "A thumbs down now keeps a copy of the conversation so far for review, even if the chat is later deleted, until it has been dealt with."
+    ]
+  },
+  {
     "version": "1.10.1",
     "date": "2026-11-01",
     "fennick": "I used to fumble in the doorway every time you came in, dropping notes and showing you things that weren't for you. I've tidied up. Now I wait until I'm ready, then I'm simply here.",
