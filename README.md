@@ -153,8 +153,24 @@ Each stage is keyed by revision, so reruns and updates only touch what changed.
 
 Source in `src/epedia/`, tests in `tests/`, evaluation sets in `eval/`. See `ARCHITECTURE.md` for detail.
 
-## Limits and credits
+## Limits
 
-Answers are only as good as the wiki and an 8B model; check the linked pages. All knowledge comes from the
-community-written Elanthipedia. DragonRealms is a game by Simutronics; this is an unofficial fan tool, not affiliated
-with either.
+Answers are only as good as the wiki and an 8B model; check the linked pages.
+
+## License and credits
+
+Created by **Sekmeht**. The harness (code, prompts, tools, tests) and the persona of Fennick (his personality, voice,
+original backstory and portrait) are copyright Sekmeht and open source under the [Apache License 2.0](LICENSE). Anyone may use,
+change and share them, keeping the credit in [NOTICE](NOTICE). The license does not grant the names, so a changed version
+should not present itself as the original.
+
+These are not Sekmeht's, and the license does not cover them:
+
+- **[Elanthipedia](https://elanthipedia.play.net/):** all of Fennick's knowledge comes from this player-written wiki. Its
+  content belongs to its contributors and is offered under
+  [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) unless a page says otherwise. That includes the saved pages
+  in `tests/fixtures/`.
+- **[Ollama](https://ollama.com/) and the models:** Ollama runs `qwen3:8b` and `nomic-embed-text`. None of them is included here;
+  each has its own makers and license.
+- **DragonRealms and the world of Elanthia:** these belong to Simutronics. This is an unofficial fan tool, not affiliated with or
+  endorsed by Simutronics, Elanthipedia or Ollama.

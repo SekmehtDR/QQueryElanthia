@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.8.1",
+    "date": "2026-10-31",
+    "fennick": "Sekmeht has put it in writing at last: this halfling and the whole contraption around him are Sekmeht's work, and anyone may borrow them so long as the credit stays. The great book is another matter. The players wrote that, and every page of it is theirs. I only carry the copies, and my back would like that noted.",
+    "changes": [
+      "Fennick and this program are now open source under the Apache License 2.0, with credit to Sekmeht.",
+      "The About window now says whose is what: Elanthipedia's pages are its players', and DragonRealms and Elanthia are Simutronics'."
+    ]
+  },
+  {
     "version": "1.8.0",
     "date": "2026-10-31",
     "fennick": "Anyone arriving at my door used to get a plain little box and no greeting at all, which is no way for a bard to behave. Now I say hello myself, and if your code won't open the satchel, I'll tell you who to ask. And since a note nobody reads is no use to anyone, there's a shiny button now, right up top. You found it. Well done.",

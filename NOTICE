@@ -1,0 +1,40 @@
+QQueryElanthia, with its character Fennick
+Copyright 2026 Sekmeht
+
+Created by Sekmeht and licensed under the Apache License, Version 2.0 (see LICENSE).
+
+WHAT THIS COPYRIGHT AND LICENSE COVER
+
+  - The harness: the code, prompts, tools, tests and evaluation sets written for this project.
+  - The persona: Fennick's personality, voice and original backstory, and his portrait.
+
+Anyone may use, change and share these under the license, and must keep this notice when they
+redistribute them.
+
+Section 6 of the license gives no permission to use the names "QQueryElanthia", "Fennick" or
+"Sekmeht", beyond what is needed to describe where the work came from and to reproduce this notice.
+A changed version should not be presented as the original or as Sekmeht's own.
+
+WHAT THEY DO NOT COVER
+
+None of the following belongs to Sekmeht or is licensed by this project:
+
+  - Elanthipedia (https://elanthipedia.play.net/) is the player-written wiki that Fennick's answers
+    are grounded in. Its contributors wrote its content, which it offers under the Creative Commons
+    Attribution-ShareAlike 3.0 license, unless a page says otherwise. Any wiki text in this repository,
+    including the saved pages in tests/fixtures/, stays under the wiki's terms. So does wiki text
+    repeated in an answer.
+
+  - Ollama (https://ollama.com/) is separate software that runs the language models. It is not
+    included here and has its own license.
+
+  - The models this project uses by default, qwen3:8b and nomic-embed-text, belong to their makers.
+    They are not included here and have their own licenses.
+
+  - DragonRealms and the world of Elanthia, including its places, races, guilds and gods, belong to
+    Simutronics. Fennick's story is set in that world; only what is original to him is covered above.
+
+  - The Python libraries this project depends on are not included here and have their own licenses.
+
+This is an unofficial fan project. It is not affiliated with or endorsed by Simutronics,
+Elanthipedia or Ollama.

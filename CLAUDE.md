@@ -93,6 +93,8 @@ data/         wiki.db and logs (git-ignored)
   **Every commit updates it**, documentation included: a new version gets an entry, anything else adds to the newest entry. It is
   read on every request, so no restart. `tools/hooks/pre-commit` refuses a commit without it (`git config core.hooksPath
   tools/hooks` on a fresh clone); a test fails if the running version has no entry.
+- **License:** Apache-2.0, copyright Sekmeht. `LICENSE` stays the unedited text; credit and what is not Sekmeht's go in `NOTICE`. Wiki
+  text stays under the wiki's CC BY-SA 3.0, so never describe it as Apache-licensed, and add any new third-party material to `NOTICE`.
 - **Pages are identified by title**, never by the wiki's page id (ids and revision numbers differ between the
   original wiki and any mirror). `pages.page_id` is purely internal.
 - **Every pipeline stage is idempotent and keyed by revision:** `latest_revid -> fetched_revid -> indexed_revid ->
@@ -179,4 +181,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.8.0 (2026-10-31)_
+_Last updated: 1.8.1 (2026-10-31)_

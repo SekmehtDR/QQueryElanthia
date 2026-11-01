@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools>=77", "wheel"]  # 77 reads the license fields below
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "qqueryelanthia"
 dynamic = ["version"]  # read from epedia.__version__ (see [tool.setuptools.dynamic])
 description = "QQueryElanthia: Fennick, a local storyteller's guide to DragonRealms, answering from Elanthipedia (RAG, Ollama-backed)"
 requires-python = ">=3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     "httpx>=0.28",
     "beautifulsoup4>=4.14",

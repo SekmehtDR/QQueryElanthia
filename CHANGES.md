@@ -1,7 +1,16 @@
 # Changes
 
-Latest version: **1.8.0** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.8.1** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.8.1: open source, with credit where it belongs (2026-10-31)
+
+- **QQueryElanthia is now open source under the Apache License 2.0,** copyright Sekmeht. `NOTICE` credits Sekmeht for the harness and
+  for Fennick's persona, and anyone redistributing them must keep it.
+- **What is not Sekmeht's is set apart in `NOTICE`, the README and the About window:** Elanthipedia's content (its contributors', under
+  CC BY-SA 3.0, including the saved pages in `tests/fixtures/`), Ollama and the models, and DragonRealms and Elanthia (Simutronics').
+
+Internals: `pyproject.toml` declares the license and now needs setuptools 77 or later to build; `tests/test_license.py`.
 
 ## 1.8.0: Fennick at the door; a What's new button (2026-10-31)
 
@@ -762,4 +771,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.8.0 (2026-10-31)_
+_Last updated: 1.8.1 (2026-10-31)_
