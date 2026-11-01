@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.10.0",
+    "date": "2026-11-01",
+    "fennick": "A bard learns to listen to the room. When two different folk bring me the same question within a couple of days, I mark it with a little fire, so you can see what everyone's talking about. I don't say who asked. A good bard never does.",
+    "changes": [
+      "Questions under \"Others are asking\" get a fire when two or more people have asked them in the last two days."
+    ]
+  },
+  {
     "version": "1.9.0",
     "date": "2026-11-01",
     "fennick": "I'm told I once worked out a very difficult riste as eleven ranks, and then defended it. So I've stopped doing crafting sums in my head. Ask how many ranks it takes to mastercraft a thing in a given material, and the sum comes straight from my notes, one step at a time, each number tied to its page. It won't always be good news. A plain riste in glaes can't be done, and I'll say so first.",

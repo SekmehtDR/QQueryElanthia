@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -98,14 +99,14 @@ def test_each_visitor_has_private_chats_the_owner_and_other_visitors_cannot_see(
         # same as the owner's (their Past chats), and a visitor's own questions are not in it
         for cl in (a, b):
             assert cl.get("/api/sessions", headers=TUNNEL).status_code == 403
-            assert cl.get("/api/recent-questions", headers=TUNNEL).json() == {"questions": ["my private question?"]}
+            assert cl.get("/api/recent-questions", headers=TUNNEL).json()["questions"] == ["my private question?"]
         assert a.get(f"/api/sessions/{sid}/messages", headers=TUNNEL).status_code == 403
         assert b.get(f"/api/sessions/{mine}/messages", headers=TUNNEL).status_code == 403  # nor the owner's
         assert b.delete(f"/api/sessions/{sid}", headers={**TUNNEL, "X-QQE": "1"}).status_code == 404
         assert a.delete(f"/api/sessions/{sid}", headers={**TUNNEL, "X-QQE": "1"}).status_code == 200
         owner_view = a.get("/api/sessions")  # the same client, now without tunnel headers: the owner at the computer
         assert owner_view.status_code == 200 and [r["title"] for r in owner_view.json()] == ["my private question"]
-        assert a.get("/api/recent-questions").json() == {"questions": ["my private question?"]}
+        assert a.get("/api/recent-questions").json()["questions"] == ["my private question?"]
 
 
 def test_delete_all_clears_every_page_chat_and_only_from_this_computer(tmp_path):
@@ -164,7 +165,7 @@ def test_recent_questions_are_everyones_newest_first_and_go_with_deleted_chats(t
     with TestClient(create_app(s), base_url="https://testserver") as cl:
         cl.post("/login", json={"code": CODE}, headers=TUNNEL)
         for headers in ({}, TUNNEL):  # the owner and a visitor see the same list
-            assert cl.get("/api/recent-questions", headers=headers).json() == {"questions": ["Is a visitor's question shown?"]}
+            assert cl.get("/api/recent-questions", headers=headers).json()["questions"] == ["Is a visitor's question shown?"]
         # the owner can open the visitor's chat (to read and clean up); a visitor cannot list or open chats at all
         listed = cl.get("/api/sessions").json()
         assert [(r["title"], r["owner"]) for r in listed] == [("Is a visitor's question shown?", "someone-else")]
@@ -172,7 +173,39 @@ def test_recent_questions_are_everyones_newest_first_and_go_with_deleted_chats(t
         assert got["owner"] == "someone-else" and got["messages"][0]["content"] == "Is a visitor's question shown?"
         assert cl.get(f"/api/sessions/{visitor}/messages", headers=TUNNEL).status_code == 403
         assert cl.delete(f"/api/sessions/{visitor}", headers=LOCAL).json() == {"deleted": True}
-        assert cl.get("/api/recent-questions").json() == {"questions": []}  # the page then says nobody has asked
+        assert cl.get("/api/recent-questions").json()["questions"] == []  # the page then says nobody has asked
+
+
+def test_a_question_is_hot_when_different_people_asked_it_lately(tmp_path):
+    s = make(tmp_path)
+    c = connect(s)
+
+    def asked(owner, question, mode="search", frontend="web"):
+        sid = memory.new_session(c, frontend, owner=owner)
+        msg = memory.add_message(c, sid, "user", question)
+        memory.note_plan(c, msg, question, mode, "general")
+        return msg
+
+    asked("ann", "Who are the dragon priests?")
+    asked("bob", "who are the  DRAGON priests")  # the same question in other clothes
+    asked("ann", "What metals are yellow?")  # one person, asked again and in another chat: not hot
+    asked("ann", "What metals are yellow?")
+    asked("ann", "Where is Crossing?")  # a second person, but the first asked too long ago
+    old = asked("bob", "Where is Crossing?")
+    stale = (datetime.now(UTC) - timedelta(hours=memory.HOT_HOURS + 1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    c.execute("UPDATE messages SET created_at=? WHERE msg_id=?", (stale, old))
+    asked("ann", "How do I forge?")  # the terminal is not the page
+    asked("bob", "How do I forge?", frontend="cli")
+    asked("ann", "Who is Zarnak?", mode="declined")  # declined questions are never listed, so never hot
+    asked("bob", "Who is Zarnak?", mode="declined")
+    questions = memory.recent_user_questions(c)
+    assert memory.hot_questions(c, questions) == ["who are the DRAGON priests"]
+    c.close()
+    with TestClient(create_app(s), base_url="https://testserver") as cl:
+        cl.post("/login", json={"code": CODE}, headers=TUNNEL)
+        for headers in ({}, TUNNEL):  # the owner and a visitor see the same fire; neither sees who asked or how many
+            got = cl.get("/api/recent-questions", headers=headers).json()
+            assert set(got) == {"questions", "hot"} and got["hot"] == ["who are the DRAGON priests"]
 
 
 def test_a_deleted_or_foreign_chat_id_in_a_message_starts_a_fresh_conversation(tmp_path, monkeypatch):

@@ -424,7 +424,7 @@ server stops any running job when it shuts down.
 
 FastAPI serves one static page and a few JSON endpoints: `POST /api/chat` (Server-Sent Events: `sources`, `token`,
 `revise`, `done` with the final text, related pages and any choices, `error`), `/api/persona`, `/api/version`, `/api/status`,
-`/api/sessions`, `/api/recent-questions`, `POST /api/turns/{id}/feedback`, `GET /api/review/turns`,
+`/api/sessions`, `/api/recent-questions` (with which are hot), `POST /api/turns/{id}/feedback`, `GET /api/review/turns`,
 `GET /api/review/turns/{id}/eval`, `GET /api/index/info`, `POST /api/index/start|stop`, and `/static/*` (portraits, `render.js`).
 
 ## Persona
@@ -477,4 +477,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.9.0 (2026-11-01)_
+_Last updated: 1.10.0 (2026-11-01)_

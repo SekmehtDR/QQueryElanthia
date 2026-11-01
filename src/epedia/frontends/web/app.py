@@ -374,7 +374,8 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/api/recent-questions")
     async def recent_questions(request: Request) -> dict:
-        return {"questions": memory.recent_user_questions(state["conn"], limit=RECENT_QUESTIONS)}
+        questions = memory.recent_user_questions(state["conn"], limit=RECENT_QUESTIONS)
+        return {"questions": questions, "hot": memory.hot_questions(state["conn"], questions)}
 
     @app.get("/api/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str) -> dict:

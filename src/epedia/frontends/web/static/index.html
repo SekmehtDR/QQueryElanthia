@@ -127,6 +127,7 @@
   .recent { margin-top:12px; }
   .recent-none { color:var(--muted); font-style:italic; }
   .recent-label { color:var(--muted); }
+  .chip .hot { margin-right:4px; }
   .recent .chip { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.82rem; padding:4px 12px; }
   .related { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:.85rem; color:var(--muted); }
   .related .chip { padding:3px 10px; font-size:.82rem; }
@@ -625,10 +626,14 @@ function hintHtml(text) {
 async function loadRecent(box) {
   box = box || document.getElementById('recent');
   if (!box) return;  // a conversation is on screen: nothing to refresh
-  let qs = [];
+  let qs = [], hot = new Set();
   try {
     const r = await fetch('/api/recent-questions');
-    if (r.ok) qs = (await r.json()).questions || [];
+    if (r.ok) {
+      const data = await r.json();
+      qs = data.questions || [];
+      hot = new Set(data.hot || []);
+    }
   } catch (e) { /* offline: shown as none */ }
   box.textContent = '';
   if (!qs.length) {
@@ -642,6 +647,12 @@ async function loadRecent(box) {
   qs.forEach(q => {
     const b = document.createElement('button');
     b.className = 'chip'; b.type = 'button'; b.textContent = q; b.title = q; b.onclick = () => ask(q);
+    if (hot.has(q)) {  // before the words, because a long question is cut off at the end of its chip
+      const fire = document.createElement('span');
+      fire.className = 'hot'; fire.textContent = '🔥'; fire.setAttribute('aria-label', 'Hot right now:');
+      b.prepend(fire);
+      b.title = 'Hot right now: several people have asked this in the last two days. ' + q;
+    }
     chips.append(b);
   });
   box.append(label, chips);

@@ -1,6 +1,7 @@
 """Bugs found by the code review of 1.3.0 to 1.6.0. Each test failed before its fix."""
 
 import asyncio
+import json
 import shutil
 import struct
 import subprocess
@@ -77,6 +78,14 @@ def test_the_pages_sending_function_really_runs_as_far_as_the_send():
     script = Path(__file__).parent / "js" / "run_send.js"
     out = subprocess.run(["node", str(script), str(STATIC / "index.html")], capture_output=True, text=True, timeout=30)
     assert "REACHED SEND" in out.stdout and '"pin":7' in out.stdout, out.stdout + out.stderr
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_the_start_screen_puts_a_fire_on_hot_questions_only():
+    script = Path(__file__).parent / "js" / "run_recent.js"
+    out = subprocess.run(["node", str(script), str(STATIC / "index.html")], capture_output=True, encoding="utf-8", timeout=30)
+    assert json.loads(out.stdout) == [{"q": "Who are the dragon priests?", "fire": "\U0001F525"},
+                                      {"q": "What metals are yellow?", "fire": None}], out.stdout + out.stderr
 
 
 # ------------------------------------------------------------------------------------------- hunting ranks

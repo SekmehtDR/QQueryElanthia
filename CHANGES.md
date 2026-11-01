@@ -1,7 +1,17 @@
 # Changes
 
-Latest version: **1.9.0** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.10.0** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.10.0: a fire on what's hot (2026-11-01)
+
+- **"Others are asking" marks the hot questions with a fire:** a question gets it when two or more different people asked it in the last 48 hours. One
+  person asking again does not count. The owner and visitors see the same fire, and nobody sees who asked or how many.
+
+Known limits: the same question means the same words, ignoring case, spacing and punctuation, so "Who are the dragon priests?" and "Who are dragon priests?"
+count apart. Clicking a chip counts as asking, so a click can light the fire. A person is a browser: one person on two browsers counts as two.
+
+Internals: `memory.hot_questions`; `/api/recent-questions` also returns `hot`; `tests/js/run_recent.js` runs the page's function.
 
 ## 1.9.0: how many ranks to mastercraft it (2026-11-01)
 
@@ -791,4 +801,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.9.0 (2026-11-01)_
+_Last updated: 1.10.0 (2026-11-01)_

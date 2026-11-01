@@ -11,6 +11,7 @@ import json
 import re
 import sqlite3
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from ..util import utcnow_iso
 from .attribution import OFFER_LINE
@@ -24,6 +25,8 @@ TITLE_CHARS = 60
 LAST_ANSWER_CHARS = 600  # all the answer step sees of the last answer: enough to follow on from, too little to copy
 SUMMARY_TURNS = 6
 SUMMARY_PAGES = 3
+HOT_HOURS = 48  # "right now" on a small page: a shorter window would rarely see two people
+HOT_PEOPLE = 2
 
 
 def new_session(conn: sqlite3.Connection, frontend: str = "cli", session_id: str | None = None,
@@ -181,6 +184,16 @@ def recent_source_titles(conn: sqlite3.Connection, session_id: str, answers: int
 RECENT_QUESTION_CHARS = 120  # longer ones are pasted posts or essays, not something to click again
 
 
+_PAGE_QUESTIONS = ("messages m JOIN sessions s ON s.session_id = m.session_id "
+                   "WHERE m.role='user' AND m.standalone_q IS NOT NULL AND s.frontend=? "
+                   "AND coalesce(m.kind, '') != 'meta' AND coalesce(m.mode, '') NOT IN ('clock', 'declined', 'fiction', 'recheck')")
+
+
+def _question_key(question: str) -> str:
+    """Two askings are the same question if only case, spacing and punctuation differ."""
+    return re.sub(r"[^a-z0-9]+", " ", question.casefold()).strip()
+
+
 def recent_user_questions(conn: sqlite3.Connection, owner: str | None = None, limit: int = 20,
                           frontend: str = "web") -> list[str]:
     """The last `limit` distinct questions asked on the web page (by anyone, or only by `owner`), newest first, for the
@@ -188,9 +201,7 @@ def recent_user_questions(conn: sqlite3.Connection, owner: str | None = None, li
     I need for it?") so it makes sense on its own. Small talk, the clock, declined questions, stories and re-checks are
     left out, as are chats deleted since."""
     rows = conn.execute(
-        "SELECT m.standalone_q FROM messages m JOIN sessions s ON s.session_id = m.session_id "
-        "WHERE m.role='user' AND m.standalone_q IS NOT NULL AND s.frontend=? AND (? IS NULL OR coalesce(s.owner, 'local')=?) "
-        "AND coalesce(m.kind, '') != 'meta' AND coalesce(m.mode, '') NOT IN ('clock', 'declined', 'fiction', 'recheck') "
+        f"SELECT m.standalone_q FROM {_PAGE_QUESTIONS} AND (? IS NULL OR coalesce(s.owner, 'local')=?) "
         "ORDER BY m.msg_id DESC LIMIT ?",
         (frontend, owner, owner, limit * 10),  # duplicates are common (the same question asked again): read ahead
     ).fetchall()
@@ -198,7 +209,7 @@ def recent_user_questions(conn: sqlite3.Connection, owner: str | None = None, li
     seen: set[str] = set()
     for r in rows:
         q = re.sub(r"\s+", " ", r["standalone_q"]).strip()
-        key = re.sub(r"[^a-z0-9]+", " ", q.casefold()).strip()
+        key = _question_key(q)
         if not key or key in seen or len(q) > RECENT_QUESTION_CHARS:
             continue
         seen.add(key)
@@ -206,6 +217,19 @@ def recent_user_questions(conn: sqlite3.Connection, owner: str | None = None, li
         if len(out) >= limit:
             break
     return out
+
+
+def hot_questions(conn: sqlite3.Connection, questions: list[str], frontend: str = "web") -> list[str]:
+    """Those of `questions` that different people asked in the last HOT_HOURS. People, not askings: one person asking
+    five times is not a topic that is hot."""
+    since = (datetime.now(UTC) - timedelta(hours=HOT_HOURS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    people: dict[str, set[str]] = {}
+    for r in conn.execute(
+        f"SELECT m.standalone_q, coalesce(s.owner, 'local') AS who FROM {_PAGE_QUESTIONS} AND m.created_at >= ?",
+        (frontend, since),
+    ):
+        people.setdefault(_question_key(r["standalone_q"]), set()).add(r["who"])
+    return [q for q in questions if len(people.get(_question_key(q), ())) >= HOT_PEOPLE]
 
 
 def last_pasted(conn: sqlite3.Connection, session_id: str) -> str:
