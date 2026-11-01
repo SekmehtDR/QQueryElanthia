@@ -477,4 +477,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.10.0 (2026-11-01)_
+_Last updated: 1.10.1 (2026-11-01)_

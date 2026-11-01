@@ -1,7 +1,16 @@
 # Changes
 
-Latest version: **1.10.0** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.10.1** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.10.1: no flash on refresh; mobile fits (2026-11-01)
+
+- **Refreshing the page no longer flashes placeholder words or the owner's buttons.** Visitors used to see "Answers come from Elanthipedia...", Past chats and
+  Index for a moment, because the page showed them until the server said who was asking. Past chats and Index now start hidden and appear only at this computer. The
+  header and start screen appear together, once Fennick's portrait and the question list are ready, with a short fade (none under reduced motion).
+- If the server cannot be reached the placeholder words still appear, and after 3 seconds the page shows itself whatever has happened.
+- **Mobile layout stays inside its column.** About and What's new were sized from the window, up to 640px against a 440px column; they now fit it. The buttons wrap on a
+  small phone instead of pushing the page sideways, New chat keeps to the right, and long preformatted lines in an answer scroll inside it.
 
 ## 1.10.0: a fire on what's hot (2026-11-01)
 
@@ -801,4 +810,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.10.0 (2026-11-01)_
+_Last updated: 1.10.1 (2026-11-01)_

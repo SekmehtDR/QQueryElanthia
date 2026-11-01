@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.10.1",
+    "date": "2026-11-01",
+    "fennick": "I used to fumble in the doorway every time you came in, dropping notes and showing you things that weren't for you. I've tidied up. Now I wait until I'm ready, then I'm simply here.",
+    "changes": [
+      "Refreshing the page no longer flashes stray words or buttons before it settles.",
+      "On a phone, the About and What's new windows now fit the screen, and the buttons and long answers stay inside it."
+    ]
+  },
+  {
     "version": "1.10.0",
     "date": "2026-11-01",
     "fennick": "A bard learns to listen to the room. When two different folk bring me the same question within a couple of days, I mark it with a little fire, so you can see what everyone's talking about. I don't say who asked. A good bard never does.",

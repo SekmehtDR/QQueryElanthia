@@ -202,6 +202,25 @@ def test_page_has_an_about_fennick_page_with_his_story_and_how_he_works(client):
     assert "about.showModal()" in html and "e.target === about" in html  # opens as a window; a click outside closes it
 
 
+def test_mobile_layout_keeps_everything_inside_the_phone_column(client):
+    html = client.get("/").text
+    assert 'html[data-view="mobile"] dialog.paper { width:min(calc(var(--col) - 24px), calc(100vw - 24px)); }' in html
+    assert 'html[data-view="mobile"] header .controls { flex-wrap:wrap; }' in html
+    assert ".msg .body table, .msg .body pre { display:block; max-width:100%; overflow-x:auto; }" in html
+
+
+def test_nothing_flashes_before_the_server_says_who_this_is(client):
+    html = client.get("/").text
+    # no placeholder words in the page itself: they are written only if the server cannot be reached
+    assert '<div class="hint" id="hint"></div>' in html and '<h1 id="pname">&nbsp;</h1>' in html
+    body = html[html.index("async function loadPersona("):html.index("// A friendly, recoverable error")]
+    assert "Answers come from Elanthipedia" in body[body.index("catch (e)"):]
+    # the header and start screen stay hidden until ready, and a timer shows them whatever goes wrong
+    assert "root.classList.add('booting');" in html and "root.classList.remove('booting'), 3000" in html
+    assert "await fresh.ready" in body and "classList.remove('booting')" in body[body.index("finally"):]
+    assert "\nsetStatusVisible(statusWanted);" not in html  # the Index panel waits for that answer too
+
+
 def test_page_shows_recent_questions_to_everyone_and_a_delete_all_only_at_this_computer(client):
     html = client.get("/").text
     assert "fetch('/api/recent-questions')" in html and "'Others are asking:'" in html
@@ -214,7 +233,10 @@ def test_page_shows_recent_questions_to_everyone_and_a_delete_all_only_at_this_c
     # Past chats lists visitors' chats too, tagged; opening one shows it, and asking there starts the owner's own chat
     assert '<span class="who">visitor</span>' in html and "A visitor's conversation." in html
     assert "if (viewingVisitor) {  // a question while reading a visitor's chat" in html
-    assert "getElementById('pastbtn').hidden = true" in html  # Past chats hidden through the tunnel, like Index
+    # Past chats and Index start hidden and only this computer is shown them, so a visitor's refresh never flashes them
+    for button in ('<button id="pastbtn" type="button" hidden', '<button id="statusbtn" type="button" hidden'):
+        assert button in html
+    assert "const here = persona.local === true;" in html and "getElementById('pastbtn').hidden = !here" in html
     assert 'id="pastclear"' in html and "fetch('/api/sessions', { method: 'DELETE'" in html
     assert "else if (r.ok) loadRecent();" in html  # a deleted chat's questions leave the start screen at once
 

@@ -24,6 +24,11 @@
   #app { position:relative; width:100%; max-width:var(--col); height:100dvh; display:flex; flex-direction:column; background:var(--bg); min-width:0; }
   header { padding:14px var(--gutter); border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px 16px; flex-wrap:wrap; }
   header .brand { display:flex; align-items:center; gap:12px; min-width:0; }
+  /* Until the server has said who this is, nothing that depends on it is shown: no placeholder words, no owner's buttons. */
+  header .brand, header .controls, #log .hint { transition:opacity .16s ease; }
+  html.booting header .brand, html.booting header .controls, html.booting #log .hint { opacity:0; visibility:hidden; }
+  html.booting header { border-bottom-color:transparent; }  /* the header is taller once filled: its line must not be seen to jump */
+  @media (prefers-reduced-motion: reduce) { header .brand, header .controls, #log .hint { transition:none; } }
   header .controls { display:flex; align-items:center; gap:8px; }
   header h1 { font-size:1.15rem; margin:0; flex:0 0 auto; }
   header .ver { font-size:.72rem; color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent);
@@ -72,6 +77,7 @@
   .paper .release h3 .when { color:var(--paper-muted); font-weight:400; font-size:.8em; white-space:nowrap; }
   .paper .ooc-label { margin:.6em 0 .2em; color:var(--paper-muted); font-family:system-ui, sans-serif; font-size:.8rem; font-weight:600; letter-spacing:.03em; }
   .paper .about-foot { text-align:center; color:var(--paper-muted); font-style:italic; font-size:.9rem; margin:16px 0 0; }
+  html[data-view="mobile"] dialog.paper { width:min(calc(var(--col) - 24px), calc(100vw - 24px)); }  /* inside the phone column, not the window */
   html[data-view="mobile"] .paper .sheet { padding:24px 18px 18px; }
   html[data-view="mobile"] .paper .about-portrait { width:150px; height:150px; }
   /* Desktop / Mobile switch */
@@ -241,7 +247,7 @@
   #status th, #status td { text-align:right; padding:2px 8px; border-bottom:1px solid var(--line); }
   #status th:first-child, #status td:first-child { text-align:left; }
   #status .live { color:#3a9d5d; } #status .idle { color:var(--muted); }
-  .msg .body table { display:block; max-width:100%; overflow-x:auto; }  /* wide tables scroll instead of overflowing */
+  .msg .body table, .msg .body pre { display:block; max-width:100%; overflow-x:auto; }  /* wide ones scroll instead of overflowing */
 
   /* Polish: empty parts take no space, visible keyboard focus, gentle entrance, tidy scrollbars. */
   .sources:empty, .note:empty, .actions:empty { display:none; }
@@ -290,7 +296,8 @@
   html[data-view="mobile"] header .tag { display:none; }
   /* two tidy rows: who he is, then the controls spread across the full width */
   html[data-view="mobile"] header { flex-direction:column; align-items:stretch; gap:8px; padding-top:10px; padding-bottom:10px; }
-  html[data-view="mobile"] header .controls { justify-content:space-between; }
+  html[data-view="mobile"] header .controls { flex-wrap:wrap; }  /* the owner's five buttons do not fit a small phone */
+  html[data-view="mobile"] header #new { margin-left:auto; }
   html[data-view="mobile"] #kbd { display:none; }  /* phones have no Enter-to-send key hint to show */
   html[data-view="mobile"] #jump { bottom:96px; }
   html[data-view="mobile"] .hint .hero { width:80px; height:80px; }
@@ -322,13 +329,15 @@
     try { v = localStorage.getItem('epedia.view'); } catch (e) {}
     if (v !== 'desktop' && v !== 'mobile') v = matchMedia('(max-width: 640px)').matches ? 'mobile' : 'desktop';
     root.dataset.view = v;
+    root.classList.add('booting');
+    setTimeout(() => root.classList.remove('booting'), 3000);  // whatever goes wrong below, the page still appears
   })();
 </script>
 </head>
 <body>
 <div id="app">
 <header>
-  <div class="brand"><h1 id="pname">Ask about DragonRealms</h1><span class="ver" id="pver" hidden></span><button type="button" class="whatsnew" id="whatsnewbtn" aria-haspopup="dialog" aria-controls="whatsnew" title="See what has changed" hidden>✦ What's new</button><span class="tag" id="ptag"></span></div>
+  <div class="brand"><h1 id="pname">&nbsp;</h1><span class="ver" id="pver" hidden></span><button type="button" class="whatsnew" id="whatsnewbtn" aria-haspopup="dialog" aria-controls="whatsnew" title="See what has changed" hidden>✦ What's new</button><span class="tag" id="ptag"></span></div>
   <div class="controls">
   <div class="viewtoggle" role="group" aria-label="Layout">
     <button id="vdesk" type="button" aria-pressed="true" title="Desktop layout">
@@ -339,8 +348,8 @@
     </button>
   </div>
   <button id="aboutbtn" type="button" aria-haspopup="dialog" aria-controls="about" title="Who Fennick is, and how he works">About</button>
-  <button id="pastbtn" type="button" aria-expanded="false" aria-controls="past" title="Earlier conversations you can pick back up">Past chats</button>
-  <button id="statusbtn" type="button" aria-expanded="false" aria-controls="status" title="Show or hide index details">Index</button>
+  <button id="pastbtn" type="button" hidden aria-expanded="false" aria-controls="past" title="Earlier conversations you can pick back up">Past chats</button>
+  <button id="statusbtn" type="button" hidden aria-expanded="false" aria-controls="status" title="Show or hide index details">Index</button>
   <button id="new" type="button" title="Start a fresh conversation">New chat</button>
   </div>
 </header>
@@ -433,7 +442,7 @@
   <div class="bar" id="statusbar" title="Click for per-namespace details"><span id="stext">Loading index status…</span><div class="track"><div class="fill" id="sfill"></div></div></div>
   <div class="detail" id="sdetail"></div>
 </div>
-<div id="log"><div class="hint" id="hint"><p>Answers come from Elanthipedia and link back to the pages they used.</p></div></div>
+<div id="log"><div class="hint" id="hint"></div></div>
 <button id="jump" type="button" hidden>↓ Jump to latest</button>
 <form id="form">
   <textarea id="q" rows="1" placeholder="Ask about DragonRealms…" aria-label="Your question" autofocus></textarea>
@@ -606,12 +615,14 @@ let persona = null;
 function hintHtml(text) {
   const wrap = document.createElement('div');
   wrap.className = 'hint'; wrap.id = 'hint';
+  const waits = [];  // what must be ready before the start screen first appears
   if (persona && persona.enabled) {  // his portrait and name above the greeting
     const hero = document.createElement('img');
     hero.className = 'hero'; hero.src = '/static/fennick.png'; hero.alt = persona.name; hero.width = 96; hero.height = 96;
     hero.title = 'About ' + persona.name; hero.onclick = () => document.getElementById('aboutbtn').click();
     const nm = document.createElement('div'); nm.className = 'hero-name'; nm.textContent = persona.name;
     wrap.append(hero, nm);
+    waits.push(hero.decode().catch(() => {}));
   }
   const p = document.createElement('p'); p.textContent = text; wrap.append(p);
   if (persona) {
@@ -619,8 +630,9 @@ function hintHtml(text) {
     // through the tunnel see the same list. Only the owner, at this computer, can open or delete those chats.
     const recent = document.createElement('div'); recent.className = 'recent'; recent.id = 'recent';
     wrap.append(recent);
-    loadRecent(recent);
+    waits.push(loadRecent(recent));
   }
+  wrap.ready = Promise.all(waits);
   return wrap;
 }
 async function loadRecent(box) {
@@ -675,15 +687,24 @@ async function loadPersona() {
       ver.hidden = false;
       showWhatsNewButton(b.version);
     }
-    if (persona.local === false) {  // a visitor through a tunnel: no Index panel or Past chats (the server refuses both)
-      document.getElementById('statusbtn').hidden = true;
-      document.getElementById('status').classList.remove('show');
-      document.getElementById('pastbtn').hidden = true;
-      document.getElementById('past').classList.remove('show');
-    }
+    // The Index panel and Past chats start hidden and only this computer is shown them (the server refuses visitors both).
+    const here = persona.local === true;
+    document.getElementById('statusbtn').hidden = !here;
+    document.getElementById('pastbtn').hidden = !here;
+    if (here && statusWanted) setStatusVisible(true);
     const hint = document.getElementById('hint');
-    if (hint) hint.replaceWith(hintHtml(persona.greeting));
-  } catch (e) { /* the static hint stays */ }
+    if (hint) {
+      const fresh = hintHtml(persona.greeting);
+      hint.replaceWith(fresh);
+      await fresh.ready;
+    }
+  } catch (e) {
+    document.getElementById('pname').textContent = 'Ask about DragonRealms';
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = 'Answers come from Elanthipedia and link back to the pages they used.';
+  } finally {
+    document.documentElement.classList.remove('booting');
+  }
 }
 // A friendly, recoverable error in place of the answer.
 function showError(body, detail, question) {
@@ -1307,7 +1328,6 @@ document.getElementById('statusbtn').addEventListener('click', () =>
   setStatusVisible(!document.getElementById('status').classList.contains('show')));
 let statusWanted = false;
 try { statusWanted = localStorage.getItem('epedia.status') === '1'; } catch (e) {}
-setStatusVisible(statusWanted);
 loadPersona();
 document.getElementById('form').addEventListener('submit', e => {
   e.preventDefault();
