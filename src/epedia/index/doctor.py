@@ -125,7 +125,20 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     for title, needle in (("Forging guide", 'cap" at 7.5 density'), ("Category:Crafting materials", "Hardness affects")):
         found = _one(conn, "SELECT count(*) FROM chunks WHERE title=? AND text LIKE ?", title, f"%{needle}%")
         add(f"rule still on {title}", found > 0, f'"{needle}"' if found else f'"{needle}" not found: update core/materials.py')
+    for title, needle in craft_ranks_rules():
+        found = _one(conn, "SELECT count(*) FROM chunks WHERE title=? AND instr(text, ?)", title, needle)
+        add(f"rule still on {title}", found > 0, f'"{needle}"' if found else f'"{needle}" not found: update core/craft_ranks.py')
+    tiers = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='craft_tier' AND attribute='base' AND value_num IS NOT NULL")
+    add("every crafting tier has a rank figure", tiers == 12, f"{tiers} of 12 tiers")
+    products = _one(conn, "SELECT count(*) FROM facts WHERE domain='craft_product' AND attribute='tier' AND value_num IS NOT NULL")
+    add("crafted products have their tiers", products >= 1000, f"{products:,} products with a tier")
     return out
+
+
+def craft_ranks_rules() -> tuple[tuple[str, str], ...]:
+    from ..core.craft_ranks import RULES
+
+    return RULES
 
 
 def unknown_languages(conn: sqlite3.Connection) -> list[str]:

@@ -24,6 +24,7 @@ from ..wiki import history as page_history
 from ..wiki import timeline
 from . import (
     capabilities,
+    craft_ranks,
     disciplines,
     grounding,
     hunting,
@@ -473,7 +474,8 @@ class Assistant:
             if p:
                 passages.append(p)
                 k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
-        mats = plan.prebuilt or materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+        mats = (plan.prebuilt or craft_ranks.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+                or materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url))
         if mats:
             passages = list(mats)  # replaces an items-tool lookup too: the ranking is the whole evidence
             k = 0
@@ -657,6 +659,8 @@ class Assistant:
             self._persist(turn, answer, plan, [], [])
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
+        if plan.kind != "meta" and plan.mode in ("search", "items") and not plan.prebuilt:
+            plan.prebuilt = self._craft_ranks(asked, plan, session_id)
         gate = grounding.Gate()
         if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt and not plan.pinned:
             # Something the wiki never mentions cannot be answered from it: say so in code, without the model, so it
@@ -671,7 +675,7 @@ class Assistant:
                 self._persist(turn, answer, plan, [], [], grounding=gate.as_dict())
                 yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
                 return
-        asks = plan.mode in ("search", "items")  # a re-check or a declined story has nothing to clarify
+        asks = plan.mode in ("search", "items") and not plan.prebuilt  # a re-check, a declined story or a written answer has nothing to clarify
         if (asks and not plan.clarify and plan.kind != "meta" and hunting.HUNT_FIT.search(plan.standalone_question)
                 and not self._hunt_ranks(plan, user_message, session_id)):
             plan.clarify = hunting.NEED_RANKS  # matching needs combat ranks; a circle alone does not give them
@@ -975,6 +979,13 @@ class Assistant:
                                            continuing=continuing, pasted=plan.material, today=now_text(),
                                            recheck=plan.mode == "recheck", retry=plan.mode == "retry", outline=plan.outline, earlier=plan.earlier)
 
+    def _craft_ranks(self, asked: str, plan: Plan, session_id: str) -> list[dict] | None:
+        """The person's own words first (the planner can turn "riste" into the half-handled one), then what it made of them."""
+        base = self.s.wiki.base_url
+        earlier = [plan.standalone_question, *reversed(memory.recent_questions(self.conn, session_id))]
+        ready = craft_ranks.passage(self.conn, asked, base, earlier)
+        return ready or craft_ranks.passage(self.conn, plan.standalone_question, base, earlier[1:])
+
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,
         and (with no conversation to resolve and nothing pasted) the crafting tables. Saves the planner call."""
@@ -984,7 +995,7 @@ class Assistant:
             return None
         question = strip_game_name(asked.strip()) or asked
         base = self.s.wiki.base_url
-        ready = materials.passage(self.conn, question, base)
+        ready = craft_ranks.passage(self.conn, question, base) or materials.passage(self.conn, question, base)
         if not ready and (disc := disciplines.passage(self.conn, question, base)):
             ready = [disc]
         return Plan(question, kind="crafting", prebuilt=ready) if ready else None

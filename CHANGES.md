@@ -1,7 +1,27 @@
 # Changes
 
-Latest version: **1.8.1** (2026-10-31). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.9.0** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.9.0: how many ranks to mastercraft it (2026-11-01)
+
+- **"How many ranks to make a half-handled riste in glaes?" is now answered by code, every step shown and cited:** the material's
+  workability, the multiplier from the Crafting page's formula, the item's tier from the Difficulty column of its products page, and the
+  tier's rank figure, with and without techs. It works for any material and item on those pages, or a tier ("a T11 in glaes"), and
+  follow-ups like "show me the math" pick up what was already named. The model writes none of it: left to itself it took "Tier 6" from a
+  Talk page, read "11- v.difficult" as 11 ranks, and could not be steered back (a real thumbs-down, worked through with the owner and Binu).
+- **Figures come from the Crafting chart first, then the Tailoring player guide where the chart has a "?".** T11 with techs is a range, as the
+  guide states it. Names are literal: a riste is Tier 12, a half-handled riste Tier 11. A material that does not fit the craft gets no number,
+  plain "steel" asks which, and a row or tier with no figure says so.
+- **Whether it can be done:** a hard rule on the page leads (Tier 12 below workability 40 cannot be mastercrafted), then the result is compared with
+  1,750 trained ranks plus a 30% buff, with Craft Assist mentioned when it is close. Each number names the page it rests on.
+
+Known limits: 3 of 1,281 items cannot be read (`<cloth> tabard`, `<cloth> war belt`, Ring of Glory - Charisma) because the chunker cuts their rows in
+half; they say the item cannot be found. Career, hobby, tool and material bonuses have no sizes on the wiki, so they are mentioned, not counted.
+Correcting the model in other conversations is unchanged: this replaces the guessing for these questions only.
+
+Internals: `core/craft_ranks.py`; extractors in `index/extract/crafting.py` (domains `craft_tier`, `craft_product`), which carry a split table's header
+across chunks; `epedia doctor` checks the rules' wording, 12 tiers with figures and the product count. After updating run `epedia enrich`.
 
 ## 1.8.1: open source, with credit where it belongs (2026-10-31)
 
@@ -771,4 +791,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.8.1 (2026-10-31)_
+_Last updated: 1.9.0 (2026-11-01)_

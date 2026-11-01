@@ -76,7 +76,7 @@ topics rebuild only when `updated_at` moves, and classify does not touch it.
 src/epedia/   wiki/ (client, discover, crawl, smw, sync)   text/ (html2md, chunker, stats)
               index/ (indexer, classify, enrich, topics, doctor, extract/)   retrieval/ (search, titles, resolve)
               llm/ (ollama, prompts)   frontends/web/ (app.py, access.py, static/)   evalx/ (runner, offers, layers)
-              core/ (assistant, layers, offers, names, memory, turns, feedback, grounding, verify, attribution, ...)
+              core/ (assistant, layers, offers, names, craft_ranks, memory, turns, feedback, grounding, verify, attribution, ...)
               kinds.py  config.py  db.py  buildinfo.py  progress.py  cli.py
 tests/        pytest suite; tests/fixtures/*.json are saved action=parse outputs
 eval/         questions, conversations, scripts, refusals, offers, layers (.yaml); runs/ is git-ignored
@@ -148,6 +148,10 @@ data/         wiki.db and logs (git-ignored)
   extractor must also read the heading line above a table (`extract.tables`). Answers that compare things (materials,
   the hunting ladder) are written by code from facts; the rules they apply name the page that states them and
   `epedia doctor` checks the wording is still there. `epedia doctor` should stay clean after any index change.
+- **Crafting ranks** (`core/craft_ranks.py`): tier figure x workability multiplier, written and cited by code. The rule order was settled with the owner
+  from real play (Binu mastercrafted a glaes half-handled riste at 2,100 with techs and a hobby): chart first, then the Tailoring player guide, never a
+  figure from another tier, no estimates. The constants 1,750 and 30% name their pages, and `epedia doctor` checks the wording is still there. Long tables
+  are split by the chunker with no header or rule on the later pieces, so read products with `_blocks`, not `tables`.
 - **Names and kinds** (`retrieval/resolve.py`, `kinds.py`): the kind rules live in one declarative table; extend
   `INTENT_WORDS`/`KIND_GROUP` there rather than adding word lists elsewhere. Resolution is skipped for stop words and the
   game's own name (`titles.STOP_NAMES`); `Title:` and `Post:` pages are never names.
@@ -181,4 +185,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.8.1 (2026-10-31)_
+_Last updated: 1.9.0 (2026-11-01)_

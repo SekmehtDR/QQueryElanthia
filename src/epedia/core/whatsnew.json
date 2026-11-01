@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.9.0",
+    "date": "2026-11-01",
+    "fennick": "I'm told I once worked out a very difficult riste as eleven ranks, and then defended it. So I've stopped doing crafting sums in my head. Ask how many ranks it takes to mastercraft a thing in a given material, and the sum comes straight from my notes, one step at a time, each number tied to its page. It won't always be good news. A plain riste in glaes can't be done, and I'll say so first.",
+    "changes": [
+      "Ask how many ranks it takes to mastercraft an item in a material, and you get the workability, the multiplier, the tier and the result, each linked to its page.",
+      "It gives the ranks with and without techs, and says whether that can be reached at all, with buffs and Craft Assist in mind.",
+      "If the wiki lacks a number, the material doesn't suit the craft, or plain \"steel\" could mean three things, it says so or asks."
+    ]
+  },
+  {
     "version": "1.8.1",
     "date": "2026-10-31",
     "fennick": "Sekmeht has put it in writing at last: this halfling and the whole contraption around him are Sekmeht's work, and anyone may borrow them so long as the credit stays. The great book is another matter. The players wrote that, and every page of it is theirs. I only carry the copies, and my back would like that noted.",

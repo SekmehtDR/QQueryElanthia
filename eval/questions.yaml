@@ -159,3 +159,15 @@
   expect_pages: ["Binu"]
 - q: "Tell me about the Thieves"
   expect_pages: ["Thief"]
+# Ranks to mastercraft: answered in code (core/craft_ranks.py), from a real thumbs-down on 2026-11-01.
+- q: "How many ranks to make a half-handled riste in glaes?"
+  expect_pages: ["Weaponsmithing products", "Crafting", "Tailoring player guide"]
+- q: "How many ranks to make a bloodwood battle bow?"
+  expect_pages: ["Shaping products"]
+- q: "How many ranks for high carbon steel imperial plate?"
+  expect_pages: ["Armorsmithing products"]
+- q: "How many ranks for a T11 in glaes?"
+  expect_pages: ["Tailoring player guide"]
+- q: "Show me the math, how many ranks?"
+  history: ["How many ranks to make a half-handled riste in glaes?"]
+  expect_pages: ["Weaponsmithing products", "Crafting", "Tailoring player guide"]

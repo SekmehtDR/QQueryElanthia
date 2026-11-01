@@ -77,7 +77,9 @@ Beyond text chunks the index carries derived layers, all rebuilt by the pipeline
   materials (weapons by hardness with density capped at 7.5, armor by resistances, bows by wood affinity, leather/cloth/bone/
   stone by their deciding stat) and answers "which metals are blue?", with each rule cited to the page that states it;
   `core/hunting.py` does the same for the ladder, and `core/disciplines.py` lists the crafting skills, their disciplines and
-  guides from the Crafting page's own list.
+  guides from the Crafting page's own list. `core/craft_ranks.py` answers "how many ranks to mastercraft X in Y?": workability
+  (materials table), multiplier (the Crafting page's formula), tier (`craft_product`, every products page's Difficulty column) and rank
+  figure (`craft_tier`, the Crafting chart, then the Tailoring player guide).
 - **What names mean** (`index/extract/names.py`, domain `name_meaning`): 172 stated meanings, read only from fixed phrasings
   that name a language (`X (Rakash for "...")`, `X means "..." in Rakash`). A sentence that does not say what it is naming
   gives nothing. `core/names.py` answers a pure "what does X mean?" in code and supplies the meaning to layered answers.
@@ -454,7 +456,7 @@ done in code. `persona.enabled = false` restores plain answers.
  │           memory (conversations, summary, anchor) · turns (the record of each turn) · feedback (votes, review, eval export) ·
  │           grounding (decline what the wiki never mentions) · verify (check the answer) · attribution (tag uncited lines) ·
  │           capabilities · dates (past/upcoming) · userinput (pasted text) · items_tool (SMW ask + local fallback) ·
- │           hunting (ladder) · materials (rankings, colours) · disciplines
+ │           hunting (ladder) · materials (rankings, colours) · disciplines · craft_ranks (ranks to mastercraft)
  ├─ frontends/web/  app.py (FastAPI) · access (owner or visitor) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
  └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, scripts, refusals) · faithfulness · offers (replay) · layers (which pages each part reads)
  tests/  pytest suite + saved action=parse fixtures
@@ -475,4 +477,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.8.0 (2026-10-31)_
+_Last updated: 1.9.0 (2026-11-01)_

@@ -155,7 +155,8 @@ Source in `src/epedia/`, tests in `tests/`, evaluation sets in `eval/`. See `ARC
 
 ## Limits
 
-Answers are only as good as the wiki and an 8B model; check the linked pages.
+Answers are only as good as the wiki and an 8B model; check the linked pages. Rank figures for mastercrafting at Tier 9 and above lean on a player's guide,
+and the multiplier formula was reverse engineered by players, so treat them as a close guide rather than a promise.
 
 ## License and credits
 
