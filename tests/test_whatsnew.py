@@ -53,9 +53,9 @@ def test_the_entries_reach_the_page_and_visitors_may_read_them(client):
 
 def test_an_edit_shows_at_once_with_no_restart(client, tmp_path, monkeypatch):
     path = tmp_path / "whatsnew.json"
-    path.write_text('[{"version": "9.9.9"}]', encoding="utf-8")
+    path.write_text('[{"version": "0.0.1"}]', encoding="utf-8")
     monkeypatch.setattr(whatsnew, "PATH", path)
-    assert client.get("/api/whats-new", headers=LOCAL).json()["releases"][0]["version"] == "9.9.9"
+    assert client.get("/api/whats-new", headers=LOCAL).json()["releases"][0]["version"] == "0.0.1"
 
 
 def test_a_commit_that_leaves_whats_new_alone_is_refused():
@@ -82,3 +82,12 @@ def test_the_pages_code_really_runs():
     script = Path(__file__).parent / "js" / "run_whatsnew.js"
     out = subprocess.run(["node", str(script), str(HTML)], capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert out.stdout.count("ok ") == 10 and "BAD" not in out.stdout and "THREW" not in out.stdout, out.stdout + out.stderr
+
+
+def test_an_entry_newer_than_the_running_version_waits_for_it(tmp_path, monkeypatch):
+    from epedia.core import whatsnew
+
+    path = tmp_path / "w.json"
+    path.write_text('[{"version": "99.0.0"}, {"version": "1.9.0"}]', encoding="utf-8")
+    monkeypatch.setattr(whatsnew, "PATH", path)
+    assert [e["version"] for e in whatsnew.recent()] == ["1.9.0"]

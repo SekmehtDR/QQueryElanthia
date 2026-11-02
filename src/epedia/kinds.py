@@ -89,6 +89,11 @@ DEFAULT_KIND_WEIGHTS["meta"] = {**{c: 0.9 for c in _COLS}, "meta": 1.4}
 DEFAULT_KIND_WEIGHTS["general"] = {"script": 0.9, "pc": 0.8}
 
 # Talk and user pages are context for an answer (who worked something out), never a thread to offer on their own.
+# What "Lately on the wiki" lists (core/lately.py). Single items, shop stock and character pages make up most edits, and are noise there.
+LATELY_KINDS = frozenset({"event", "news", "material", "creature", "post", "guide", "lore", "spell", "mechanics", "skill", "place", "crafting",
+                          "guild", "race", "general"})
+# Fabrics and the like arrive by the dozen under one name ("Abysselle lawn", "Abysselle voile"). Elsewhere a shared first word means little.
+LATELY_FAMILY_KINDS = frozenset({"material"})
 OFFER_EXCLUDED_PAGE_KINDS = frozenset({"log", "soft_redirect", "disambig", "category", "meta", "script", "talk", "user",
                                        "file", "site"})
 # A page linked from more articles than this is a hub everything mentions (Zoluren 924, Shard 525), not a next thread;

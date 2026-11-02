@@ -1,7 +1,37 @@
 # Changes
 
-Latest version: **1.12.0** (2026-11-01). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.13.0** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.13.0: faster answers, and more use from the model around them (2026-11-02)
+
+- **Answers start sooner.** The planner and the answer asked for different context sizes, and Ollama reloads the model whenever that changes, twice a question. Both use 16,384 now.
+  Over 10 real questions: planner median 6.0s to 1.9s, first word 12.5s to 6.3s, whole answer 18.9s to 12.0s. The reloads vary a lot: in a second old-setting round they took 20 to 60 seconds each.
+- **Lately on the wiki,** on the start screen: pages sync saw appear or change, with a line on what they cover, written ahead of time and only while nobody is waiting. Single items, shop stock
+  and character pages are left out. It says what a page covers, not what changed, because old text isn't kept. A line naming something its page doesn't is thrown away, and the row then has only its name.
+  A busy day can bring dozens of pages (26 on 2026-11-02), so a page and its subpages, or a family of materials, share one row with a button for each page. Six rows show, and the rest wait behind "Show all N pages", the same count as the heading.
+  Each row says how long ago sync saw the change, and the heading says how many pages since when and when the wiki was last checked.
+- **Archive in Past chats,** for the owner: a chat, or an answer on the Worth a look and What people liked lists, including a thumbs-down whose chat was deleted. Archived shows them, and Restore brings them back.
+  It only changes those lists and `epedia chats list --flagged`: nothing is deleted, and a vote stays in `epedia feedback-queue` until worked through. A new vote, or a chat carrying on, brings it back by itself.
+- **Shorter,** under an answer the model wrote, with Original to go back. Nothing is saved, so a vote is on the original. Code's notes (a player's log is not lore) come back word for word.
+- **The Index panel was redesigned** (this computer only, as before). It opens by saying whether everything is up to date or what's wrong, with the one button that fixes it. Each job is now
+  described in words beside its button, with plain names (Delta update is **Check for changes**, Fill is **Get waiting pages**, Full refresh is **Compare every page**, Re-index is **Rebuild search index**), grouped
+  into getting pages and repairing. Clear sits apart in red, and the numbers are folded away. The progress bar only shows while something is moving. "Saved" no longer vanishes at the next refresh, and a job's results can be closed.
+- **Questions to ask next,** under an answer. The model suggests them; code keeps those whose words a search finds on the wiki.
+- **`epedia feedback-queue` now tries each thumbs-down again:** a real answer through the real path in a throwaway conversation, and the question asked five other ways, which tells a one-off from
+  a pattern. `--no-replay` skips both. Neither casts a vote or leaves a chat behind.
+
+Left out on purpose: **"Explain it simpler".** Tried on 10 real answers, the model turned game facts into new claims ("Kertigen is a place", "the wiki says both types are not fully known"), and some passed
+every check. Cutting text down, it stays faithful (8 of 10 passed before the checks were tightened).
+
+Also left out: **search questions written for each page.** Re-ranking each eval question's top 15 pages with them (765 pages, in memory, nothing added to the index): hit@5 0.741 to 0.707, MRR 0.683 to 0.654, 5 questions
+better and 5 worse. That test can only show re-ranking, not pages the search misses today. About 13 hours of GPU for the 20,714 Main pages was not worth it on this evidence.
+
+Known limits: a suggested question is only known to have its words on the wiki, so its answer can still be poor. Shorter can drop what someone wanted, which is what Original is for. Not fixed here, and the same
+before this version: the planner sometimes drops a festival's year ("What happened at Hollow Eve Festival 450?" reads the general pages).
+
+Internals: `core/lately.py`, `core/rewrite.py`, `core/followups.py`, `core/replay.py`; table `lately_notes` (schema 9); `sessions.archived_at` and table `archived_turns` (schema 10); `POST /api/sessions/{id}/archive`, `POST /api/review/turns/{id}/archive`; `[web] lately_minutes`; `epedia lately [--write]`; `kinds.LATELY_KINDS`; `POST /api/turns/{id}/shorter`,
+`POST /api/turns/{id}/followups`, `GET /api/lately`; the turn's chain keeps `model_body` and `code_tail`, so answers from before this version can't be shortened.
 
 ## 1.12.0: raffles and auctions, written by code (2026-11-01)
 
@@ -838,4 +868,4 @@ The first full release: the whole of Elanthipedia, answered by a persona.
 Crawl, index, search and cited answers over the whole wiki, a CLI and a local web chat, sync, and the first
 evaluation set. Pushed as the initial commit of the repository.
 
-_Last updated: 1.12.0 (2026-11-01)_
+_Last updated: 1.13.0 (2026-11-01)_

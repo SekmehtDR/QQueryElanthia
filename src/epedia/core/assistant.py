@@ -34,6 +34,7 @@ from . import (
     memory,
     names,
     offers,
+    rewrite,
     turns,
     verify,
 )
@@ -211,6 +212,7 @@ class Done:
     verification: dict | None = None  # core/verify.py on the model's answer, against the passages it was given
     revised: bool = False  # the first draft was withdrawn and rewritten
     choices: list[dict] = field(default_factory=list)  # a clarifying question's answers, as the page's buttons
+    rewritable: bool = False  # the model wrote it, so "Shorter" can cut it down (core/rewrite.py)
 
 
 Event = Retrieval | Token | Revise | Done
@@ -818,6 +820,7 @@ class Assistant:
             temperature = 0.0
         # The final text: unsupported citations marked [n?], pretended look-ups removed, and one note on what is left.
         answer = lead + (checked.text if recheck else verify.strip_fake_actions(checked.text) or checked.text)
+        body = answer  # the model's part: "Shorter" replaces this and keeps code's notes below word for word
         note = verify.honesty_note(checked, self.s.persona.enabled, uncited=plan.kind != "meta")
         if note:
             tail = "\n\n" + note
@@ -841,6 +844,7 @@ class Assistant:
             tail = "\n\n" + log_note
             yield Token(tail)
             answer += tail
+        turn.chain["model_body"], turn.chain["code_tail"] = body, answer[len(body):]
         # A thread to pull on: a page about the same subject as the page this answer cites most (core/offers.py).
         anchor = offers.anchor_title([{"title": s.title} for s in sources], rests_on)
         seen = memory.seen_titles(self.conn, session_id)
@@ -863,7 +867,7 @@ class Assistant:
             memory.set_topic(self.conn, session_id, topic)
         self._move_anchor(plan, session_id, anchor if cited else None)
         yield Done(answer, cited, sources, related, memory.get_topic(self.conn, session_id),
-                   verification=record, revised=revised)
+                   verification=record, revised=revised, rewritable=rewrite.possible(plan.mode, plan.kind) and not lead)
 
     def _picked(self, pin: int | None, session_id: str) -> str | None:
         """The title of the page a clarifying question's button chose; None if the last answer asked nothing, or it is no page."""

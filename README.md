@@ -52,7 +52,7 @@ Stopping the server also stops any job started from its Index panel.
 |---|---|
 | Browser can't connect | Start the server. |
 | Answers fail with a connection error | Start Ollama. |
-| "Can't find anything" on every question | The index is empty: Index panel, **Re-index**. |
+| "Can't find anything" on every question | The index is empty: Index panel, **Rebuild search index**. |
 | "Address already in use" | It is already running, or use `serve --port 9000`. |
 
 ## Asking

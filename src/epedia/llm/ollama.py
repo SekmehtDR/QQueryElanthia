@@ -163,7 +163,8 @@ class Ollama:
             "think": False,
             "format": schema,
             "keep_alive": self.cfg.keep_alive,
-            "options": {"num_ctx": num_ctx or min(self.cfg.num_ctx, 8192), "temperature": 0},
+            # The same size as answers: Ollama reloads the model whenever this changes, which took 3 to 8 seconds, twice a question.
+            "options": {"num_ctx": num_ctx or self.cfg.num_ctx, "temperature": 0},
         }
         try:
             r = await self._client.post("/api/chat", json=payload)

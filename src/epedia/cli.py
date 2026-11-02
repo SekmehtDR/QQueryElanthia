@@ -460,13 +460,14 @@ def feedback_queue(
     out: str = typer.Option("data/feedback/queue.json", help="Where to write the full records (data/ is git-ignored)"),
     limit: int = typer.Option(100, help="How many"),
     again: bool = typer.Option(True, "--retest/--no-retest", help="Try each thumbs-down's question on this version (retrieval only; needs Ollama)"),
+    answer_again: bool = typer.Option(True, "--replay/--no-replay", help="Also write each thumbs-down's answer again, and ask it other ways (uses the model)"),
 ) -> None:
     """Real votes still to be worked through, thumbs-down first, each with the whole conversation and every turn's chain, where it
     first went wrong and what to try. The first step of "process our feedback": see CLAUDE.md."""
     import json as _json
     from pathlib import Path
 
-    from .core import diagnose, feedback
+    from .core import diagnose, feedback, replay
     from .core.assistant import Assistant
     from .llm.ollama import Ollama
 
@@ -480,6 +481,9 @@ def feedback_queue(
             for r in rows:
                 if r.get("diagnosis") and r["messages"]:
                     r["retest"] = await diagnose.retest(assistant, conn, r)
+                    if answer_again:
+                        r["replay"] = await replay.replay(assistant, conn, r)
+                        r["rewordings"] = await replay.rewordings(assistant, conn, r)
 
     if again and any(r.get("diagnosis") and r["messages"] for r in rows):
         run(try_again())
@@ -506,7 +510,39 @@ def feedback_queue(
                        else "written by code now" if again_.get("written_by_code")
                        else "retrieval looks fixed" if again_.get("looks_fixed")
                        else "; ".join(again_.get("still") or []) or "nothing to compare (no page named)"))
+        new = r.get("replay")
+        if new:
+            typer.echo(f"    answered again: could not ({new['error']})" if new.get("error") else
+                       f"    answered again ({'written by code' if new['by_code'] else 'by the model'}, {'same pages' if new['same_pages'] else 'different pages'}):\n"
+                       f"      was: {new['was'][:300]!r}\n      now: {new['answer'][:300]!r}")
+        other = r.get("rewordings")
+        if other:
+            typer.echo(f"    asked other ways: could not ({other['error']})" if other.get("error") else
+                       f"    asked {other['tried']} other ways: {other['verdict']} ({other['read_that_page']} read {other['page']}, {other['still_failing']} still failing)")
     typer.echo(f"{len(rows)} to work through; full records in {target}")
+
+
+@app.command("lately")
+def lately_cmd(write: bool = typer.Option(False, "--write", help="Write the lines still missing (uses the model); the web server does this by itself")) -> None:
+    """What 'Lately on the wiki' lists, with each row's line."""
+    from .core import lately
+    from .llm.ollama import Ollama
+
+    s = settings()
+    conn = db.connect(s)
+
+    async def fill() -> int:
+        async with Ollama(s.ollama) as ol:
+            return await lately.write_missing(conn, ol)
+
+    if write:
+        typer.echo(f"wrote {run(fill())} lines")
+    got = lately.recent(conn)
+    typer.echo(f"{got['total']} pages since {got['since'][:10]}, in {len(got['rows'])} rows; last checked {got['checked']}")
+    for x in got["rows"]:
+        typer.echo(f"{x['when'][:16]} {x['status']:20} {x['label']}\n         {x['note'] or '(no line)'}")
+        if x["members"]:
+            typer.echo("         also: " + ", ".join(m["label"] for m in x["members"]))
 
 
 @app.command("feedback-done")

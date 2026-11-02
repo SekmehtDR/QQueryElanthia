@@ -168,6 +168,8 @@ class WebCfg(BaseModel):
     auto_sync_minutes: int = 60
     # Questions a visitor through the tunnel may ask per hour (one GPU is shared); 0 means no limit. The owner is never limited.
     visitor_turns_per_hour: int = 40
+    # How often the server writes lines for "Lately on the wiki" (minutes), only while nobody is waiting; 0 turns it off.
+    lately_minutes: int = 30
 
     @field_validator("auto_sync_minutes")
     @classmethod

@@ -30,12 +30,12 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _LINE_BREAKS = re.compile(r"[\r\n]+")
 LOG_LINES = 40
 MODES = {
-    "delta": ("Delta update", ["sync"]),
-    "full": ("Full refresh", ["sync", "--full-scan"]),
-    "reindex": ("Re-index", ["index", "--reembed-all"]),
-    "fill": ("Fill from mirror", ["fill"]),
-    "history": ("Fetch edit history", ["history"]),
-    "enrich": ("Rebuild knowledge", ["enrich", "--force"]),  # local only: facts and the topic graph from indexed pages
+    "delta": ("Check for changes", ["sync"]),
+    "full": ("Compare every page", ["sync", "--full-scan"]),
+    "reindex": ("Rebuild search index", ["index", "--reembed-all"]),
+    "fill": ("Get waiting pages", ["fill"]),
+    "history": ("Read edit history", ["history"]),
+    "enrich": ("Rebuild facts and topics", ["enrich", "--force"]),  # local only: facts and the topic graph from indexed pages
     "doctor": ("Health check", ["doctor"]),  # read-only integrity and coverage report; its output is the log
 }
 STALE_AFTER_SECONDS = 180  # a re-index that has not reported for this long is taken to have been interrupted
@@ -127,7 +127,7 @@ class JobManager:
         cmd = self.command(mode)
         async with self._lock:
             if self.running:
-                raise JobBusy(f"a {MODES[self.job.mode][0].lower()} is already running")  # type: ignore[union-attr]
+                raise JobBusy(f"{MODES[self.job.mode][0]} is already running")  # type: ignore[union-attr]
             job = Job(mode, _now(), time.monotonic())
             self.job = job
             kwargs: dict[str, Any] = {}
@@ -371,6 +371,57 @@ def index_info(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
         "reindex": reindex_status(conn),
         "chunks": (one("SELECT count(*) AS n FROM chunks") or {"n": 0})["n"],
     }
+
+
+def index_verdict(info: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    """The Index panel's first line: whether all is well and, if not, the one thing to do about it. Most urgent first, in words for
+    someone who has not read the code. `info` is what the panel is given; `level` is ok, working, warn or bad."""
+    job = info.get("job") or {}
+    reindex = info.get("reindex") or {}
+    crawl, idx = info.get("pending_crawl") or 0, info.get("pending_index") or 0
+
+    def verdict(level: str, title: str, detail: str = "", mode: str | None = None, label: str = "") -> dict[str, Any]:
+        return {"level": level, "title": title, "detail": detail, "action": {"mode": mode, "label": label or MODES[mode][0]} if mode else None}
+
+    if job.get("running"):
+        return verdict("working", f"{job['label']} is running")
+    if reindex.get("state") == "running":
+        return verdict("working", "Rebuilding the search index", "Started outside this page.")
+    if not info.get("chunks"):
+        if idx:
+            return verdict("bad", "The search index is empty",
+                           "Fennick can't answer until it is rebuilt from the downloaded pages. That takes a few hours and makes no wiki requests.", "reindex")
+        if not crawl:
+            return verdict("bad", "Nothing has been downloaded yet", "Build it from a terminal with: epedia pipeline")
+    if job.get("finished_at") and not job.get("stopped") and job.get("exit_code") != 0:
+        if job.get("mode") == "doctor":
+            return verdict("bad", "The health check found a problem", "The results are below.", "doctor", "Check again")
+        return verdict("bad", f"{job.get('label')} failed", "Its last lines are below.", job.get("mode"), "Try again")
+    suspect = (info.get("knowledge") or {}).get("suspect")
+    if suspect:
+        return verdict("warn", "Some facts may be out of date",
+                       f"Read far fewer facts than before from: {suspect}. The wiki's layout may have changed, so the old facts were kept.", "doctor", "Run health check")
+    if reindex.get("state") == "interrupted":
+        return verdict("warn", "A search index rebuild stopped early", f"It reached {reindex.get('pct')}%. Some pages may still use the old text rules.", "reindex")
+    if crawl or idx:
+        total = crawl + idx
+        return verdict("warn", f"{total:,} page{'' if total == 1 else 's'} waiting", f"{crawl:,} to download, {idx:,} to index.", "fill")
+    knowledge = info.get("knowledge")
+    if knowledge and not knowledge.get("facts") and not knowledge.get("hubs"):
+        return verdict("warn", "Facts and topics are not built", "Answers that compare things need them. It takes about a minute.", "enrich")
+    last = info.get("last_delta")
+    if not last:
+        return verdict("warn", "No check for changes has run yet", "", "delta")
+    if last.get("errors"):
+        return verdict("warn", f"The last check had {last['errors']:,} error{'' if last['errors'] == 1 else 's'}", "Some pages may be behind until the next check.", "delta")
+    minutes = (info.get("auto_sync") or {}).get("minutes") or 0
+    try:
+        age = ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(last["at"].replace("Z", "+00:00"))).total_seconds() / 60
+    except (ValueError, AttributeError, KeyError):
+        age = 0
+    if age > (minutes * 3 if minutes else 1440):
+        return verdict("warn", "Not checked for a while", "An automatic check should have run by now." if minutes else "Automatic checks are off.", "delta")
+    return verdict("ok", "Everything is up to date")
 
 
 URL_SAFE = ":/(),!*'"

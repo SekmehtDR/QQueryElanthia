@@ -11,7 +11,7 @@ import sqlite_vec
 
 from .config import Settings
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -263,6 +263,8 @@ def migrate(conn: sqlite3.Connection, settings: Settings) -> None:
     _migrate_v6(conn)
     _migrate_v7(conn)
     _migrate_v8(conn)
+    _migrate_v9(conn)
+    _migrate_v10(conn)
     if get_state(conn, "schema_version") != str(SCHEMA_VERSION):
         set_state(conn, "schema_version", str(SCHEMA_VERSION))
     if get_state(conn, "embed_model") is None:
@@ -307,6 +309,28 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
           PRIMARY KEY (from_page_id, to_page_id)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS ix_links_to ON page_links(to_page_id);
+        """
+    )
+
+
+def _migrate_v10(conn: sqlite3.Connection) -> None:
+    """What the owner has put out of sight in Past chats. Only a view: a vote stays in the queue whatever happens here. A turn's mark has
+    no foreign key because a thumbs-down outlives its chat. A chat is archived while archived_at is not older than its updated_at, so one
+    that carries on comes back."""
+    _ensure_column(conn, "sessions", "archived_at", "TEXT")
+    conn.execute("CREATE TABLE IF NOT EXISTS archived_turns (turn_id INTEGER PRIMARY KEY, archived_at TEXT NOT NULL)")
+
+
+def _migrate_v9(conn: sqlite3.Connection) -> None:
+    """A line on each page 'Lately on the wiki' lists, written ahead of time (core/lately.py). An empty note failed its check."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lately_notes (
+          title      TEXT PRIMARY KEY,
+          revid      INTEGER,
+          note       TEXT NOT NULL,
+          written_at TEXT NOT NULL
+        )
         """
     )
 

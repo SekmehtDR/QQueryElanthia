@@ -340,10 +340,15 @@ def delete_sessions(conn: sqlite3.Connection, owner: str | None = None, frontend
     return cur.rowcount
 
 
-def list_sessions(conn: sqlite3.Connection, frontend: str | None = "web", limit: int = 50, owner: str | None = None) -> list[dict]:
+def set_archived(conn: sqlite3.Connection, session_id: str, on: bool = True) -> bool:
+    """Put a chat out of sight in Past chats, or bring it back. It is still there for whoever asked, and carrying on brings it back."""
+    return conn.execute("UPDATE sessions SET archived_at=? WHERE session_id=?", (utcnow_iso() if on else None, session_id)).rowcount > 0
+
+
+def list_sessions(conn: sqlite3.Connection, frontend: str | None = "web", limit: int = 50, owner: str | None = None, archived: bool = False) -> list[dict]:
     """Conversations that have at least one question, newest first, for the Past chats list. With `owner`, only that
     person's ("visitors" for everyone but the local owner); without, everyone's (the owner's view, each row saying whose
-    it is). `frontend` None means every front end."""
+    it is). `frontend` None means every front end. `archived` lists those put out of sight instead."""
     rows = conn.execute(
         "SELECT s.session_id, substr(coalesce(s.title, (SELECT m.content FROM messages m WHERE m.session_id=s.session_id "
         "AND m.role='user' ORDER BY m.msg_id LIMIT 1)), 1, 60) AS title, s.topic, coalesce(s.updated_at, s.created_at) AS updated_at, "
@@ -351,8 +356,9 @@ def list_sessions(conn: sqlite3.Connection, frontend: str | None = "web", limit:
         "(SELECT count(*) FROM messages m WHERE m.session_id=s.session_id AND m.role='user') AS questions "
         "FROM sessions s WHERE (? IS NULL OR s.frontend=?) AND questions > 0 AND (? IS NULL OR "
         "(CASE WHEN ?='visitors' THEN coalesce(s.owner, 'local') != 'local' ELSE coalesce(s.owner, 'local') = ? END)) "
+        "AND coalesce(s.archived_at >= coalesce(s.updated_at, s.created_at), 0) = ? "
         "ORDER BY updated_at DESC, s.rowid DESC LIMIT ?",
-        (frontend, frontend, owner, owner, owner, limit),
+        (frontend, frontend, owner, owner, owner, int(archived), limit),
     ).fetchall()
     return [dict(r) for r in rows]
 

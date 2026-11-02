@@ -155,6 +155,65 @@ def test_what_people_liked_is_listed_with_who_liked_it(setup):
         assert client.get("/api/review/turns?liked=true", headers={**LOCAL, **TUNNEL}).status_code == 403
 
 
+def test_archiving_an_answer_only_changes_the_owners_lists_never_the_queue(setup):
+    _, c, _, first, _ = setup
+    feedback.record(c, first, "down", note="wrong")
+    assert first in [r["turn_id"] for r in feedback.review(c)]
+    assert feedback.set_archived(c, first) and not feedback.set_archived(c, 99999)
+    assert first not in [r["turn_id"] for r in feedback.review(c)]
+    assert [r["turn_id"] for r in feedback.review(c, archived=True)] == [first]
+    assert first in [q["turn"]["turn_id"] for q in feedback.queue(c)]  # still to be worked through
+    feedback.set_archived(c, first, on=False)
+    assert first in [r["turn_id"] for r in feedback.review(c)] and feedback.review(c, archived=True) == []
+
+
+def test_a_deleted_chats_thumbs_down_can_be_archived_and_stays_in_the_queue(setup):
+    _, c, sid, first, _ = setup
+    feedback.record(c, first, "down")
+    memory.delete_session(c, sid)
+    (row,) = [r for r in feedback.review(c) if r.get("chat_deleted")]
+    assert feedback.set_archived(c, row["turn_id"])
+    assert not [r for r in feedback.review(c) if r.get("chat_deleted")]
+    assert [r["turn_id"] for r in feedback.review(c, archived=True) if r.get("chat_deleted")] == [first]
+    assert first in [q["turn"]["turn_id"] for q in feedback.queue(c)]
+
+
+def test_a_new_vote_brings_back_what_was_archived(setup):
+    _, c, sid, first, _ = setup
+    feedback.record(c, first, "up")
+    feedback.set_archived(c, first)
+    memory.set_archived(c, sid)
+    assert feedback.review(c, liked=True) == []
+    feedback.record(c, first, "down")
+    assert first in [r["turn_id"] for r in feedback.review(c)]
+    assert sid in [r["session_id"] for r in memory.list_sessions(c)]
+
+
+def test_an_archived_chat_leaves_the_lists_but_stays_readable_and_comes_back_if_it_carries_on(setup):
+    _, c, sid, first, second = setup
+    feedback.record(c, first, "down")
+    assert memory.set_archived(c, sid) and not memory.set_archived(c, "nope")
+    assert memory.list_sessions(c) == [] and [r["session_id"] for r in memory.list_sessions(c, archived=True)] == [sid]
+    assert first not in [r["turn_id"] for r in feedback.review(c)]
+    assert memory.messages(c, sid) and first in [q["turn"]["turn_id"] for q in feedback.queue(c)]
+    c.execute("UPDATE sessions SET archived_at='2000-01-01T00:00:00Z' WHERE session_id=?", (sid,))  # older than its last message
+    assert [r["session_id"] for r in memory.list_sessions(c)] == [sid] and memory.list_sessions(c, archived=True) == []
+
+
+def test_only_the_owner_at_this_computer_can_archive(setup):
+    settings, c, sid, first, _ = setup
+    with TestClient(create_app(settings)) as client:
+        for url, known in ((f"/api/sessions/{sid}/archive", "/api/sessions/nope/archive"), (f"/api/review/turns/{first}/archive", "/api/review/turns/99999/archive")):
+            assert client.post(url, json={"on": True}, headers={**LOCAL, **TUNNEL}).status_code == 403
+            assert client.post(url, json={"on": True}, headers={"Host": "localhost:8765"}).status_code == 403  # no X-QQE
+            assert client.post(known, json={"on": True}, headers=LOCAL).status_code == 404
+            assert client.post(url, json={"on": True}, headers=LOCAL).json() == {"archived": True}
+        assert client.get("/api/sessions?archived=true", headers=LOCAL).json()[0]["session_id"] == sid
+        assert client.get("/api/sessions?archived=true", headers={**LOCAL, **TUNNEL}).status_code == 403
+        assert client.post(f"/api/sessions/{sid}/archive", json={"on": False}, headers=LOCAL).json() == {"archived": False}
+        assert client.get("/api/sessions", headers=LOCAL).json()[0]["session_id"] == sid
+
+
 def test_the_page_shows_what_a_visitor_said_and_what_people_liked():
     from epedia.frontends.web.app import STATIC
 
@@ -169,7 +228,7 @@ def test_the_page_offers_thumbs_with_reasons_under_each_answer():
 
     html = (Path(__file__).parents[1] / "src/epedia/frontends/web/static/index.html").read_text(encoding="utf-8")
     assert "function addVotes(" in html and "'/api/turns/' + turnId + '/feedback'" in html
-    assert "addActions(a, full, { id: data.turn_id })" in html  # a fresh answer
+    assert "addActions(a, full, { id: data.turn_id," in html  # a fresh answer
     assert "feedback: viewingVisitor ? m.owner_feedback : m.feedback" in html  # a reopened chat shows the reader's own vote
     assert "persona.feedback_reasons" in html and "What went wrong? (optional)" in html
     assert "state === vote ? null : vote" in html  # a second click takes the vote back

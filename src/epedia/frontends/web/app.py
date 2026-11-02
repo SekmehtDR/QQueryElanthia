@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from ...buildinfo import build_info, git_commit
 from ...config import Settings
-from ...core import feedback, memory, whatsnew
+from ...core import feedback, followups, lately, memory, rewrite, whatsnew
 from ...core.assistant import Assistant, Done, Retrieval, Revise, Token
 from ...db import connect, get_state
 from ...index.reset import clear_index
@@ -29,13 +29,14 @@ from ...jobs import (
     find_reindex_pids,
     index_changes,
     index_info,
+    index_verdict,
     kill_pid_tree,
     live_progress,
     mark_reindex_interrupted,
     reindex_status,
     set_auto_sync_minutes,
 )
-from ...llm.ollama import Ollama
+from ...llm.ollama import Ollama, OllamaError
 from ...progress import snapshot
 from ...wiki import history as page_history
 from ...wiki import timeline
@@ -67,6 +68,10 @@ class FeedbackRequest(BaseModel):
     note: str = ""
 
 
+class ArchiveRequest(BaseModel):
+    on: bool = True  # False brings it back
+
+
 class LoginRequest(BaseModel):
     code: str
 
@@ -95,7 +100,7 @@ class StartRequest(BaseModel):
 
 
 def create_app(settings: Settings) -> FastAPI:
-    state: dict = {"locks": {}, "active": set()}  # session id -> lock; client ids with an answer in progress
+    state: dict = {"locks": {}, "active": set(), "followups": {}}  # session id -> lock; client ids with an answer in progress; turn id -> questions
     limiter = access.LoginLimiter()
     questions = access.TurnLimiter(settings.web.visitor_turns_per_hour)
     turns = asyncio.Semaphore(max(1, settings.web.max_concurrent))  # answers written at once; the rest queue
@@ -108,8 +113,10 @@ def create_app(settings: Settings) -> FastAPI:
         state["assistant"] = Assistant(settings, state["conn"], state["ollama"])
         # always running: the page can switch automatic updates on or off, and the loop reads that setting every minute
         sync_task = asyncio.create_task(auto_delta(jobs, state["conn"], settings.web.auto_sync_minutes))
+        notes_task = asyncio.create_task(lately.keep_up(state["conn"], state["ollama"], lambda: not state["active"], settings.web.lately_minutes))
         yield
         sync_task.cancel()
+        notes_task.cancel()
         await jobs.stop()  # never leave an index job running with nobody watching it
         await state["ollama"].aclose()
         state["conn"].close()
@@ -206,8 +213,9 @@ def create_app(settings: Settings) -> FastAPI:
         local_only(request)
         job = jobs.snapshot()
         live = live_progress(state["conn"], job["started_at"]) if job["running"] else None
-        return {**index_info(state["conn"], settings), "job": job, "live": live, **history_info(),
+        info = {**index_info(state["conn"], settings), "job": job, "live": live, **history_info(),
                 "auto_sync": auto_sync_info(state["conn"], settings.web.auto_sync_minutes)}
+        return {**info, "verdict": index_verdict(info)}
 
     stored_count: dict = {"at": -1e9, "n": 0, "extra": {}}
 
@@ -363,9 +371,24 @@ def create_app(settings: Settings) -> FastAPI:
     # Past chats is the owner's view of every conversation on the page (visitors' too, marked as such), to read and
     # clean up; through the tunnel it is hidden and refused, like the Index panel.
     @app.get("/api/sessions")
-    async def list_sessions(request: Request) -> list[dict]:
+    async def list_sessions(request: Request, archived: bool = False) -> list[dict]:
         local_only(request)
-        return memory.list_sessions(state["conn"], "web")
+        return memory.list_sessions(state["conn"], "web", archived=archived)
+
+    # Archiving only changes what the owner's lists show: the chat, its votes and the feedback queue are untouched.
+    @app.post("/api/sessions/{session_id}/archive")
+    async def archive_session(request: Request, session_id: str, body: ArchiveRequest) -> dict:
+        guard(request)
+        if not memory.set_archived(state["conn"], session_id, body.on):
+            raise HTTPException(404, "no such conversation")
+        return {"archived": body.on}
+
+    @app.post("/api/review/turns/{turn_id}/archive")
+    async def archive_turn(request: Request, turn_id: int, body: ArchiveRequest) -> dict:
+        guard(request)
+        if not feedback.set_archived(state["conn"], turn_id, body.on):
+            raise HTTPException(404, "no such answer")
+        return {"archived": body.on}
 
     # The start screen's questions are those in Past chats (everyone's), for everyone, so "Delete all" empties it too.
     @app.delete("/api/sessions")
@@ -377,6 +400,10 @@ def create_app(settings: Settings) -> FastAPI:
     async def recent_questions(request: Request) -> dict:
         questions = memory.recent_user_questions(state["conn"], limit=RECENT_QUESTIONS)
         return {"questions": questions, "hot": memory.hot_questions(state["conn"], questions)}
+
+    @app.get("/api/lately")
+    async def lately_on_the_wiki() -> dict:
+        return lately.recent(state["conn"])
 
     @app.get("/api/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str) -> dict:
@@ -415,11 +442,53 @@ def create_app(settings: Settings) -> FastAPI:
         reviewing = not memory.owned_by(state["conn"], sid, access.owner_of(request))
         return feedback.record(state["conn"], turn_id, body.vote, body.reasons, body.note, reviewing=reviewing)
 
+    def own_turn(request: Request, turn_id: int) -> None:
+        """Whoever may read an answer may ask for more from it, and nobody else may learn it exists."""
+        sid = feedback.turn_session(state["conn"], turn_id)
+        if sid is None or not may_see(request, sid):
+            raise HTTPException(404, "no such answer")
+
+    @app.post("/api/turns/{turn_id}/shorter")
+    async def turn_shorter(request: Request, turn_id: int) -> dict:
+        """The answer cut down. It costs the GPU what a short answer does, so it counts as a question for a visitor."""
+        csrf(request)
+        own_turn(request, turn_id)
+        owner = access.owner_of(request)
+        if owner in state["active"]:
+            raise HTTPException(429, "still answering your last question")
+        if not access.is_local(request) and not questions.allow(owner):
+            raise HTTPException(429, "That's a lot of questions for one hour. Try again a little later.")
+        state["active"].add(owner)
+        try:
+            async with turns:
+                done = await rewrite.shorter(state["assistant"], state["conn"], turn_id)
+        except rewrite.CannotRewrite as exc:
+            return {"ok": False, "message": str(exc)}
+        except OllamaError as exc:
+            return {"ok": False, "message": f"Fennick lost his place: {exc}"}
+        finally:
+            state["active"].discard(owner)
+        return {"ok": True, "answer": done.answer, "cited": done.cited}
+
+    @app.post("/api/turns/{turn_id}/followups")
+    async def turn_followups(request: Request, turn_id: int) -> dict:
+        """Questions to ask next. Kept per answer, so asking twice costs nothing."""
+        csrf(request)
+        own_turn(request, turn_id)
+        kept = state["followups"]
+        if turn_id not in kept:
+            async with turns:
+                found = await followups.suggest(state["assistant"], turn_id)
+            if len(kept) >= 500:  # a long-running server: the oldest are the least likely to be asked for again
+                kept.pop(next(iter(kept)))
+            kept[turn_id] = found
+        return {"questions": kept[turn_id]}
+
     # What is worth the owner's look, at this computer only, like Past chats.
     @app.get("/api/review/turns")
-    async def review_turns(request: Request, flagged: bool = True, liked: bool = False, limit: int = 30) -> list[dict]:
+    async def review_turns(request: Request, flagged: bool = True, liked: bool = False, archived: bool = False, limit: int = 30) -> list[dict]:
         local_only(request)
-        return feedback.review(state["conn"], flagged=flagged, liked=liked, limit=min(limit, 200))
+        return feedback.review(state["conn"], flagged=flagged, liked=liked, archived=archived, limit=min(limit, 200))
 
     @app.get("/api/review/turns/{turn_id}/eval")
     async def review_eval_item(request: Request, turn_id: int) -> dict:
@@ -467,7 +536,8 @@ def create_app(settings: Settings) -> FastAPI:
                         elif isinstance(ev, Done):
                             # `answer` is the final text, including tags added for lines the model left uncited
                             yield sse("done", {"cited": ev.cited, "related": ev.related, "answer": ev.answer,
-                                               "topic": ev.topic, "turn_id": ev.turn_id, "revised": ev.revised, "choices": ev.choices})
+                                               "topic": ev.topic, "turn_id": ev.turn_id, "revised": ev.revised, "choices": ev.choices,
+                                               "rewritable": ev.rewritable})
             except Exception as exc:  # surface model/db problems in the UI instead of a dropped stream
                 yield sse("error", {"message": str(exc)})
             finally:

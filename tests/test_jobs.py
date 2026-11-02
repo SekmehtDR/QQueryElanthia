@@ -1,16 +1,19 @@
 import asyncio
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from epedia.config import Settings
 from epedia.frontends.web.app import _host_name, create_app
-from epedia.jobs import MODES, JobBusy, JobManager, index_info
+from epedia.jobs import MODES, JobBusy, JobManager, index_info, index_verdict
 
 QUICK = [sys.executable, "-c", "print('stage one'); print('\\x1b[32mstage two\\x1b[0m'); print()"]
 SLOW = [sys.executable, "-c", "import time; print('started', flush=True); time.sleep(60)"]
@@ -66,7 +69,7 @@ def test_a_job_runs_to_completion_with_a_clean_log_and_exit_code():
     async def go():
         m = manager(QUICK)
         snap = await m.start("delta")
-        assert snap["running"] and snap["label"] == "Delta update"
+        assert snap["running"] and snap["label"] == "Check for changes"
         await m.wait()
         return m.snapshot()
 
@@ -236,7 +239,7 @@ def test_dns_rebinding_is_refused_because_the_host_name_is_not_ours(client):
 
 def test_start_and_status_through_the_api(client):
     r = client.post("/api/index/start", json={"mode": "delta"}, headers=LOCAL)
-    assert r.status_code == 200 and r.json()["label"] == "Delta update"
+    assert r.status_code == 200 and r.json()["label"] == "Check for changes"
     info = client.get("/api/index/info").json()
     assert "job" in info and "last_delta" in info and info["pending_crawl"] == 0
 
@@ -519,3 +522,68 @@ def test_the_index_page_reports_automatic_updates_history_and_knowledge_and_save
     assert client.get("/api/index/info", headers=LOCAL).json()["auto_sync"]["minutes"] == 30
     assert client.post("/api/settings/auto-sync", json={"minutes": 2}, headers=LOCAL).status_code == 400
     assert client.post("/api/settings/auto-sync", json={"minutes": 30}).status_code in (403, 400)  # not the owner's page
+
+
+NOW = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+WELL = {"chunks": 100, "pending_crawl": 0, "pending_index": 0, "reindex": {"state": "finished", "pct": 100.0},
+        "knowledge": {"facts": 5, "hubs": 2, "suspect": ""}, "auto_sync": {"minutes": 60},
+        "last_delta": {"at": "2026-11-02T11:30:00Z", "errors": 0}, "job": {"running": False}}
+FAILED = {"finished_at": "x", "exit_code": 1, "stopped": False}
+
+
+@pytest.mark.parametrize("change, level, title, mode", [
+    ({}, "ok", "Everything is up to date", None),
+    ({"job": {"running": True, "label": "Check for changes"}}, "working", "Check for changes is running", None),
+    ({"reindex": {"state": "running"}}, "working", "Rebuilding the search index", None),
+    ({"chunks": 0, "pending_index": 9}, "bad", "The search index is empty", "reindex"),
+    ({"chunks": 0}, "bad", "Nothing has been downloaded yet", None),
+    ({"job": {**FAILED, "mode": "doctor", "label": "Health check"}}, "bad", "The health check found a problem", "doctor"),
+    ({"job": {**FAILED, "mode": "fill", "label": "Get waiting pages"}}, "bad", "Get waiting pages failed", "fill"),
+    ({"job": {"finished_at": "x", "exit_code": 1, "stopped": True, "mode": "fill"}}, "ok", "Everything is up to date", None),  # stopped on purpose
+    ({"knowledge": {"facts": 5, "hubs": 2, "suspect": "materials"}}, "warn", "Some facts may be out of date", "doctor"),
+    ({"reindex": {"state": "interrupted", "pct": 40.0}}, "warn", "A search index rebuild stopped early", "reindex"),
+    ({"pending_crawl": 3, "pending_index": 1}, "warn", "4 pages waiting", "fill"),
+    ({"knowledge": {"facts": 0, "hubs": 0, "suspect": ""}}, "warn", "Facts and topics are not built", "enrich"),
+    ({"last_delta": None}, "warn", "No check for changes has run yet", "delta"),
+    ({"last_delta": {"at": "2026-11-02T11:30:00Z", "errors": 2}}, "warn", "The last check had 2 errors", "delta"),
+    ({"last_delta": {"at": "2026-11-02T08:00:00Z", "errors": 0}}, "warn", "Not checked for a while", "delta"),
+    ({"last_delta": {"at": "2026-11-01T08:00:00Z", "errors": 0}, "auto_sync": {"minutes": 0}}, "warn", "Not checked for a while", "delta"),
+    ({"last_delta": {"at": "2026-11-02T08:00:00Z", "errors": 0}, "auto_sync": {"minutes": 0}}, "ok", "Everything is up to date", None),
+])
+def test_the_index_panel_says_whether_all_is_well_and_what_to_do(change, level, title, mode):
+    got = index_verdict({**WELL, **change}, now=NOW)
+    assert (got["level"], got["title"]) == (level, title)
+    assert (got["action"]["mode"] if got["action"] else None) == mode
+    if got["action"]:
+        assert got["action"]["label"] and got["action"]["mode"] in MODES
+
+
+def test_an_empty_index_outranks_a_failed_job_and_a_failure_outranks_a_backlog():
+    empty = {**WELL, "chunks": 0, "pending_index": 9, "job": {**FAILED, "mode": "fill", "label": "x"}}
+    assert index_verdict(empty, now=NOW)["title"] == "The search index is empty"
+    assert index_verdict({**WELL, "pending_crawl": 3, "job": {**FAILED, "mode": "fill", "label": "Fill"}}, now=NOW)["level"] == "bad"
+
+
+def test_the_panels_data_and_jobs_are_refused_through_a_tunnel_and_it_says_what_is_going_on_here(tmp_path):
+    s = Settings()
+    s.db.path = str(tmp_path / "t.db")
+    s.web.auto_sync_minutes = 0
+    s.web.lately_minutes = 0
+    tunnel = {**LOCAL, "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "203.0.113.7"}
+    with TestClient(create_app(s)) as client:
+        assert client.get("/api/index/info", headers=LOCAL).json()["verdict"]["level"] == "bad"  # nothing built yet
+        assert client.get("/api/index/info", headers=tunnel).status_code == 403
+        assert client.get("/api/status", headers=tunnel).status_code == 403
+        assert client.get("/api/index/changes/1", headers=tunnel).status_code == 403
+        for path, body in (("/api/index/start", {"mode": "delta"}), ("/api/index/stop", None), ("/api/index/clear", {"confirm": "CLEAR"}),
+                           ("/api/settings/auto-sync", {"minutes": 60}), ("/api/settings/history", {"history_edits": 5})):
+            assert client.post(path, json=body, headers=tunnel).status_code == 403, path
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+@pytest.mark.parametrize("state", ["well", "running", "empty", "doctor"])
+def test_the_index_panels_code_really_runs(state):
+    root = Path(__file__).parent
+    out = subprocess.run(["node", str(root / "js" / "run_index.js"), str(root.parent / "src/epedia/frontends/web/static/index.html"), state],
+                         capture_output=True, encoding="utf-8", timeout=30)
+    assert out.returncode == 0 and "BAD" not in out.stdout and "ok" in out.stdout, out.stdout + out.stderr

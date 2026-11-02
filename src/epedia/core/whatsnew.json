@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.13.0",
+    "date": "2026-11-02",
+    "fennick": "I've stopped putting my satchel down and picking it up again between every question, which, it turns out, is why I kept you waiting. I also keep a little list now of what's new in the notes, and if I run on, and I do run on, you can ask me for the short version. Under most answers I'll suggest what to ask next, but only if I can see the notes actually cover it.",
+    "changes": [
+      "Answers start noticeably sooner.",
+      "The start screen shows what's lately new or updated on the wiki and how long ago, with related pages kept together. Click one to ask about it.",
+      "A Shorter button under most answers cuts it down, and Original brings it back.",
+      "Under most answers, a few questions you could ask next."
+    ]
+  },
+  {
     "version": "1.12.0",
     "date": "2026-11-01",
     "fennick": "Ask me who won what at the raffles and I used to read you the instructions for filling in the form. Twice, I'm told, with confidence. Now I read the actual table: what's been drawn at this year's festival, who won it, and if ten people won the same thing, that's one line. Auctions too, though I keep the two apart.",

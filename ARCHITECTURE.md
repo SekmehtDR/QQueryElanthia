@@ -380,6 +380,11 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   figures that do not match; then "What people liked".
   Marked lines and rewritten drafts are noted on an entry but do not put it there, because most answers have one. "Copy as
   eval" copies a skeleton for `eval/questions.yaml`, to check and paste by hand. `epedia chats` reads the same from the terminal.
+- **Around an answer.** `core/rewrite.py` is Shorter (`POST /api/turns/{id}/shorter`): the model cuts `chain.model_body` down, `verify` reads the result against the turn's passages, and `chain.code_tail` comes back unchanged.
+  `core/followups.py` (`POST /api/turns/{id}/followups`) has the model suggest questions and keeps those whose words a word search finds. The page asks for these after `done`, so an answer never waits on them.
+- **Lately on the wiki.** `core/lately.py` picks pages from `sync_pages` by `kinds.LATELY_KINDS` and groups them into rows (a page and its subpages; a family of materials, `kinds.LATELY_FAMILY_KINDS`). A background task in the
+  web server writes one checked line per revision for each row's main page into `lately_notes`, one at a time, only while no answer is in progress (`GET /api/lately`).
+- **Archive.** `sessions.archived_at` and `archived_turns` hide chats and answers from the owner's lists in Past chats. The feedback queue ignores both.
 - **What's new.** A button beside the version number (glowing until this browser has opened the latest) opens a dialog from `core/whatsnew.json` (`GET /api/whats-new`, read on every request): each
   update hand-written in Fennick's voice, then plainly out of character. With the persona off, only the plain part. A
   pre-commit hook (`tools/hooks`) refuses a commit that leaves it alone.
@@ -390,11 +395,12 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   a clarifying question and answers the original question from that page. Rare today: the wiki tells same-named pages apart
   with "(1)", so few names are really ambiguous.
 
-- **Index panel.** Shows last delta, last full refresh, newest edit seen, source and pending work
-  (`jobs.index_info`, read from `sync_log` and `state`), with **Delta update**, **Full refresh**, **Fill**, **Fetch history**,
-  **Rebuild knowledge** (`enrich --force`), **Health check** (`doctor`, its output is the job log) and **Stop**. It also
-  reports the automatic-update schedule (`jobs.auto_sync_info`, editable at `/api/settings/auto-sync`, stored in `state`),
-  edit-history coverage and the knowledge layer's counts (cached for a minute by `history_info` in `app.py`).
+- **Index panel.** Opens with one verdict (`jobs.index_verdict`: all well, or the most urgent problem and the one action for it), then each job
+  described in words: **Check for changes** (`sync`), **Get waiting pages** (`fill`), **Compare every page** (`sync --full-scan`), **Read edit history**
+  (`history`), **Health check** (`doctor`, its output is the job log), **Rebuild facts and topics** (`enrich --force`), **Rebuild search index**
+  (`index --reembed-all`), **Clear search index**, and **Stop**. The labels are `jobs.MODES`. Numbers and sources are folded away at the end (`jobs.index_info`,
+  `jobs.auto_sync_info`, and counts cached for a minute by `history_info` in `app.py`). Everything here is for this computer only: the button is hidden from
+  visitors and the endpoints refuse them (`local_only`, `guard`).
 
 ### Index jobs
 
@@ -478,4 +484,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.12.0 (2026-11-01)_
+_Last updated: 1.13.0 (2026-11-01)_

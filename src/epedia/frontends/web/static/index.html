@@ -131,6 +131,27 @@
   .chip { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:999px; padding:6px 14px; font:inherit; font-size:.88rem; cursor:pointer; }
   .chip:hover { border-color:var(--accent); color:var(--accent); }
   .recent { margin-top:12px; }
+  .lately { margin:16px auto 0; max-width:560px; text-align:left; }
+  .lately-label { color:var(--muted); text-align:center; }
+  .lately-since { color:var(--muted); text-align:center; font-size:.78rem; margin:2px 0 8px; }
+  .lately-row { background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-top:6px; overflow:hidden; }
+  .lately-row[hidden] { display:none; }
+  .lately-row:hover { border-color:var(--accent); }
+  .lately-main { display:block; width:100%; background:none; border:0; padding:8px 12px; font:inherit; font-size:.86rem; color:var(--ink); text-align:left; cursor:pointer; }
+  .lately-main:hover .lately-title { color:var(--accent); }
+  .lately-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
+  .lately-title { font-weight:600; min-width:0; overflow-wrap:anywhere; }
+  .lately-status { color:var(--accent); font-size:.76rem; white-space:nowrap; }
+  .lately-when { color:var(--muted); font-size:.76rem; margin-left:auto; white-space:nowrap; }
+  .lately-note { display:block; color:var(--muted); margin-top:3px; }
+  .lately-parts { display:flex; flex-wrap:wrap; gap:4px; padding:0 12px 9px; }
+  .lately-parts .chip { padding:1px 9px; font-size:.78rem; }
+  .lately-more { display:block; margin:8px auto 0; border:1px solid var(--line); background:none; color:var(--muted); border-radius:999px; padding:3px 14px; font:inherit; font-size:.82rem; cursor:pointer; }
+  .lately-more:hover { border-color:var(--accent); color:var(--accent); }
+  .followups { margin-top:10px; font-size:.85rem; color:var(--muted); }
+  .followups .chips { justify-content:flex-start; margin-top:6px; gap:6px; }
+  .followups .chip { padding:3px 10px; font-size:.82rem; text-align:left; }
+  .actions .said-rewrite { color:var(--muted); font-size:.82rem; }
   .recent-none { color:var(--muted); font-style:italic; }
   .recent-label { color:var(--muted); }
   .chip .hot { margin-right:4px; }
@@ -168,29 +189,59 @@
     .thinking .dots i:nth-child(3) { animation-delay:.36s, .9s; }
   }
   #status { display:none; border-bottom:1px solid var(--line); background:var(--panel); font-size:.85rem; color:var(--muted); }
-  /* Index controls: start a delta (only what changed) or a full refresh, stop it, and see when it last ran. */
-  .idx-top { padding:12px var(--gutter) 6px; }
-  .idx-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-  .idx-actions button { border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:6px 16px; font:inherit; font-size:.9rem; cursor:pointer; }
-  .idx-actions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
-  .idx-actions button:disabled { opacity:.45; cursor:default; }
-  .idx-actions .idx-primary:not(:disabled) { background:var(--accent); border-color:var(--accent); color:var(--bg); }
-  .idx-actions .idx-primary:hover:not(:disabled) { color:var(--bg); filter:brightness(1.1); }
-  .idx-actions .idx-stop { border-color:#d24a3a; color:#d24a3a; }
-  .idx-state { flex:1 1 220px; min-width:0; color:var(--ink); }
+  /* The Index panel: one line saying whether all is well and what to do, then each job described in words, then the numbers. */
+  .idx-verdict { --level:#3a9d5d; display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:12px var(--gutter); border-left:4px solid var(--level); }
+  .idx-verdict[data-level="working"] { --level:var(--accent); }
+  .idx-verdict[data-level="warn"] { --level:#c9742f; }
+  .idx-verdict[data-level="bad"] { --level:#d24a3a; }
+  .idx-vtext { flex:1 1 320px; min-width:0; }
+  .idx-vtitle { font-size:1.05rem; font-weight:600; color:var(--ink); }
+  .idx-vtitle .mark { color:var(--level); margin-right:6px; }
+  .idx-vsub { color:var(--muted); margin-top:2px; }
+  .idx-vsub div + div { margin-top:2px; }
+  .idx-vact { display:flex; flex-wrap:wrap; gap:8px; }
+  .idx-btn { flex:none; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:5px 14px; font:inherit; font-size:.88rem; cursor:pointer; white-space:nowrap; }
+  .idx-btn[hidden] { display:none; }
+  .idx-btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  .idx-btn:disabled { opacity:.45; cursor:default; }
+  .idx-btn.idx-primary:not(:disabled) { background:var(--accent); border-color:var(--accent); color:var(--bg); }
+  .idx-btn.idx-primary:hover:not(:disabled) { color:var(--bg); filter:brightness(1.1); }
+  .idx-btn.idx-danger:not(:disabled) { border-color:#d24a3a; color:#d24a3a; }
+  .idx-progress { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; padding:0 var(--gutter) 8px; color:var(--ink); }
+  .idx-progress[hidden] { display:none; }
+  .idx-progress .track { flex:1 1 200px; height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .idx-progress .fill { height:100%; background:var(--accent); width:0; transition:width .6s; }
+  .idx-state { padding:0 var(--gutter); color:var(--ink); }
+  .idx-state:not(:empty) { padding-bottom:8px; }
   .idx-state .ok { color:#3a9d5d; } .idx-state .bad { color:#d24a3a; } .idx-state .run { color:var(--accent); }
-  .idx-info { display:grid; grid-template-columns:max-content 1fr; gap:3px 14px; margin:10px 0 4px; }
-  .idx-info dt { color:var(--muted); } .idx-info dd { margin:0; color:var(--ink); }
-  .idx-info .dim { color:var(--muted); }
-  .idx-log { margin:6px var(--gutter) 8px; padding:8px 10px; background:var(--bg); border:1px solid var(--line); border-radius:8px; max-height:9.5em; overflow:auto;
-    font:.75rem/1.45 ui-monospace, Consolas, monospace; color:var(--muted); white-space:pre-wrap; word-break:break-word; }
-  .idx-log[hidden] { display:none; }
-  .idx-setting { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:4px var(--gutter) 6px; }
-  .idx-setting label { color:var(--muted); }
-  .idx-setting input { width:4.5em; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:3px 6px; font:inherit; }
-  .idx-setting button { border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; padding:3px 14px; font:inherit; font-size:.9rem; cursor:pointer; }
+  .idx-logbox { margin:0 var(--gutter) 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
+  .idx-logbox[hidden] { display:none; }
+  .idx-loghead { display:flex; align-items:center; gap:10px; padding:6px 10px; border-bottom:1px solid var(--line); color:var(--ink); }
+  .idx-loghead b { flex:1 1 auto; }
+  .idx-loghead button { border:1px solid var(--line); background:none; color:var(--ink); border-radius:6px; padding:1px 10px; font:inherit; cursor:pointer; }
+  .idx-log { margin:0; padding:8px 10px; max-height:14em; overflow:auto; font:.78rem/1.45 ui-monospace,Consolas,monospace; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
+  .idx-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap:12px; padding:2px var(--gutter) 10px; align-items:start; }
+  .idx-card { min-width:0; border:1px solid var(--line); border-radius:10px; background:var(--bg); padding:10px 14px 4px; }
+  .idx-card h3 { margin:0 0 8px; font-size:.92rem; color:var(--ink); }
+  .idx-job { display:flex; gap:14px; align-items:flex-start; padding:9px 0; border-top:1px solid var(--line); }
+  .idx-job-text { flex:1 1 auto; min-width:0; }
+  .idx-job-text b { color:var(--ink); font-weight:600; }
+  .idx-job-text p { margin:1px 0 0; }
+  .idx-job-text p strong { color:var(--ink); font-weight:600; }
+  .idx-job-danger b { color:#d24a3a; }
+  .idx-meta { margin-top:3px; color:var(--ink); font-size:.8rem; }
+  .idx-meta:empty { display:none; }
+  .idx-meta .dim, .idx-info .dim { color:var(--muted); }
+  .idx-setting { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin-top:5px; color:var(--ink); }
+  .idx-setting label { color:var(--ink); }
+  .idx-setting input { width:4.5em; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:2px 6px; font:inherit; }
+  .idx-setting button { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:8px; padding:2px 12px; font:inherit; cursor:pointer; }
   .idx-setting button:hover { border-color:var(--accent); color:var(--accent); }
   .idx-setting .dim { color:var(--muted); }
+  .idx-more { padding:0 var(--gutter) 12px; }
+  .idx-more summary { cursor:pointer; color:var(--ink); padding:2px 0; }
+  .idx-info { display:grid; grid-template-columns:max-content 1fr; gap:3px 14px; margin:8px 0; }
+  .idx-info dt { color:var(--muted); } .idx-info dd { margin:0; color:var(--ink); }
   .idx-link { border:0; background:none; padding:0; margin-left:4px; font:inherit; color:var(--accent); cursor:pointer; text-decoration:underline; }
   .idx-changes { margin:6px var(--gutter) 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
   .idx-changes[hidden] { display:none; }
@@ -219,6 +270,8 @@
   #past .review { padding:6px var(--gutter) 2px; font-size:.82rem; color:var(--muted); }
   #past li.flagged .why { display:block; color:#c9742f; font-size:.78rem; }
   #past li.flagged.liked .why { color:var(--muted); }
+  @media (max-width: 480px) { #past li.flagged { flex-wrap:wrap; justify-content:flex-end; } #past li.flagged .pick { flex-basis:100%; } #past li.flagged .ttl { white-space:normal; } }
+  html[data-view="mobile"] #past li.flagged { flex-wrap:wrap; justify-content:flex-end; } html[data-view="mobile"] #past li.flagged .pick { flex-basis:100%; } html[data-view="mobile"] #past li.flagged .ttl { white-space:normal; }
   #past li.flagged .diag { display:block; color:var(--muted); font-size:.76rem; white-space:normal; }
   .theirvote { margin-top:8px; padding:6px 10px; border-left:3px solid #c9742f; color:var(--muted); font-size:.85rem; }
   #past li.flagged .copy { flex:none; border:1px solid var(--line); background:none; color:var(--muted); border-radius:8px; padding:2px 8px; font:inherit; font-size:.78rem; cursor:pointer; }
@@ -228,6 +281,8 @@
   #past .past-foot { padding:0 var(--gutter) 10px; text-align:right; }
   #past .past-foot button { border:1px solid var(--line); background:none; color:var(--muted); border-radius:8px; padding:4px 12px; font:inherit; font-size:.82rem; cursor:pointer; }
   #past .past-foot button:hover { border-color:#d24a3a; color:#d24a3a; }
+  #past .past-foot button.tame:hover { border-color:var(--accent); color:var(--accent); }
+  #past .arch:hover { color:var(--accent); }
   #topicbar { display:flex; align-items:center; gap:8px; padding:6px var(--gutter); border-bottom:1px solid var(--line); color:var(--muted); font-size:.82rem; }
   #topicbar[hidden] { display:none; }
   #topicbar b { color:var(--ink); font-weight:600; }
@@ -237,17 +292,14 @@
   .idx-changes .note { padding:8px 10px; color:var(--muted); }
   html[data-view="mobile"] .idx-info { grid-template-columns:1fr; gap:0; }
   html[data-view="mobile"] .idx-info dt { margin-top:6px; }
-  html[data-view="mobile"] .idx-actions button { flex:1 1 auto; min-height:42px; }
-  #status.show { display:block; }
-  #status .bar { padding:8px var(--gutter); cursor:pointer; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  #status .track { flex:0 0 160px; height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
-  #status .fill { height:100%; background:var(--accent); width:0; transition:width .6s; }
-  #status .detail { padding:0 var(--gutter) 10px; display:none; overflow-x:auto; }
-  #status.open .detail { display:block; }
+  html[data-view="mobile"] .idx-vact .idx-btn { flex:1 1 auto; min-height:42px; }
+  html[data-view="mobile"] .idx-job { flex-wrap:wrap; }
+  html[data-view="mobile"] .idx-job .idx-btn { flex:1 1 100%; min-height:38px; }
+  #status.show { display:block; max-height:72vh; overflow:auto; }
+  #status .detail { overflow-x:auto; }
   #status table { border-collapse:collapse; width:100%; }
   #status th, #status td { text-align:right; padding:2px 8px; border-bottom:1px solid var(--line); }
   #status th:first-child, #status td:first-child { text-align:left; }
-  #status .live { color:#3a9d5d; } #status .idle { color:var(--muted); }
   .msg .body table, .msg .body pre { display:block; max-width:100%; overflow-x:auto; }  /* wide ones scroll instead of overflowing */
 
   /* Polish: empty parts take no space, visible keyboard focus, gentle entrance, tidy scrollbars. */
@@ -317,7 +369,6 @@
   html[data-view="mobile"] .chips { flex-direction:column; align-items:stretch; }
   html[data-view="mobile"] .chip { padding:10px 14px; text-align:left; font-size:.95rem; }
   html[data-view="mobile"] .related .chip { padding:7px 12px; }
-  html[data-view="mobile"] #status .track { flex:1 1 100%; }
   html[data-view="mobile"] .src-row { grid-template-columns:1.9em 1fr; }
 </style>
 <script>
@@ -406,43 +457,115 @@
     <p class="about-foot">No Halflings were harmed in the making of this satchel.</p>
   </div>
 </dialog>
-<div id="past"><div id="reviewbox" hidden><div id="reviewhead" class="review">Worth a look</div><ul id="reviewlist"></ul><div id="likedhead" class="review" hidden>What people liked</div><ul id="likedlist"></ul><div class="review">All chats</div></div><ul id="pastlist"></ul>
-  <div class="past-foot" id="pastfoot" hidden><button type="button" id="pastclear" title="Delete every conversation, visitors' included, and the questions they put on the start screen">Delete all chats</button></div></div>
+<div id="past"><div id="reviewbox" hidden><div id="reviewhead" class="review">Worth a look</div><ul id="reviewlist"></ul><div id="likedhead" class="review" hidden>What people liked</div><ul id="likedlist"></ul><div class="review" id="chatshead">All chats</div></div><ul id="pastlist"></ul>
+  <div class="past-foot" id="pastfoot"><button type="button" id="pastarchived" class="tame">Archived</button> <button type="button" id="pastclear" hidden title="Delete every conversation, visitors' included, and the questions they put on the start screen">Delete all chats</button></div></div>
 <div id="topicbar" hidden><span>Talking about:</span> <b id="topictext"></b>
   <button id="topicx" type="button" title="Set this topic aside: the chat stays, but Fennick stops carrying it into new questions" aria-label="Set this topic aside">×</button></div>
 <div id="status">
-  <div class="idx-top">
-    <div class="idx-actions" role="group" aria-label="Index controls">
-      <button id="idxdelta" type="button" class="idx-primary" title="Fetch only what changed on the wiki since the last update, then refresh just those pages, the facts and the edit history. This also runs by itself on the schedule below while Fennick is running.">Start delta</button>
-      <button id="idxfill" type="button" title="Fetch the pages that are missing or out of date from the mirror (with Elanthipedia as the fallback), then index them. Delta update only fetches what it finds changed.">Fill</button>
-      <button id="idxfull" type="button" title="Re-walk the whole wiki, compare every page and refresh everything that differs (slower, but thorough)">Start full</button>
-      <button id="idxhist" type="button" title="Read the edit history from Elanthipedia (about 50 minutes the first time, resumable): every page's edits (who, when, how big), then the older versions of characters and of spells, creatures, places, shops, materials and similar pages, so Fennick can say what changed and who changed it. Later updates keep it current.">Fetch history</button>
-      <button id="idxenrich" type="button" title="Rebuild what Fennick works out from the pages: the crafting facts (materials, disciplines) and the topic graph. Local only: no wiki traffic, takes a minute.">Rebuild knowledge</button>
-      <button id="idxdoctor" type="button" title="Check the index is sound: integrity, that every page is up to date, search and vector rows match, facts and topics are built, and the rules answers rely on are still on the wiki. Read-only; the result shows below.">Health check</button>
-      <button id="idxreindex" type="button" title="Re-read every stored page with the current text rules and refresh the search index (no wiki traffic; takes hours)">Re-index</button>
-      <button id="idxclear" type="button" class="idx-stop" title="Empty the search index so a new one can be built. Keeps the downloaded pages; rebuild with Re-index">Clear index</button>
-      <button id="idxstop" type="button" class="idx-stop" hidden title="Stop the running job. Safe: the next run picks up where this one left off">Stop</button>
-      <span id="idxstate" class="idx-state" role="status"></span>
+  <div class="idx-verdict" id="idxverdict" data-level="ok">
+    <div class="idx-vtext">
+      <div class="idx-vtitle" id="idxvtitle" role="status">Loading…</div>
+      <div class="idx-vsub" id="idxvsub"></div>
     </div>
-    <dl class="idx-info" id="idxinfo"></dl>
+    <div class="idx-vact" role="group" aria-label="What to do now">
+      <button id="idxfix" type="button" class="idx-btn idx-primary" hidden></button>
+      <button id="idxdelta" type="button" class="idx-btn" title="Asks the wiki what changed since the last check and updates just those pages">Check for changes</button>
+      <button id="idxstop" type="button" class="idx-btn idx-danger" hidden title="Safe: the next run picks up where this one left off">Stop</button>
+    </div>
   </div>
-  <div class="idx-setting" id="idxsetting">
-    <label for="histn">Edits of page history Fennick sees</label>
-    <input id="histn" type="number" min="0" max="100" step="1" inputmode="numeric">
-    <button id="histsave" type="button">Save</button>
-    <span class="dim" id="histnote"></span>
+  <div class="idx-progress" id="idxprogress" hidden><span id="idxprogtext"></span><div class="track"><div class="fill" id="idxprogfill"></div></div></div>
+  <div class="idx-state" id="idxstate"></div>
+  <div class="idx-logbox" id="idxlogbox" hidden>
+    <div class="idx-loghead"><b id="idxloghead"></b><button type="button" id="idxlogclose">Close</button></div>
+    <pre class="idx-log" id="idxlog"></pre>
   </div>
-  <div class="idx-setting" id="autosetting">
-    <label for="autom">Update automatically every</label>
-    <input id="autom" type="number" min="0" max="1440" step="5" inputmode="numeric">
-    <span>minutes</span>
-    <button id="autosave" type="button">Save</button>
-    <span class="dim" id="autonote"></span>
-  </div>
-  <pre class="idx-log" id="idxlog" hidden></pre>
   <div class="idx-changes" id="idxchanges" hidden></div>
-  <div class="bar" id="statusbar" title="Click for per-namespace details"><span id="stext">Loading index status…</span><div class="track"><div class="fill" id="sfill"></div></div></div>
-  <div class="detail" id="sdetail"></div>
+  <div class="idx-grid">
+    <section class="idx-card" aria-labelledby="idxh1">
+      <h3 id="idxh1">Getting pages from the wiki</h3>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Automatic checks</b>
+          <p>Fennick checks for changes by itself while it is running.</p>
+          <div class="idx-setting">
+            <label for="autom">Every</label>
+            <input id="autom" type="number" min="0" max="1440" step="5" inputmode="numeric">
+            <span>minutes</span>
+            <button id="autosave" type="button">Save</button>
+            <span class="dim">0 turns them off</span>
+          </div>
+        </div>
+      </div>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Get waiting pages</b>
+          <p>Downloads and indexes pages that are known to be missing or behind. Usually a quick catch-up.</p>
+          <div class="idx-meta" id="mfill"></div>
+        </div>
+        <button id="idxfill" type="button" class="idx-btn">Get pages</button>
+      </div>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Compare every page</b>
+          <p>Walks the whole wiki and refreshes whatever differs. Only needed if you think the regular checks missed something. Slow, and it asks a lot of the wiki.</p>
+          <div class="idx-meta" id="mfull"></div>
+        </div>
+        <button id="idxfull" type="button" class="idx-btn">Compare</button>
+      </div>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Read edit history</b>
+          <p>Who changed what and when, so Fennick can answer questions about a page's past. About 50 minutes the first time, and it picks up where it left off.</p>
+          <div class="idx-meta" id="mhist"></div>
+          <div class="idx-setting">
+            <label for="histn">Edits Fennick sees for a page</label>
+            <input id="histn" type="number" min="0" max="100" step="1" inputmode="numeric">
+            <button id="histsave" type="button">Save</button>
+            <span class="dim">0 turns it off</span>
+          </div>
+        </div>
+        <button id="idxhist" type="button" class="idx-btn">Read history</button>
+      </div>
+    </section>
+    <section class="idx-card" aria-labelledby="idxh2">
+      <h3 id="idxh2">Checking and repairing</h3>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Health check</b>
+          <p>Checks the index is sound and that the rules answers rely on are still on the wiki. Changes nothing, and the results show above.</p>
+        </div>
+        <button id="idxdoctor" type="button" class="idx-btn">Run check</button>
+      </div>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Rebuild facts and topics</b>
+          <p>Works out crafting facts and which pages belong together again, from the pages already here. About a minute, with no wiki traffic.</p>
+          <div class="idx-meta" id="menrich"></div>
+        </div>
+        <button id="idxenrich" type="button" class="idx-btn">Rebuild</button>
+      </div>
+      <div class="idx-job">
+        <div class="idx-job-text">
+          <b>Rebuild search index</b>
+          <p>Re-reads every downloaded page with the current text rules. A few hours of heavy work, with no wiki traffic.</p>
+          <div class="idx-meta" id="mreindex"></div>
+        </div>
+        <button id="idxreindex" type="button" class="idx-btn">Rebuild</button>
+      </div>
+      <div class="idx-job idx-job-danger">
+        <div class="idx-job-text">
+          <b>Clear search index</b>
+          <p>Empties the search index. <strong>Fennick cannot answer until it is rebuilt.</strong> Downloaded pages and chats are kept.</p>
+        </div>
+        <button id="idxclear" type="button" class="idx-btn idx-danger">Clear</button>
+      </div>
+    </section>
+  </div>
+  <details class="idx-more">
+    <summary>Numbers and sources</summary>
+    <dl class="idx-info" id="idxinfo"></dl>
+    <div class="detail" id="sdetail"></div>
+  </details>
 </div>
 <div id="log"><div class="hint" id="hint"></div></div>
 <button id="jump" type="button" hidden>↓ Jump to latest</button>
@@ -633,9 +756,64 @@ function hintHtml(text) {
     const recent = document.createElement('div'); recent.className = 'recent'; recent.id = 'recent';
     wrap.append(recent);
     waits.push(loadRecent(recent));
+    const lately = document.createElement('div'); lately.className = 'lately';
+    wrap.append(lately);
+    waits.push(loadLately(lately));
   }
   wrap.ready = Promise.all(waits);
   return wrap;
+}
+function timeAgo(iso) {  // "2 hours ago"
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  const say = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+  if (m < 1) return 'just now';
+  if (m < 60) return say(m, 'minute');
+  if (m < 1440) return say(Math.round(m / 60), 'hour');
+  const days = Math.round(m / 1440);
+  return days === 1 ? 'yesterday' : say(days, 'day');
+}
+const LATELY_OPEN = 6;  // the rest wait behind a button, so a busy day does not push the start screen off the page
+// Pages sync saw appear or change, with a line written ahead of time. Nothing to show means no heading either.
+async function loadLately(box) {
+  let got = { rows: [] };
+  try {
+    const r = await fetch('/api/lately');
+    if (r.ok) got = await r.json();
+  } catch (e) { /* offline: shown as none */ }
+  box.textContent = '';
+  if (!got.rows.length) return;
+  const el = (tag, cls, text) => { const x = document.createElement(tag); x.className = cls; x.textContent = text; return x; };
+  const since = new Date(got.since).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  box.append(el('div', 'lately-label', 'Lately on the wiki'),
+    el('div', 'lately-since', `${got.total} page${got.total === 1 ? '' : 's'} new or changed since ${since}` + (got.checked ? ` · last checked ${timeAgo(got.checked)}` : '')));
+  const rows = got.rows.map((p, i) => {
+    const row = el('div', 'lately-row', ''); row.hidden = i >= LATELY_OPEN;
+    const b = el('button', 'lately-main', ''); b.type = 'button';
+    const head = el('span', 'lately-head', '');
+    const seen = el('span', 'lately-when', timeAgo(p.when)); seen.title = new Date(p.when).toLocaleString();
+    head.append(el('span', 'lately-title', p.label), el('span', 'lately-status', p.status), seen);
+    b.append(head);
+    if (p.note) b.append(el('span', 'lately-note', p.note));
+    b.onclick = () => ask('Tell me about ' + p.title);
+    row.append(b);
+    if (p.members.length) {
+      const parts = el('div', 'lately-parts', '');
+      p.members.forEach(m => {
+        const c = el('button', 'chip', m.label); c.type = 'button';
+        c.onclick = () => ask('Tell me about ' + m.title);
+        parts.append(c);
+      });
+      row.append(parts);
+    }
+    box.append(row);
+    return row;
+  });
+  if (rows.length > LATELY_OPEN) {
+    // counts pages, as the heading does: a card can hold several, so a count of cards here would not add up to it
+    const more = el('button', 'lately-more', `Show all ${got.total} pages`); more.type = 'button';
+    more.onclick = () => { rows.forEach(r => { r.hidden = false; }); more.remove(); };
+    box.append(more);
+  }
 }
 async function loadRecent(box) {
   box = box || document.getElementById('recent');
@@ -721,15 +899,58 @@ function showError(body, detail, question) {
 // Actions under a finished answer: copy it, and a thumbs up or down kept with the conversation for later review.
 function addActions(msg, text, turn) {
   const bar = document.createElement('div'); bar.className = 'actions';
+  let shown = text;
   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy answer';
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(text.replace(/\s*\[\d+[*?]?\]/g, '')); copy.textContent = 'Copied ✓'; }
+    try { await navigator.clipboard.writeText(shown.replace(/\s*\[\d+[*?]?\]/g, '')); copy.textContent = 'Copied ✓'; }
     catch (e) { copy.textContent = 'Copy failed'; }
     setTimeout(() => { copy.textContent = 'Copy answer'; }, 1600);
   };
   bar.append(copy);
+  if (turn && turn.id && turn.rewrite) addShorter(bar, msg, turn, text, t => { shown = t; });
   if (turn && turn.id) addVotes(bar, turn.id, turn.feedback || null);
   msg.querySelector('.sources').before(bar);
+}
+// The answer cut down. Nothing is saved: a vote and a reload are always about the original.
+function addShorter(bar, msg, turn, original, onShown) {
+  const said = document.createElement('span'); said.className = 'said-rewrite';
+  const put = (text, cited) => {
+    msg.querySelector('.body').innerHTML = renderMarkdown(text, turn.sources, false);
+    showSources(msg, turn.sources, cited, turn.related, text);
+    onShown(text);
+  };
+  const back = document.createElement('button'); back.type = 'button'; back.textContent = 'Original'; back.hidden = true;
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Shorter';
+  b.onclick = async () => {
+    if (busy) return;
+    busy = true; syncSend(); b.disabled = true; b.textContent = 'Shortening…'; said.textContent = '';
+    try {
+      const r = await fetch('/api/turns/' + turn.id + '/shorter', { method: 'POST', headers: { 'X-QQE': '1' } });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) { put(data.answer, data.cited); back.hidden = false; b.hidden = true; }
+      else said.textContent = data.message || data.detail || 'Could not shorten that.';
+    } catch (e) { said.textContent = 'Could not shorten that.'; }
+    busy = false; syncSend(); b.disabled = false; b.textContent = 'Shorter';
+  };
+  back.onclick = () => { put(original, turn.cited); back.hidden = true; b.hidden = false; said.textContent = ''; };
+  bar.append(b, back, said);
+}
+// Questions to ask next, written after the answer so it is never held up. None that a search could back means nothing is shown.
+async function addFollowups(msg, turnId) {
+  let qs = [];
+  try {
+    const r = await fetch('/api/turns/' + turnId + '/followups', { method: 'POST', headers: { 'X-QQE': '1' } });
+    if (r.ok) qs = (await r.json()).questions || [];
+  } catch (e) { return; }
+  if (!qs.length || !msg.isConnected) return;
+  const box = document.createElement('div'); box.className = 'followups'; box.textContent = 'You could ask:';
+  const chips = document.createElement('div'); chips.className = 'chips';
+  qs.forEach(q => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = q; b.onclick = () => ask(q);
+    chips.append(b);
+  });
+  box.append(chips);
+  msg.querySelector('.sources').after(box);
 }
 async function sendVote(turnId, vote, reasons, note) {
   const r = await fetch('/api/turns/' + turnId + '/feedback', { method: 'POST',
@@ -864,7 +1085,8 @@ async function runAsk(text, signal, pin) {
           if (data.answer) full = data.answer;  // the final text, with tags added for lines the model left uncited
           paint(false); showSources(a, sources, data.cited, data.related, full);
           if (data.choices && data.choices.length) showChoices(a, data.choices);
-          if (full.trim()) addActions(a, full, { id: data.turn_id });
+          if (full.trim()) addActions(a, full, { id: data.turn_id, rewrite: data.rewritable, sources, cited: data.cited, related: data.related });
+          if (data.rewritable && data.turn_id) addFollowups(a, data.turn_id);
           setTopic(data.topic);
           if (document.getElementById('past').classList.contains('show')) loadPast();
         }
@@ -935,6 +1157,13 @@ function showTheirVote(msg, m) {
   d.textContent = 'The visitor gave this ' + (m.feedback === 'up' ? '👍' : '👎') + (why ? ': ' + why : '') + (m.note ? ' "' + m.note + '"' : '');
   msg.querySelector('.sources').before(d);
 }
+let pastArchived = false;  // Past chats is showing what was archived
+const archiveWord = () => pastArchived ? 'Restore' : 'Archive';
+const archiveTip = 'Only changes this list: votes stay in the feedback queue, and nothing is deleted';
+async function setArchived(url, on) {
+  try { await fetch(url, { method: 'POST', headers: { 'X-QQE': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ on }) }); } catch (e) { /* offline: the list shows nothing changed */ }
+  loadPast();
+}
 async function loadReview() {
   const box = document.getElementById('reviewbox');
   const said = r => [...r.flags, ...(r.reasons || []).map(k => reasonLabel(k))].join(', ') + (r.note ? ': ' + r.note : '');
@@ -944,10 +1173,14 @@ async function loadReview() {
       (r.owner && r.owner !== 'local' ? '<span class="who">visitor</span>' : '') +
       (r.chat_deleted ? '<span class="who">chat deleted</span>' : '') + `${esc(r.question)}</span>` +
       `<span class="why">${esc(said(r))}</span>${diag(r.diagnosis)}</button>` +
-      `<button type="button" class="copy" data-eval="${r.turn_id}" title="Copy as a question for the evaluation set">Copy as eval</button></li>`;
+      `<button type="button" class="copy" data-eval="${r.turn_id}" title="Copy as a question for the evaluation set">Copy as eval</button>` +
+      `<button type="button" class="copy" data-archive-turn="${r.turn_id}" title="${archiveTip}">${archiveWord()}</button></li>`;
   try {
-    const [rows, liked] = await Promise.all(['/api/review/turns?limit=8', '/api/review/turns?liked=true&limit=8'].map(async u => (await fetch(u)).json()));
+    const urls = pastArchived ? ['/api/review/turns?archived=true&limit=100'] : ['/api/review/turns?limit=8', '/api/review/turns?liked=true&limit=8'];
+    const [rows, liked = []] = await Promise.all(urls.map(async u => (await fetch(u)).json()));
     box.hidden = !rows.length && !liked.length;
+    document.getElementById('reviewhead').textContent = pastArchived ? 'Archived answers' : 'Worth a look';
+    document.getElementById('chatshead').textContent = pastArchived ? 'Archived chats' : 'All chats';
     document.getElementById('reviewhead').hidden = !rows.length;
     document.getElementById('likedhead').hidden = !liked.length;
     document.getElementById('reviewlist').innerHTML = rows.map(r => rowHtml(r, '')).join('');
@@ -955,7 +1188,8 @@ async function loadReview() {
   } catch (e) { box.hidden = true; }
 }
 document.getElementById('reviewbox').addEventListener('click', async e => {
-  const copy = e.target.closest('[data-eval]'), pick = e.target.closest('.pick');
+  const copy = e.target.closest('[data-eval]'), pick = e.target.closest('.pick'), shelf = e.target.closest('[data-archive-turn]');
+  if (shelf) { setArchived('/api/review/turns/' + shelf.dataset.archiveTurn + '/archive', !pastArchived); return; }
   if (pick) { if (pick.dataset.id) resumeChat(pick.dataset.id); return; }
   if (!copy) return;
   try {
@@ -968,13 +1202,15 @@ async function loadPast() {
   loadReview();
   const ul = document.getElementById('pastlist');
   try {
-    const rows = await (await fetch('/api/sessions')).json();
-    document.getElementById('pastfoot').hidden = !rows.length;
-    if (!rows.length) { ul.innerHTML = '<li class="empty">Nothing yet. Conversations on this page, yours and visitors\', appear here.</li>'; return; }
+    const rows = await (await fetch('/api/sessions' + (pastArchived ? '?archived=true' : ''))).json();
+    document.getElementById('pastclear').hidden = pastArchived || !rows.length;
+    document.getElementById('pastarchived').textContent = pastArchived ? 'Back to chats' : 'Archived';
+    if (!rows.length) { ul.innerHTML = `<li class="empty">${pastArchived ? 'No chats archived.' : "Nothing yet. Conversations on this page, yours and visitors', appear here."}</li>`; return; }
     ul.innerHTML = rows.map(r => `<li${r.session_id === sessionId ? ' class="current"' : ''}>` +
       `<button type="button" class="pick" data-id="${esc(r.session_id)}"><span class="ttl">` +
       (r.owner && r.owner !== 'local' ? '<span class="who">visitor</span>' : '') + `${esc(r.title || 'Untitled')}</span>` +
       `<span class="when">${when(r.updated_at) || ''} · ${r.questions} question${r.questions === 1 ? '' : 's'}${r.topic ? ' · ' + esc(r.topic) : ''}</span></button>` +
+      `<button type="button" class="del arch" data-archive="${esc(r.session_id)}" title="${archiveTip}">${archiveWord()}</button>` +
       `<button type="button" class="del" data-del="${esc(r.session_id)}" title="Delete this conversation" aria-label="Delete this conversation">Delete</button></li>`).join('');
   } catch (e) { ul.innerHTML = '<li class="empty">Could not load past chats.</li>'; }
 }
@@ -1074,8 +1310,9 @@ about.addEventListener('close', () => document.getElementById('aboutbtn').focus(
 document.getElementById('pastbtn').addEventListener('click', () =>
   setPastVisible(!document.getElementById('past').classList.contains('show')));
 document.getElementById('pastlist').addEventListener('click', async e => {
-  const del = e.target.closest('[data-del]'), pick = e.target.closest('[data-id]');
-  if (del) {
+  const del = e.target.closest('[data-del]'), pick = e.target.closest('[data-id]'), shelf = e.target.closest('[data-archive]');
+  if (shelf) setArchived('/api/sessions/' + encodeURIComponent(shelf.dataset.archive) + '/archive', !pastArchived);
+  else if (del) {
     if (!confirm('Delete this conversation for good?')) return;
     const id = del.dataset.del;
     const r = await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'X-QQE': '1' } });
@@ -1084,6 +1321,7 @@ document.getElementById('pastlist').addEventListener('click', async e => {
     loadPast();
   } else if (pick) resumeChat(pick.dataset.id);
 });
+document.getElementById('pastarchived').addEventListener('click', () => { pastArchived = !pastArchived; loadPast(); });
 document.getElementById('pastclear').addEventListener('click', async () => {
   if (!confirm("Delete every conversation for good, visitors' included? Their questions also leave the start screen.")) return;
   try {
@@ -1092,22 +1330,47 @@ document.getElementById('pastclear').addEventListener('click', async () => {
   } catch (e) { /* offline: nothing was deleted */ }
   loadPast();
 });
-function fmtEta(min) { return min == null ? '' : ' · ETA ' + Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm'; }
+// ---- Index panel: whether all is well and what to do (the server's verdict), each job described in words, then the numbers ---
+function fmtEta(min) { return min == null ? '' : ' · about ' + Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm left'; }
+let indexCounts = null, indexInfo = null;  // the latest of each poll: the numbers section reads both
 async function refreshStatus() {
   try {
     const s = await (await fetch('/api/status')).json();
-    const pct = s.total ? s.fetched / s.total * 100 : 0;
-    const state = s.complete ? 'complete' : s.crawling ? `<span class="live">● crawling ${s.crawl_per_min}/min</span>${fmtEta(s.eta_minutes)}` : '<span class="idle">○ crawl idle</span>';
-    document.getElementById('stext').innerHTML = `Index: ${s.fetched.toLocaleString()} / ${s.total.toLocaleString()} pages (${pct.toFixed(1)}%) · ${state}`;
-    document.getElementById('sfill').style.width = pct + '%';
+    indexCounts = s;
     const rows = s.namespaces.map(n => `<tr><td>${n.ns} ${esc(n.name)}</td><td>${n.pages.toLocaleString()}</td><td>${n.fetched.toLocaleString()}</td><td>${n.indexed.toLocaleString()}</td><td>${n.errors}</td></tr>`).join('');
-    document.getElementById('sdetail').innerHTML = `<table><tr><th>Namespace</th><th>Pages</th><th>Crawled</th><th>Searchable</th><th>Errors</th></tr>${rows}</table>` +
-      `<div>${s.chunks.toLocaleString()} searchable chunks · ${s.errors} page errors${s.last_sync ? ' · last sync ' + esc(s.last_sync) : ''}${s.last_fetch ? ' · last fetch ' + esc(s.last_fetch) : ''}</div>`;
-  } catch (e) { document.getElementById('stext').textContent = 'Index status unavailable'; }
+    document.getElementById('sdetail').innerHTML = `<table><tr><th>Namespace</th><th>Pages</th><th>Downloaded</th><th>Searchable</th><th>Errors</th></tr>${rows}</table>`;
+    drawProgress(); drawNumbers();
+  } catch (e) { document.getElementById('sdetail').textContent = 'Page counts are unavailable right now.'; }
 }
-document.getElementById('statusbar').addEventListener('click', () => document.getElementById('status').classList.toggle('open'));
-
-// ---- Index controls: Start delta / Start full / Stop, and when the index last ran -------------------------------
+// The bar is only there while something is really moving: a full one that never changes tells nobody anything.
+function drawProgress() {
+  const box = document.getElementById('idxprogress');
+  const r = indexInfo && indexInfo.reindex, s = indexCounts;
+  let text = '', pct = 0;
+  if (r && r.state === 'running') {
+    text = `${r.done.toLocaleString()} of ${r.total.toLocaleString()} pages rebuilt (${r.pct}%)`; pct = r.pct;
+  } else if (s && s.crawling && !s.complete) {
+    pct = s.total ? s.fetched / s.total * 100 : 0;
+    text = `${s.fetched.toLocaleString()} of ${s.total.toLocaleString()} pages downloaded (${pct.toFixed(1)}%) · ${s.crawl_per_min}/min${fmtEta(s.eta_minutes)}`;
+  }
+  box.hidden = !text;
+  document.getElementById('idxprogtext').textContent = text;
+  document.getElementById('idxprogfill').style.width = pct + '%';
+}
+const SOURCE_NAMES = { original: 'Elanthipedia', mirror: 'the mirror' };
+const sourceName = s => SOURCE_NAMES[s] || s || 'unknown';
+function drawNumbers() {
+  const j = indexInfo, s = indexCounts;
+  if (!j) return;
+  const row = (name, value) => `<dt>${name}</dt><dd>${value}</dd>`;
+  document.getElementById('idxinfo').innerHTML =
+    (s ? row('Pages', `${s.total.toLocaleString()} <span class="dim">· ${s.fetched.toLocaleString()} downloaded · ${s.indexed.toLocaleString()} searchable</span>`) : '') +
+    row('Searchable passages', (j.chunks || 0).toLocaleString()) +
+    (s ? row('Pages with errors', s.errors ? `<span class="bad">${s.errors.toLocaleString()}</span>` : 'none') : '') +
+    row('Newest wiki edit seen', when(j.newest_edit_seen) || '<span class="dim">unknown</span>') +
+    row('Changes are checked on', esc(sourceName(j.delta_source))) +
+    row('Pages are downloaded from', esc(sourceName(j.source)));
+}
 function when(iso) {  // "10/22/2026, 3:04 PM (2 h ago)"
   if (!iso) return null;
   const t = new Date(iso);
@@ -1116,14 +1379,12 @@ function when(iso) {  // "10/22/2026, 3:04 PM (2 h ago)"
   const ago = m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
   return t.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + ` <span class="dim">(${ago})</span>`;
 }
-function runLine(r) {
-  if (!r) return '<span class="dim">never</span>';
-  const bits = [when(r.at), `${(r.changed || 0).toLocaleString()} changed`, `${(r.deleted || 0).toLocaleString()} removed`];
-  if (r.seconds != null) bits.push('took ' + (r.seconds >= 90 ? Math.round(r.seconds / 60) + ' min' : Math.round(r.seconds) + ' s'));
-  if (r.errors) bits.push(`<span class="bad">${r.errors} errors</span>`);
-  let out = bits.join(' · ');
-  if (r.id && ((r.changed || 0) + (r.deleted || 0)) > 0) out += ` <button type="button" class="idx-link" data-run="${r.id}">View details</button>`;
-  return out;
+const viewPages = r => r && r.id && ((r.changed || 0) + (r.deleted || 0)) > 0 ? ` <button type="button" class="idx-link" data-run="${r.id}">See the pages</button>` : '';
+function runCounts(r) {
+  const bits = [`${(r.changed || 0).toLocaleString()} changed`];
+  if (r.deleted) bits.push(`${r.deleted.toLocaleString()} removed`);
+  if (r.errors) bits.push(`<span class="bad">${r.errors.toLocaleString()} errors</span>`);
+  return bits.join(', ');
 }
 let openRun = null;
 async function showChanges(id) {
@@ -1134,7 +1395,7 @@ async function showChanges(id) {
     const r = await fetch('/api/index/changes/' + id);
     if (!r.ok) throw new Error(r.status);
     const c = await r.json();
-    const title = `${c.kind === 'full' ? 'Full refresh' : 'Delta update'} · ${when(c.at)}`;
+    const title = `${c.kind === 'full' ? 'Compare every page' : 'Check for changes'} · ${when(c.at)}`;
     let body;
     if (!c.recorded) body = '<div class="note">This run was before page lists were kept, so only the counts are known. Later runs list every page.</div>';
     else {
@@ -1146,112 +1407,112 @@ async function showChanges(id) {
     document.getElementById('idxchangesclose').addEventListener('click', () => { box.hidden = true; openRun = null; });
   } catch (e) { box.innerHTML = '<div class="note">Could not load the page list.</div>'; }
 }
-document.getElementById('idxinfo').addEventListener('click', e => {  // the list is redrawn every few seconds, so listen on the container
+document.getElementById('status').addEventListener('click', e => {  // these are redrawn every few seconds, so listen on the container
   const b = e.target.closest('[data-run]');
   if (b) showChanges(Number(b.dataset.run));
 });
 function mmss(s) { return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
-// A whole-index re-chunk shows its progress here whether it was started from this page or the command line.
-function reindexRow(r) {
-  if (!r) return '';
-  const pct = `${r.done.toLocaleString()} / ${r.total.toLocaleString()} pages (${r.pct}%)`;
-  const text = r.state === 'running' ? `<span class="run">● running</span> · ${pct} <span class="dim">· started ${when(r.started_at)}</span>`
-    : r.state === 'finished' ? `<span class="ok">✓ finished</span> ${when(r.finished_at)} <span class="dim">· ${r.total.toLocaleString()} pages</span>`
-    : `<span class="bad">stopped early</span> at ${pct} <span class="dim">· last update ${when(r.updated_at)}</span>`;
-  return `<dt>Re-index</dt><dd>${text}</dd>`;
-}
-function autoRow(a) {
-  if (!a) return '';
-  if (!a.minutes) return '<dt>Automatic updates</dt><dd><span class="dim">off (set a number of minutes below to turn them on)</span></dd>';
+function nextCheck(a) {
+  if (!a || !a.minutes) return 'Automatic checks are off';
   const nxt = a.next ? new Date(a.next) : null;
-  const soon = nxt && !isNaN(nxt) ? (nxt.getTime() <= Date.now() ? 'due now' : 'next about ' + nxt.toLocaleTimeString([], { timeStyle: 'short' })) : 'first one shortly after start-up';
-  return `<dt>Automatic updates</dt><dd>every ${a.minutes} min while Fennick is running <span class="dim">· ${a.last ? 'last started ' + when(a.last) : 'none yet'} · ${soon}</span></dd>`;
+  if (!nxt || isNaN(nxt)) return 'First automatic check shortly after start-up';
+  return nxt.getTime() <= Date.now() ? 'Next check is due now' : 'Next check about ' + nxt.toLocaleTimeString([], { timeStyle: 'short' });
 }
-function historyRow(j) {
-  if (j.history_stored === undefined) return '';
-  if (!j.history_stored) return '<dt>Edit history</dt><dd><span class="bad">none stored yet</span> <span class="dim">· click Fetch history</span></dd>';
-  const read = (j.history_pages_read || 0).toLocaleString(), wait = j.history_pages_waiting || 0;
-  const tail = wait ? ` · <span class="run">${wait.toLocaleString()} pages still to read</span> <span class="dim">(Fetch history)</span>` : ' · <span class="ok">up to date</span>';
-  return `<dt>Edit history</dt><dd>${j.history_stored.toLocaleString()} edits stored · older versions read for ${read} pages${tail}</dd>`;
+function verdictSub(j, job) {
+  const lines = [];
+  if (job.running) {
+    const lv = j.live;
+    const perMin = lv && job.elapsed_s > 20 ? Math.round(lv.fetched / (job.elapsed_s / 60)) : 0;
+    lines.push(`${mmss(job.elapsed_s || 0)} so far` + (lv ? ` · ${lv.fetched.toLocaleString()} fetched · ${lv.indexed.toLocaleString()} indexed` : '') + (perMin ? ` · about ${perMin}/min` : '') + ' · safe to stop, the next run picks up from here');
+    if (lv && lv.latest.length) lines.push('Latest: ' + lv.latest.map(p => esc(p.title)).join(' · '));
+    return lines;
+  }
+  if (j.verdict && j.verdict.detail) lines.push(esc(j.verdict.detail));
+  const d = j.last_delta;
+  if (d) lines.push(`Last checked ${timeAgo(d.at)}: ${runCounts(d)}${viewPages(d)} · ${nextCheck(j.auto_sync)}`);
+  return lines;
 }
-function knowledgeRow(k) {
-  if (!k) return '';
-  if (!k.facts && !k.hubs) return '<dt>Knowledge</dt><dd><span class="bad">not built</span> <span class="dim">· click Rebuild knowledge</span></dd>';
-  const bits = [`${k.facts.toLocaleString()} facts (${k.materials.toLocaleString()} materials, ${k.disciplines} crafting disciplines)`,
-    `${k.hubs.toLocaleString()} topics linking ${k.links.toLocaleString()} pages`];
-  const warn = k.suspect ? `<div class="bad">Read far fewer facts than before from: ${esc(k.suspect)}. The wiki's layout may have changed; the old facts were kept. Run Health check.</div>` : '';
-  return `<dt>Knowledge</dt><dd>${bits.join(' · ')}${warn}</dd>`;
+function jobMeta(j) {
+  const set = (id, html) => { document.getElementById(id).innerHTML = html; };
+  const waiting = (j.pending_crawl || 0) + (j.pending_index || 0);
+  set('mfill', waiting ? `<b>${(j.pending_crawl || 0).toLocaleString()}</b> to download, <b>${(j.pending_index || 0).toLocaleString()}</b> to index` : '<span class="dim">Nothing is waiting.</span>');
+  set('mfull', j.last_full ? `Last run ${when(j.last_full.at)}: ${runCounts(j.last_full)}${viewPages(j.last_full)}` : '<span class="dim">Has not been run.</span>');
+  if (j.history_stored !== undefined) {
+    const wait = j.history_pages_waiting || 0;
+    set('mhist', !j.history_stored ? '<span class="dim">Nothing read yet.</span>'
+      : `${j.history_stored.toLocaleString()} edits stored · ` + (wait ? `${wait.toLocaleString()} pages still to read` : 'up to date'));
+  }
+  const k = j.knowledge;
+  if (k) set('menrich', k.facts || k.hubs ? `${k.facts.toLocaleString()} facts · ${k.hubs.toLocaleString()} topics` : '<span class="dim">Not built yet.</span>');
+  const r = j.reindex;
+  set('mreindex', !r ? '<span class="dim">Has not been run.</span>' : r.state === 'finished' ? `Last finished ${when(r.finished_at)}`
+    : r.state === 'running' ? 'Running now' : `Stopped early at ${r.pct}%`);
 }
 let flashHtml = '', flashUntil = 0;
 function flash(html, seconds = 20) { flashHtml = html; flashUntil = Date.now() + seconds * 1000; document.getElementById('idxstate').innerHTML = html; }
-let jobTimer = null, lastJobRunning = false;
+const MARKS = { ok: '✓', working: '●', warn: '!', bad: '✗' };
+const JOB_BUTTONS = ['idxdelta', 'idxfull', 'idxreindex', 'idxfill', 'idxhist', 'idxenrich', 'idxdoctor', 'idxfix'];
+let jobTimer = null, lastJobRunning = false, logClosedFor = null;
 function renderIndex(j) {
-  const job = j.job || {};
-  const delta = document.getElementById('idxdelta'), full = document.getElementById('idxfull'), stop = document.getElementById('idxstop');
-  const reindex = j.reindex, outsideRun = !!(reindex && reindex.state === 'running' && !job.running);  // e.g. started from the command line
+  indexInfo = j;
+  const job = j.job || {}, v = j.verdict || { level: 'ok', title: '' };
+  const outsideRun = !!(j.reindex && j.reindex.state === 'running' && !job.running);  // e.g. started from the command line
   const busyNow = !!job.running || outsideRun;
-  for (const id of ['idxdelta', 'idxfull', 'idxreindex', 'idxfill', 'idxhist', 'idxenrich', 'idxdoctor']) document.getElementById(id).disabled = busyNow;
-  document.getElementById('idxclear').disabled = !!job.running || outsideRun || !j.chunks;
-  document.getElementById('idxreindex').classList.toggle('idx-primary', !j.chunks && j.pending_index > 0 && !job.running && !outsideRun);  // an empty index: the way forward
-  stop.hidden = !(job.running || outsideRun);  // a re-index started elsewhere can be stopped here too
+
+  const box = document.getElementById('idxverdict');
+  box.dataset.level = v.level;
+  const title = document.getElementById('idxvtitle');
+  title.textContent = '';
+  const mark = document.createElement('span'); mark.className = 'mark'; mark.textContent = MARKS[v.level] || '';
+  title.append(mark, v.title);
+  document.getElementById('idxvsub').innerHTML = verdictSub(j, job).map(l => `<div>${l}</div>`).join('');
+
+  for (const id of JOB_BUTTONS) document.getElementById(id).disabled = busyNow;
+  document.getElementById('idxfill').disabled = busyNow || !((j.pending_crawl || 0) + (j.pending_index || 0));
+  document.getElementById('idxclear').disabled = busyNow || !j.chunks;
+  document.getElementById('idxstop').hidden = !busyNow;  // a re-index started elsewhere can be stopped here too
+  const fix = document.getElementById('idxfix');
+  fix.hidden = !v.action || v.action.mode === 'delta' || busyNow;
+  if (!fix.hidden) { fix.textContent = v.action.label; fix.dataset.mode = v.action.mode; }
+  const delta = document.getElementById('idxdelta');
+  delta.hidden = busyNow;
+  delta.classList.toggle('idx-primary', fix.hidden);
+
   const st = document.getElementById('idxstate');
-  if (job.running) {
-    st.innerHTML = `<span class="run">● ${esc(job.label)} running</span> · ${mmss(job.elapsed_s || 0)}`;
-  } else if (job.started_at && job.finished_at) {
-    const ok = job.exit_code === 0 && !job.stopped;
-    st.innerHTML = job.stopped ? `■ ${esc(job.label)} stopped ${when(job.finished_at)}`
-      : ok ? `<span class="ok">✓ ${esc(job.label)} finished</span> ${when(job.finished_at)}`
-      : `<span class="bad">✗ ${esc(job.label)} failed (exit ${job.exit_code})</span> ${when(job.finished_at)}`;
-  } else if (outsideRun) {
-    st.innerHTML = '<span class="run">● Re-index running</span> <span class="dim">(started outside this page)</span>';
-  } else if (flashHtml && Date.now() < flashUntil) {
-    st.innerHTML = flashHtml;
-  } else if (!j.chunks && j.pending_index > 0) {
-    st.innerHTML = '<span class="bad">The search index is empty.</span> Click <b>Re-index</b> to rebuild it from the downloaded pages. <span class="dim">(Full refresh only checks the wiki for changes; it does not rebuild the index.)</span>';
-  } else st.textContent = '';
-  const log = document.getElementById('idxlog');
+  if (flashHtml && Date.now() < flashUntil) st.innerHTML = flashHtml;
+  else if (job.finished_at && job.stopped) st.innerHTML = `■ ${esc(job.label)} stopped ${when(job.finished_at)}`;
+  else if (job.finished_at && job.exit_code === 0 && job.mode !== 'delta') st.innerHTML = `<span class="ok">✓ ${esc(job.label)} finished</span> ${when(job.finished_at)}`;
+  else st.textContent = '';
+
   const failed = job.finished_at && (job.exit_code !== 0 || job.stopped);
   const report = job.mode === 'doctor' || job.mode === 'enrich';  // their output is the point, so it stays after they finish
-  log.hidden = !(job.log && job.log.length && (job.running || failed || report));
-  if (!log.hidden) { log.textContent = job.log.slice(report ? -26 : -8).join('\n'); log.scrollTop = log.scrollHeight; }
-  const waiting = (j.pending_crawl || j.pending_index)
-    ? `${(j.pending_crawl || 0).toLocaleString()} to fetch · ${(j.pending_index || 0).toLocaleString()} to index` : '<span class="dim">nothing</span>';
+  const logBox = document.getElementById('idxlogbox');
+  logBox.hidden = !(job.log && job.log.length && (job.running || failed || report)) || logClosedFor === job.started_at;
+  if (!logBox.hidden) {
+    document.getElementById('idxloghead').textContent = job.label + (job.running ? ': working' : ': results');
+    const log = document.getElementById('idxlog');
+    log.textContent = job.log.slice(report ? -26 : -8).join('\n');
+    log.scrollTop = log.scrollHeight;
+  }
+
   if (j.history_edits !== undefined) {
     const inp = document.getElementById('histn');
     if (document.activeElement !== inp) inp.value = j.history_edits;  // never overwrite what is being typed
-    document.getElementById('histnote').textContent = j.history_stored
-      ? `${j.history_stored.toLocaleString()} edits stored · 0 turns it off`
-      : 'No history stored yet: click Fetch history · 0 turns it off';
   }
   if (j.auto_sync) {
     const inp = document.getElementById('autom');
     if (document.activeElement !== inp) inp.value = j.auto_sync.minutes;
-    document.getElementById('autonote').textContent = j.auto_sync.minutes
-      ? 'while Fennick is running · 0 turns it off' : 'off: only the buttons above update the index · 0 turns it off';
   }
-  const lv = j.live;  // a running job: what it has done so far (the run is only logged when it ends)
-  const perMin = lv && job.elapsed_s > 20 ? Math.round(lv.fetched / (job.elapsed_s / 60)) : 0;
-  const liveRow = lv ? `<dt>This run</dt><dd><span class="run">●</span> ${lv.fetched.toLocaleString()} fetched · ${lv.indexed.toLocaleString()} indexed` +
-    (perMin ? ` <span class="dim">· about ${perMin}/min</span>` : '') +
-    (lv.latest.length ? `<div class="dim">Latest: ${lv.latest.map(p => esc(p.title)).join(' · ')}</div>` : '') + '</dd>' : '';
-  document.getElementById('idxinfo').innerHTML =
-    liveRow + reindexRow(j.reindex) +
-    `<dt>Last delta update</dt><dd>${runLine(j.last_delta)}</dd>` +
-    `<dt>Last full refresh</dt><dd>${runLine(j.last_full)}</dd>` +
-    `<dt>Newest wiki edit seen</dt><dd>${when(j.newest_edit_seen) || '<span class="dim">unknown</span>'}</dd>` +
-    `<dt>Waiting</dt><dd>${waiting}</dd>` +
-    autoRow(j.auto_sync) + historyRow(j) + knowledgeRow(j.knowledge) +
-    `<dt>Reading from</dt><dd>${esc(j.source || '?')}${j.delta_source && j.delta_source !== j.source ? ` <span class="dim">(updates and checks for new edits come from ${esc(j.delta_source)})</span>` : ''}</dd>`;
+  jobMeta(j); drawProgress(); drawNumbers();
   // poll quickly while a job runs so the log and clock feel live; the slow poll covers the rest
-  const busy = job.running || outsideRun;
-  if (busy && !jobTimer) jobTimer = setInterval(loadIndexInfo, outsideRun && !job.running ? 5000 : 1500);
-  if (!busy && jobTimer) { clearInterval(jobTimer); jobTimer = null; }
+  if (busyNow && !jobTimer) jobTimer = setInterval(loadIndexInfo, outsideRun ? 5000 : 1500);
+  if (!busyNow && jobTimer) { clearInterval(jobTimer); jobTimer = null; }
   if (lastJobRunning && !job.running) refreshStatus();  // counts changed while it ran
   lastJobRunning = !!job.running;
 }
 async function loadIndexInfo() {
   try { renderIndex(await (await fetch('/api/index/info')).json()); }
-  catch (e) { document.getElementById('idxstate').textContent = 'Index details unavailable'; }
+  catch (e) { flash('<span class="bad">Could not reach the server, so this may be out of date.</span>', 8); }
 }
 async function indexAction(path, body) {
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-QQE': '1' }, body: body ? JSON.stringify(body) : undefined });
@@ -1261,17 +1522,34 @@ async function indexAction(path, body) {
   }
   await loadIndexInfo();
 }
-document.getElementById('idxdelta').addEventListener('click', () => indexAction('/api/index/start', { mode: 'delta' }));
-document.getElementById('idxfill').addEventListener('click', () => indexAction('/api/index/start', { mode: 'fill' }));
-document.getElementById('idxhist').addEventListener('click', () => indexAction('/api/index/start', { mode: 'history' }));
-document.getElementById('idxenrich').addEventListener('click', () => indexAction('/api/index/start', { mode: 'enrich' }));
-document.getElementById('idxdoctor').addEventListener('click', () => indexAction('/api/index/start', { mode: 'doctor' }));
+const startJob = mode => indexAction('/api/index/start', { mode });
+function startFull() {
+  if (confirm('Compare every page?\n\nIt walks the whole wiki, compares every page with your copy and refreshes whatever differs. ' +
+              'That is thorough, but it can take a while and asks a lot of the wiki. You can stop it at any time and the next run continues where it left off.')) {
+    startJob('full');
+  }
+}
+function startReindex() {
+  if (confirm('Rebuild the search index?\n\nIt re-reads every downloaded page with the current text rules. ' +
+              'It makes no requests to the wiki, but it can take a few hours and uses the computer heavily. You can stop it at any time.')) {
+    startJob('reindex');
+  }
+}
+const JOB_STARTS = { delta: () => startJob('delta'), fill: () => startJob('fill'), history: () => startJob('history'), enrich: () => startJob('enrich'),
+  doctor: () => startJob('doctor'), full: startFull, reindex: startReindex };
+const JOB_IDS = { idxdelta: 'delta', idxfill: 'fill', idxhist: 'history', idxenrich: 'enrich', idxdoctor: 'doctor', idxfull: 'full', idxreindex: 'reindex' };
+for (const [id, mode] of Object.entries(JOB_IDS)) document.getElementById(id).addEventListener('click', JOB_STARTS[mode]);
+document.getElementById('idxfix').addEventListener('click', e => { const go = JOB_STARTS[e.target.dataset.mode]; if (go) go(); });
+document.getElementById('idxlogclose').addEventListener('click', () => {
+  logClosedFor = indexInfo && indexInfo.job ? indexInfo.job.started_at : null;
+  document.getElementById('idxlogbox').hidden = true;
+});
 document.getElementById('autosave').addEventListener('click', async () => {
   const n = parseInt(document.getElementById('autom').value, 10);
   if (isNaN(n)) return;
   if (n !== 0 && n < 5) { flash('<span class="bad">Use 0 (off) or at least 5 minutes.</span>', 6); return; }
   await indexAction('/api/settings/auto-sync', { minutes: n });
-  flash('<span class="ok">Saved.</span> ' + (n ? `Fennick updates every ${n} minutes while it is running.` : 'Automatic updates are off.'), 6);
+  flash('<span class="ok">Saved.</span> ' + (n ? `Fennick checks every ${n} minutes while it is running.` : 'Automatic checks are off.'), 6);
 });
 document.getElementById('histsave').addEventListener('click', async () => {
   const n = parseInt(document.getElementById('histn').value, 10);
@@ -1279,22 +1557,9 @@ document.getElementById('histsave').addEventListener('click', async () => {
   await indexAction('/api/settings/history', { history_edits: n });
   flash('<span class="ok">Saved.</span> New answers use ' + Math.max(0, Math.min(100, n)) + ' edits.', 6);
 });
-document.getElementById('idxfull').addEventListener('click', () => {
-  if (confirm('Start a full refresh?\n\nIt re-checks every page on the wiki against your copy and refreshes whatever differs, ' +
-              'reading from the source shown under "Reading from". ' +
-              'That is thorough but can take a while. You can stop it at any time and the next run continues where it left off.')) {
-    indexAction('/api/index/start', { mode: 'full' });
-  }
-});
-document.getElementById('idxreindex').addEventListener('click', () => {
-  if (confirm('Start a re-index?\n\nIt re-reads every stored page with the current text rules and refreshes the search index. ' +
-              'It makes no requests to the wiki, but it can take a few hours and uses the computer heavily. You can stop it at any time.')) {
-    indexAction('/api/index/start', { mode: 'reindex' });
-  }
-});
 document.getElementById('idxclear').addEventListener('click', async () => {
-  const typed = prompt('Clear the search index?\n\nThis removes every searchable chunk, so Fennick cannot answer until you click Re-index ' +
-                       'to rebuild it (a few hours, no wiki traffic). Your downloaded pages and conversations are kept.\n\nType CLEAR to continue.');
+  const typed = prompt('Clear the search index?\n\nThis removes every searchable passage, so Fennick cannot answer until you rebuild it ' +
+                       '(a few hours, no wiki traffic). Your downloaded pages and conversations are kept.\n\nType CLEAR to continue.');
   if (typed !== 'CLEAR') return;
   const btn = document.getElementById('idxclear');
   btn.disabled = true;
@@ -1307,7 +1572,7 @@ document.getElementById('idxclear').addEventListener('click', async () => {
       flash(`<span class="bad">${esc(detail || 'Could not clear the index (' + r.status + ')')}</span>`);
     } else {
       const done = await r.json();
-      flash(`<span class="ok">✓ Cleared ${(done.chunks || 0).toLocaleString()} chunks.</span> Now click <b>Re-index</b> to build a new index from the downloaded pages.`, 120);
+      flash(`<span class="ok">✓ Cleared ${(done.chunks || 0).toLocaleString()} passages.</span>`, 120);
     }
   } catch (e) {
     flash('<span class="bad">Lost the connection while clearing. Check the Index panel; the clear may still be finishing.</span>');

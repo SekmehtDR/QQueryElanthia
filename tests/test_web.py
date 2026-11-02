@@ -253,15 +253,17 @@ def test_chat_endpoint_rejects_an_empty_message_with_a_json_error(client):
     assert r.status_code == 400  # the page now shows this as an error with a retry button
 
 
-def test_index_panel_has_start_delta_start_full_stop_and_last_run_details(client):
+def test_index_panel_says_whether_all_is_well_and_describes_each_job_in_words(client):
     html = client.get("/").text
-    for needle in ('id="idxdelta"', ">Start delta<", 'id="idxfull"', ">Start full<", 'id="idxstop"', ">Stop<",
-                   "Last delta update", "Last full refresh", "Newest wiki edit seen", "Waiting", "Reading from"):
+    for needle in ('id="idxverdict"', 'id="idxdelta"', ">Check for changes<", 'id="idxfull"', ">Compare every page<", 'id="idxstop"', ">Stop<",
+                   "Get waiting pages", "Read edit history", "Rebuild search index", "Clear search index", "Newest wiki edit seen", "Changes are checked on"):
         assert needle in html, needle
     assert "'X-QQE': '1'" in html  # the header the server requires before it starts any work
-    assert "confirm('Start a full refresh?" in html  # the slow one asks first; the delta does not
+    assert "confirm('Compare every page?" in html  # the slow one asks first; the check for changes does not
+    for jargon in ("Start delta", "Start full", "Re-index<", ">Fill<", "Rebuild knowledge"):
+        assert jargon not in html, jargon
     assert "/api/index/start" in html and "/api/index/stop" in html and "/api/index/info" in html
-    assert "setInterval(loadIndexInfo," in html and "reindexRow" in html  # live log and clock while a job runs, and the re-index row
+    assert "setInterval(loadIndexInfo," in html and "drawProgress" in html  # live log and clock while a job runs, and the rebuild's progress
     assert "if (jobTimer) { clearInterval(jobTimer)" in html  # no polling once the panel is closed
 
 

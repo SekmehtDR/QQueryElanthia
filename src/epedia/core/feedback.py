@@ -57,6 +57,9 @@ def record(conn: sqlite3.Connection, turn_id: int, vote: str | None, reasons: li
     # a changed vote has not been worked through, whatever was done about the old one
     conn.execute(f"UPDATE turns SET {columns}, processed_at=NULL, processed_note=NULL WHERE turn_id=?",
                  (vote, reason, utcnow_iso() if vote else None, turn_id))
+    # a new vote is something new to look at, even on something archived
+    conn.execute("DELETE FROM archived_turns WHERE turn_id=?", (turn_id,))
+    conn.execute("UPDATE sessions SET archived_at=NULL WHERE session_id=(SELECT session_id FROM turns WHERE turn_id=?)", (turn_id,))
     _keep_record(conn, turn_id)
     return {"vote": vote, "reasons": picked, "note": note}
 
@@ -76,6 +79,17 @@ def _keep_record(conn: sqlite3.Connection, turn_id: int) -> None:
                      (turn_id, utcnow_iso(), pack_chain(got), found))
     except Exception:
         log.exception("could not keep the record of vote %s", turn_id)
+
+
+def set_archived(conn: sqlite3.Connection, turn_id: int, on: bool = True) -> bool:
+    """Take an answer off the owner's lists in Past chats, or put it back. Only a view: a vote in the queue stays in the queue."""
+    if not conn.execute("SELECT 1 FROM turns WHERE turn_id=? UNION SELECT 1 FROM vote_records WHERE turn_id=?", (turn_id, turn_id)).fetchone():
+        return False
+    if on:
+        conn.execute("INSERT OR REPLACE INTO archived_turns(turn_id, archived_at) VALUES (?, ?)", (turn_id, utcnow_iso()))
+    else:
+        conn.execute("DELETE FROM archived_turns WHERE turn_id=?", (turn_id,))
+    return True
 
 
 def capture_missing(conn: sqlite3.Connection) -> int:
@@ -183,22 +197,27 @@ def why_flagged(row: dict) -> list[str]:
 
 
 def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = None, owner: str | None = None,
-           frontend: str | None = "web", limit: int = 50, liked: bool = False) -> list[dict]:
+           frontend: str | None = "web", limit: int = 50, liked: bool = False, archived: bool = False) -> list[dict]:
     """Turns for the owner to look through, thumbs-down first and then newest first; `liked` lists what people gave a
     thumbs up instead, which is what is working. `owner` is an owner id, "local", or
-    "visitors" for everyone else; `frontend` None means every front end. Eval runs delete their sessions, and their turns."""
+    "visitors" for everyone else; `frontend` None means every front end. Eval runs delete their sessions, and their turns.
+    What the owner archived is left out, or with `archived` is all that is listed. An archived chat takes its answers with it, and shows in
+    the list of chats instead."""
+    put_away = {r[0] for r in conn.execute("SELECT turn_id FROM archived_turns")}
     rows = conn.execute(
         "SELECT t.turn_id, t.session_id, t.started_at, t.owner, t.frontend, t.feedback, t.feedback_reason, t.owner_feedback, "
         "t.owner_feedback_reason, t.error, t.regenerated, "
-        "t.verify_json, u.content AS question, u.standalone_q, a.mode, a.kind FROM turns t JOIN messages u ON u.msg_id=t.user_msg_id "
-        "LEFT JOIN messages a ON a.msg_id=t.assistant_msg_id WHERE (? IS NULL OR t.frontend=?) AND (? IS NULL OR t.started_at >= ?) "
+        "t.verify_json, u.content AS question, u.standalone_q, a.mode, a.kind, "
+        "coalesce(s.archived_at >= coalesce(s.updated_at, s.created_at), 0) AS chat_archived FROM turns t JOIN messages u ON u.msg_id=t.user_msg_id "
+        "LEFT JOIN messages a ON a.msg_id=t.assistant_msg_id LEFT JOIN sessions s ON s.session_id=t.session_id "
+        "WHERE (? IS NULL OR t.frontend=?) AND (? IS NULL OR t.started_at >= ?) "
         "AND (? IS NULL OR (CASE WHEN ?='visitors' THEN coalesce(t.owner, 'local') != 'local' ELSE coalesce(t.owner, 'local')=? END)) "
         "ORDER BY (coalesce(t.feedback, '')='down' OR coalesce(t.owner_feedback, '')='down') DESC, t.turn_id DESC",  # no limit here: most turns are not on the list
         (frontend, frontend, since, since, owner, owner, owner),
     )
     out = []
     for r in rows:
-        row = {k: r[k] for k in r.keys() if k not in ("verify_json", "feedback_reason", "owner_feedback_reason")}
+        row = {k: r[k] for k in r.keys() if k not in ("verify_json", "feedback_reason", "owner_feedback_reason", "chat_archived")}
         row.update(parse_reason(r["feedback_reason"]))
         own = parse_reason(r["owner_feedback_reason"])
         row.update(owner_reasons=own["reasons"], owner_note=own["note"])
@@ -206,9 +225,15 @@ def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = N
         row["flags"] = why_flagged(row)
         kept = conn.execute("SELECT diagnosis FROM vote_records WHERE turn_id=?", (r["turn_id"],)).fetchone()
         row["diagnosis"] = json.loads(kept[0]) if kept and kept[0] else None
-        if liked:
-            row["flags"] = [t for t, cast in (("thumbs up", row["feedback"]), ("your thumbs up", row["owner_feedback"])) if cast == "up"]
-            keep = bool(row["flags"])
+        ups = [t for t, cast in (("thumbs up", row["feedback"]), ("your thumbs up", row["owner_feedback"])) if cast == "up"]
+        if archived:
+            row["flags"] += ups
+            keep = r["turn_id"] in put_away
+        elif r["turn_id"] in put_away or r["chat_archived"]:
+            keep = False
+        elif liked:
+            row["flags"] = ups
+            keep = bool(ups)
         else:
             keep = not flagged or WORTH_A_LOOK & set(row["flags"])
         if keep:
@@ -216,7 +241,8 @@ def review(conn: sqlite3.Connection, flagged: bool = True, since: str | None = N
         if len(out) >= limit:
             break
     if flagged and not liked and since is None and frontend == "web":
-        out = sorted([*out, *_deleted_chats(conn, owner)], key=lambda x: ("thumbs down" in x["flags"] or "your thumbs down" in x["flags"], x["turn_id"]), reverse=True)[:limit]
+        gone = [x for x in _deleted_chats(conn, owner) if (x["turn_id"] in put_away) == archived]
+        out = sorted([*out, *gone], key=lambda x: ("thumbs down" in x["flags"] or "your thumbs down" in x["flags"], x["turn_id"]), reverse=True)[:limit]
     return out
 
 
