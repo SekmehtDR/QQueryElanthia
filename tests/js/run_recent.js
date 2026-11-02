@@ -6,13 +6,13 @@ const a = page.indexOf('async function loadRecent(');
 const b = page.indexOf('async function loadPersona(', a);
 const src = page.slice(a, b);
 function element() {
-  const el = { children: [], textContent: '', attrs: {} };
+  const el = { children: [], textContent: '', attrs: {}, classList: { remove() {} } };
   el.append = (...kids) => el.children.push(...kids);
   el.prepend = (...kids) => el.children.unshift(...kids);
   el.setAttribute = (k, v) => { el.attrs[k] = v; };
   return el;
 }
-const document = { createElement: element, getElementById: () => null };
+const document = { createElement: element, getElementById: () => null, documentElement: { dataset: { view: 'desktop' } } };
 const fetch = async () => ({
   ok: true,
   json: async () => ({ questions: ['Who are the dragon priests?', 'What metals are yellow?'], hot: ['Who are the dragon priests?'] }),

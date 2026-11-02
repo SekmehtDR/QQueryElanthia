@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from ...buildinfo import build_info, git_commit
 from ...config import Settings
-from ...core import feedback, followups, lately, memory, rewrite, whatsnew
+from ...core import feedback, followups, lately, memory, rewrite, starters, whatsnew
 from ...core.assistant import Assistant, Done, Retrieval, Revise, Token
 from ...db import connect, get_state
 from ...index.reset import clear_index
@@ -350,9 +350,7 @@ def create_app(settings: Settings) -> FastAPI:
             "build": info,
             "name": p.name,
             "tagline": "a traveler's notes on Elanthia, from Elanthipedia",
-            "greeting": (f"Hey, I'm {p.name}. I carry a satchel of notes copied from Elanthipedia, the wiki the players "
-                         "write about Elanthia. Ask me about crafting, places, people, creatures, "
-                         "the gods and wars, or what something's worth."),
+            "greeting": f"Hey, I'm {p.name}. My satchel's full of notes from Elanthipedia, the wiki the players write about Elanthia.",
             "chips": CHIPS,
             "feedback_reasons": feedback.REASONS,  # what a thumbs-down offers to say
         }
@@ -400,6 +398,10 @@ def create_app(settings: Settings) -> FastAPI:
     async def recent_questions(request: Request) -> dict:
         questions = memory.recent_user_questions(state["conn"], limit=RECENT_QUESTIONS)
         return {"questions": questions, "hot": memory.hot_questions(state["conn"], questions)}
+
+    @app.get("/api/starters")
+    async def start_topics() -> dict:
+        return {"topics": starters.topics(state["conn"])}
 
     @app.get("/api/lately")
     async def lately_on_the_wiki() -> dict:

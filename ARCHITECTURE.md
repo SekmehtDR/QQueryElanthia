@@ -384,6 +384,8 @@ Everything on the page lives in one `#app` container, so the header, chat and in
   `core/followups.py` (`POST /api/turns/{id}/followups`) has the model suggest questions and keeps those whose words a word search finds. The page asks for these after `done`, so an answer never waits on them.
 - **Lately on the wiki.** `core/lately.py` picks pages from `sync_pages` by `kinds.LATELY_KINDS` and groups them into rows (a page and its subpages; a family of materials, `kinds.LATELY_FAMILY_KINDS`). A background task in the
   web server writes one checked line per revision for each row's main page into `lately_notes`, one at a time, only while no answer is in progress (`GET /api/lately`).
+- **Start screen.** `core/starters.py` gives each subject in `kinds.START_TOPICS` a few questions: real ones that got a cited answer and no thumbs-down, then checked fallbacks (`GET /api/starters`). `data-view` picks the layout: two columns
+  on desktop; on a phone one column, a one-line header with a menu, and Lately on the wiki folded.
 - **Archive.** `sessions.archived_at` and `archived_turns` hide chats and answers from the owner's lists in Past chats. The feedback queue ignores both.
 - **What's new.** A button beside the version number (glowing until this browser has opened the latest) opens a dialog from `core/whatsnew.json` (`GET /api/whats-new`, read on every request): each
   update hand-written in Fennick's voice, then plainly out of character. With the persona off, only the plain part. A

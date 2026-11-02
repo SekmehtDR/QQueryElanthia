@@ -205,7 +205,7 @@ def test_page_has_an_about_fennick_page_with_his_story_and_how_he_works(client):
 def test_mobile_layout_keeps_everything_inside_the_phone_column(client):
     html = client.get("/").text
     assert 'html[data-view="mobile"] dialog.paper { width:min(calc(var(--col) - 24px), calc(100vw - 24px)); }' in html
-    assert 'html[data-view="mobile"] header .controls { flex-wrap:wrap; }' in html
+    assert 'html[data-view="mobile"] header .controls { display:none; position:absolute;' in html  # the owner's buttons do not fit a small phone's header
     assert ".msg .body table, .msg .body pre { display:block; max-width:100%; overflow-x:auto; }" in html
 
 
@@ -225,7 +225,8 @@ def test_page_shows_recent_questions_to_everyone_and_a_delete_all_only_at_this_c
     html = client.get("/").text
     assert "fetch('/api/recent-questions')" in html and "'Others are asking:'" in html
     # the questions in Past chats replace the starters for everyone, and an empty history says so
-    assert "No questions have been asked yet. Ask one now!" in html
+    assert "No questions have been asked yet" not in html  # the subjects say what to ask when nobody has asked anything
+    assert "fetch('/api/starters')" in html and "'Ask me about'" in html
     assert "const starters" not in html  # nothing filters the history against canned questions any more
     start = html.index("function hintHtml(")
     body = html[start:html.index("async function loadRecent(", start)]
@@ -270,7 +271,7 @@ def test_index_panel_says_whether_all_is_well_and_describes_each_job_in_words(cl
 def test_header_groups_brand_and_controls_so_mobile_gets_two_tidy_rows(client):
     html = client.get("/").text
     assert 'class="brand"' in html and 'class="controls"' in html
-    assert 'html[data-view="mobile"] header { flex-direction:column' in html
+    assert 'id="menubtn"' in html and 'html[data-view="mobile"] header .controls.open { display:flex; }' in html  # one line, the rest behind the menu
 
 
 def test_page_lists_only_cited_sources_and_links_badges_to_them(client):

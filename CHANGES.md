@@ -1,7 +1,18 @@
 # Changes
 
-Latest version: **1.13.0** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.14.0** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.14.0: a shorter start screen, built for each screen (2026-11-02)
+
+- **Subjects replace the long greeting.** A shorter hello, then six buttons. Each shows real questions that got a cited answer and no thumbs-down, then fallbacks, which were asked for real and checked against their pages.
+- **Desktop uses its width:** who he is and what to ask on the left, Lately on the wiki on the right, one line a page until opened.
+- **On a phone** the header is one line with the rest behind a menu, the portrait sits beside the words, subjects swipe sideways, three questions from others show, and Lately on the wiki starts folded.
+- **Others are asking** shows 6 (3 on a phone), with a button for the rest. With no questions yet it stays away rather than saying so.
+
+Known limits: a fallback's answer is written fresh each time, so reading it once doesn't guarantee the next. A real question is only known to have had citations and no thumbs-down, and it's matched to a subject by the planner's kind, which is not always the obvious one ("What is Aesry?" came out as lore).
+
+Internals: `core/starters.py`, `kinds.START_TOPICS`, `memory.answered_questions`, `GET /api/starters`.
 
 ## 1.13.0: faster answers, and more use from the model around them (2026-11-02)
 

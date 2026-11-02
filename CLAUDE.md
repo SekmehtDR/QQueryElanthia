@@ -144,6 +144,7 @@ data/         wiki.db and logs (git-ignored)
   instructions are unreliable here too: told never to say "this page", it did, so `core/lately.py` strips it in code.
 - **Archive is only a view** (`sessions.archived_at`, `archived_turns`): it changes the owner's lists, and `feedback.queue` must keep ignoring it, so an archived vote is still worked through.
   A chat counts as archived while `archived_at >= updated_at`, so one that carries on comes back without any code at the point of writing.
+- **Start-screen fallback questions** (`kinds.START_TOPICS`) are promises: ask each for real and read the answer against its page before adding it. A plausible one can find nothing.
 - **Who is asking** (`frontends/web/access.py`): a request is local only if it comes from loopback AND has none of the
   tunnel's forwarding headers (`cf-connecting-ip`, `x-forwarded-for`, ...); a tunnel always connects from loopback, so
   the peer address proves nothing. Anything admin (Index, jobs, status, clear) must call `guard()`/`local_only()`; chats
@@ -204,4 +205,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.13.0 (2026-11-02)_
+_Last updated: 1.14.0 (2026-11-02)_

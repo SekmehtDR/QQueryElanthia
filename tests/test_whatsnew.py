@@ -66,7 +66,7 @@ def test_a_commit_that_leaves_whats_new_alone_is_refused():
 
 def test_a_button_beside_the_version_opens_a_dialog_and_draws_the_eye():
     html = HTML.read_text(encoding="utf-8")
-    assert '<span class="ver" id="pver"' in html and 'id="whatsnewbtn"' in html and "What's new</button>" in html and '<dialog id="whatsnew"' in html
+    assert '<span class="ver" id="pver"' in html and 'id="whatsnewbtn"' in html and "What's new</span></button>" in html and '<dialog id="whatsnew"' in html
     assert html.index('id="pver"') < html.index('id="whatsnewbtn"')
     assert "getElementById('whatsnewbtn').addEventListener('click', openWhatsNew)" in html
     assert "header button.whatsnew.fresh" in html and "prefers-reduced-motion: reduce) { header button.whatsnew.fresh { animation:none" in html

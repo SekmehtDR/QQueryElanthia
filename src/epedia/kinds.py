@@ -89,6 +89,16 @@ DEFAULT_KIND_WEIGHTS["meta"] = {**{c: 0.9 for c in _COLS}, "meta": 1.4}
 DEFAULT_KIND_WEIGHTS["general"] = {"script": 0.9, "pc": 0.8}
 
 # Talk and user pages are context for an answer (who worked something out), never a thread to offer on their own.
+# The start screen's subjects (core/starters.py): real questions of these kinds first, then these. Each fallback was asked for real and its
+# answer read against its page, so change one only after doing the same: "Who is Lord Hodrian?" and "What was the Fourth Lich War?" found nothing.
+START_TOPICS = (
+    ("crafting", "Crafting", ("crafting", "material"), ("What metals are blue?", "How do I start tailoring?")),
+    ("places", "Places", ("place", "shop"), ("What is Aesry?", "Where is Shard?")),
+    ("people", "People", ("character",), ("Who is Bobba Bandicoot?", "Who is Kssarh?")),
+    ("creatures", "Creatures", ("creature",), ("What should I hunt at 100 ranks?", "What is a Coralwyrm?", "Where do musk hogs live and how tough are they?")),
+    ("lore", "Gods and history", ("lore", "event_news"), ("Who is Hodierna?", "Who are the dragon priests?", "Who is Kertigen?")),
+    ("items", "What things are worth", ("item",), ("How much is a svidaw sis worth?", "How much do gems sell for?")),
+)
 # What "Lately on the wiki" lists (core/lately.py). Single items, shop stock and character pages make up most edits, and are noise there.
 LATELY_KINDS = frozenset({"event", "news", "material", "creature", "post", "guide", "lore", "spell", "mechanics", "skill", "place", "crafting",
                           "guild", "race", "general"})

@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.14.0",
+    "date": "2026-11-02",
+    "fennick": "I've tidied the front of my satchel, which had got to the point where you had to read my whole introduction before you could ask me anything. Now it's a shorter hello and a row of subjects: pick one and I'll show you a few questions I know I can answer. What's new on the wiki sits alongside, one line each until something catches your eye.",
+    "changes": [
+      "A shorter start screen. Pick a subject to see a few questions you could ask.",
+      "Lately on the wiki is one line per page. Click a line for the summary and to ask about it.",
+      "On a phone, the menu is behind one button and Lately on the wiki starts folded, so the questions come first."
+    ]
+  },
+  {
     "version": "1.13.0",
     "date": "2026-11-02",
     "fennick": "I've stopped putting my satchel down and picking it up again between every question, which, it turns out, is why I kept you waiting. I also keep a little list now of what's new in the notes, and if I run on, and I do run on, you can ask me for the short version. Under most answers I'll suggest what to ask next, but only if I can see the notes actually cover it.",

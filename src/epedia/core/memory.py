@@ -182,6 +182,7 @@ def recent_source_titles(conn: sqlite3.Connection, session_id: str, answers: int
 
 
 RECENT_QUESTION_CHARS = 120  # longer ones are pasted posts or essays, not something to click again
+START_QUESTION_CHARS = 90  # a suggestion should read at a glance
 
 
 _PAGE_QUESTIONS = ("messages m JOIN sessions s ON s.session_id = m.session_id "
@@ -189,7 +190,7 @@ _PAGE_QUESTIONS = ("messages m JOIN sessions s ON s.session_id = m.session_id "
                    "AND coalesce(m.kind, '') != 'meta' AND coalesce(m.mode, '') NOT IN ('clock', 'declined', 'fiction', 'recheck')")
 
 
-def _question_key(question: str) -> str:
+def question_key(question: str) -> str:
     """Two askings are the same question if only case, spacing and punctuation differ."""
     return re.sub(r"[^a-z0-9]+", " ", question.casefold()).strip()
 
@@ -209,12 +210,32 @@ def recent_user_questions(conn: sqlite3.Connection, owner: str | None = None, li
     seen: set[str] = set()
     for r in rows:
         q = re.sub(r"\s+", " ", r["standalone_q"]).strip()
-        key = _question_key(q)
+        key = question_key(q)
         if not key or key in seen or len(q) > RECENT_QUESTION_CHARS:
             continue
         seen.add(key)
         out.append(q)
         if len(out) >= limit:
+            break
+    return out
+
+
+def answered_questions(conn: sqlite3.Connection, kinds: tuple[str, ...], limit: int = 3, frontend: str = "web") -> list[str]:
+    """Questions of these kinds that got a cited answer and no thumbs-down, newest first: real ones worth offering to the next person."""
+    marks = ",".join("?" * len(kinds))
+    rows = conn.execute(
+        f"SELECT m.standalone_q FROM {_PAGE_QUESTIONS} AND m.kind IN ({marks}) AND EXISTS (SELECT 1 FROM turns t JOIN messages a ON a.msg_id=t.assistant_msg_id "
+        "WHERE t.user_msg_id=m.msg_id AND a.cited IS NOT NULL AND a.cited != '[]' AND coalesce(t.feedback, '') != 'down' AND coalesce(t.owner_feedback, '') != 'down') "
+        "ORDER BY m.msg_id DESC LIMIT ?", (frontend, *kinds, limit * 10)).fetchall()
+    out: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        q = re.sub(r"\s+", " ", r["standalone_q"]).strip()
+        key = question_key(q)
+        if key and key not in seen and len(q) <= START_QUESTION_CHARS:
+            seen.add(key)
+            out.append(q)
+        if len(out) == limit:
             break
     return out
 
@@ -228,8 +249,8 @@ def hot_questions(conn: sqlite3.Connection, questions: list[str], frontend: str 
         f"SELECT m.standalone_q, coalesce(s.owner, 'local') AS who FROM {_PAGE_QUESTIONS} AND m.created_at >= ?",
         (frontend, since),
     ):
-        people.setdefault(_question_key(r["standalone_q"]), set()).add(r["who"])
-    return [q for q in questions if len(people.get(_question_key(q), ())) >= HOT_PEOPLE]
+        people.setdefault(question_key(r["standalone_q"]), set()).add(r["who"])
+    return [q for q in questions if len(people.get(question_key(q), ())) >= HOT_PEOPLE]
 
 
 def last_pasted(conn: sqlite3.Connection, session_id: str) -> str:

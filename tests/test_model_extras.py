@@ -3,12 +3,15 @@ tried again. In each, code decides whether what the model wrote is used, so most
 
 import asyncio
 import json
+import shutil
 import struct
+import subprocess
+from pathlib import Path
 
 import pytest
 
 from epedia.config import Settings
-from epedia.core import followups, lately, memory, replay, rewrite, turns
+from epedia.core import followups, lately, memory, replay, rewrite, starters, turns
 from epedia.core.assistant import Assistant
 from epedia.db import connect
 from epedia.llm.ollama import Ollama
@@ -381,3 +384,46 @@ def test_the_page_uses_them():
     html = (Path(__file__).parents[1] / "src/epedia/frontends/web/static/index.html").read_text(encoding="utf-8")
     assert "function addShorter(" in html and "function addFollowups(" in html and "function loadLately(" in html
     assert "data.rewritable" in html and "'/api/lately'" in html
+
+
+def asked(c, sid, question, kind, answer="It is [1].", cited="[1]", vote=None):
+    u = memory.add_message(c, sid, "user", question)
+    memory.note_plan(c, u, question, "search", kind)
+    t = turns.Turn.start(c, sid, u)
+    a = memory.add_message(c, sid, "assistant", answer, standalone_q=question, mode="search", kind=kind, turn_id=t.turn_id)
+    t.finish(a)
+    c.execute("UPDATE messages SET cited=? WHERE msg_id=?", (cited, a))
+    if vote:
+        c.execute("UPDATE turns SET feedback=? WHERE turn_id=?", (vote, t.turn_id))
+
+
+def test_the_start_screen_offers_real_questions_that_went_well_then_the_checked_ones(db):
+    c = db[1]
+    sid = memory.new_session(c, "web", owner="someone")
+    asked(c, sid, "Where is Ain Ghazal?", "place")
+    asked(c, sid, "Where is the bad one?", "place", vote="down")
+    asked(c, sid, "Where is the unanswered one?", "place", cited="[]")
+    asked(c, sid, "How do I " + "really " * 20 + "go there?", "place")
+    other = memory.new_session(c, "cli", owner="local")
+    asked(c, other, "Where is the terminal one?", "place")
+    got = {t["key"]: t for t in starters.topics(c)}
+    assert got["places"]["questions"][0] == "Where is Ain Ghazal?" and "Where is Shard?" in got["places"]["questions"]
+    assert not {"Where is the bad one?", "Where is the unanswered one?", "Where is the terminal one?"} & set(got["places"]["questions"])
+    assert len(got["places"]["questions"]) <= starters.SHOWN
+    assert got["creatures"]["questions"][:2] == ["What should I hunt at 100 ranks?", "What is a Coralwyrm?"]  # nobody has asked: the checked ones
+
+
+def test_a_real_question_is_not_offered_twice_when_it_is_also_a_checked_one(db):
+    c = db[1]
+    sid = memory.new_session(c, "web", owner="someone")
+    asked(c, sid, "where is shard", "place")
+    got = {t["key"]: t for t in starters.topics(c)}["places"]["questions"]
+    assert sum(q.casefold().rstrip("?") == "where is shard" for q in got) == 1
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_the_start_screens_code_really_runs():
+    root = Path(__file__).parent
+    out = subprocess.run(["node", str(root / "js" / "run_start.js"), str(root.parent / "src/epedia/frontends/web/static/index.html")],
+                         capture_output=True, encoding="utf-8", timeout=30)
+    assert out.returncode == 0 and "BAD" not in out.stdout and out.stdout.count("ok ") >= 9, out.stdout + out.stderr

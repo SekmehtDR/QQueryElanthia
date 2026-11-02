@@ -124,38 +124,53 @@
   textarea { flex:1; resize:none; max-height:160px; min-height:46px; padding:11px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); font:inherit; line-height:1.4; }
   form button { background:var(--accent); color:var(--bg); border:0; border-radius:10px; padding:0 22px; min-height:46px; font:inherit; font-weight:600; cursor:pointer; }
   form button:disabled { opacity:.5; cursor:default; }
-  .hint { color:var(--muted); text-align:center; margin-top:10vh; }
-  .hint p { max-width:560px; margin:0 auto 18px; }
   header .tag { color:var(--muted); font-size:.85rem; }
-  .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px; }
-  .chip { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:999px; padding:6px 14px; font:inherit; font-size:.88rem; cursor:pointer; }
+  /* The start screen: who he is and what to ask on one side, what's new on the wiki on the other. A phone stacks them, with the wiki folded. */
+  .hint { color:var(--muted); display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start; gap:20px 40px; margin:0 auto; padding-top:5vh; max-width:1080px; }
+  .hint p { margin:0; }
+  .start-main { flex:1 1 400px; min-width:0; max-width:560px; }
+  .start-who { display:flex; align-items:center; gap:18px; }
+  .start-words { min-width:0; }
+  .start-label, .recent-label { color:var(--muted); font-size:.85rem; margin:0 0 6px; }
+  .topics-box { margin-top:18px; }
+  .topics { display:flex; flex-wrap:wrap; gap:6px; }
+  .topic { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:999px; padding:4px 13px; font:inherit; font-size:.88rem; cursor:pointer; white-space:nowrap; }
+  .topic:hover, .topic[aria-expanded="true"] { border-color:var(--accent); color:var(--accent); }
+  .topic-qs { margin-top:8px; }
+  .topic-qs[hidden] { display:none; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-start; }
+  .chip { border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:999px; padding:4px 12px; font:inherit; font-size:.84rem; cursor:pointer; }
   .chip:hover { border-color:var(--accent); color:var(--accent); }
-  .recent { margin-top:12px; }
-  .lately { margin:16px auto 0; max-width:560px; text-align:left; }
-  .lately-label { color:var(--muted); text-align:center; }
-  .lately-since { color:var(--muted); text-align:center; font-size:.78rem; margin:2px 0 8px; }
-  .lately-row { background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-top:6px; overflow:hidden; }
+  .recent { margin-top:18px; }
+  .recent:empty { display:none; }
+  .recent:not(.all) .chip:nth-child(n+7) { display:none; }
+  .lately { flex:1 1 400px; min-width:0; max-width:480px; }
+  .lately:empty { display:none; }
+  .lately-fold summary { cursor:pointer; color:var(--ink); font-weight:600; font-size:.95rem; }
+  .lately-count { margin-left:8px; padding:0 7px; border-radius:999px; background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); font-size:.76rem; font-weight:600; }
+  .lately-since { color:var(--muted); font-size:.78rem; margin:2px 0 8px; }
+  .lately-row { border-top:1px solid var(--line); }
   .lately-row[hidden] { display:none; }
-  .lately-row:hover { border-color:var(--accent); }
-  .lately-main { display:block; width:100%; background:none; border:0; padding:8px 12px; font:inherit; font-size:.86rem; color:var(--ink); text-align:left; cursor:pointer; }
-  .lately-main:hover .lately-title { color:var(--accent); }
-  .lately-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
-  .lately-title { font-weight:600; min-width:0; overflow-wrap:anywhere; }
-  .lately-status { color:var(--accent); font-size:.76rem; white-space:nowrap; }
-  .lately-when { color:var(--muted); font-size:.76rem; margin-left:auto; white-space:nowrap; }
-  .lately-note { display:block; color:var(--muted); margin-top:3px; }
-  .lately-parts { display:flex; flex-wrap:wrap; gap:4px; padding:0 12px 9px; }
+  .lately-main { display:flex; align-items:baseline; gap:8px; width:100%; background:none; border:0; padding:7px 2px; font:inherit; font-size:.88rem; color:var(--ink); text-align:left; cursor:pointer; }
+  .lately-main:hover .lately-title, .lately-main[aria-expanded="true"] .lately-title { color:var(--accent); }
+  .lately-title { font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lately-status { flex:none; color:var(--accent); font-size:.74rem; white-space:nowrap; }
+  .lately-when { flex:none; color:var(--muted); font-size:.74rem; margin-left:auto; white-space:nowrap; }
+  .lately-body { padding:0 2px 10px; font-size:.86rem; }
+  .lately-body[hidden] { display:none; }
+  .lately-note { margin:0 0 7px !important; color:var(--muted); }
+  .lately-parts { display:flex; flex-wrap:wrap; gap:4px; }
   .lately-parts .chip { padding:1px 9px; font-size:.78rem; }
-  .lately-more { display:block; margin:8px auto 0; border:1px solid var(--line); background:none; color:var(--muted); border-radius:999px; padding:3px 14px; font:inherit; font-size:.82rem; cursor:pointer; }
+  .lately-parts .lately-ask { border-color:var(--accent); color:var(--accent); }
+  .lately-more { display:block; margin:8px 0 0; border:1px solid var(--line); background:none; color:var(--muted); border-radius:999px; padding:3px 14px; font:inherit; font-size:.82rem; cursor:pointer; }
   .lately-more:hover { border-color:var(--accent); color:var(--accent); }
+  #menubtn { display:none; }
+  header .ver-commit:empty { display:none; }
   .followups { margin-top:10px; font-size:.85rem; color:var(--muted); }
   .followups .chips { justify-content:flex-start; margin-top:6px; gap:6px; }
   .followups .chip { padding:3px 10px; font-size:.82rem; text-align:left; }
   .actions .said-rewrite { color:var(--muted); font-size:.82rem; }
-  .recent-none { color:var(--muted); font-style:italic; }
-  .recent-label { color:var(--muted); }
   .chip .hot { margin-right:4px; }
-  .recent .chip { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.82rem; padding:4px 12px; }
   .related { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:.85rem; color:var(--muted); }
   .related .chip { padding:3px 10px; font-size:.82rem; }
   .msg .avatar { float:right; width:56px; height:56px; margin:-2px 0 8px 14px; border-radius:50%; box-shadow:0 2px 8px rgba(0,0,0,.35); }
@@ -313,7 +328,7 @@
   .nb { white-space:nowrap; }  /* a citation badge and the punctuation after it never split across lines */
 
   /* Welcome screen: his portrait above the greeting and the starter questions. */
-  .hint .hero { width:96px; height:96px; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.4); margin:0 auto 14px; display:block; cursor:pointer; transition:transform .15s; }
+  .hint .hero { width:96px; height:96px; flex:none; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.4); display:block; cursor:pointer; transition:transform .15s; }
   .hint .hero:hover { transform:scale(1.05); }
   .hint .hero-name { font-weight:700; color:var(--ink); font-size:1.2rem; margin-bottom:6px; }
 
@@ -340,34 +355,53 @@
   html[data-view="desktop"] .msg:not(.user) { max-width:min(100%, 1020px); }  /* a readable measure on wide screens */
 
   /* Desktop: roomy bubbles, a wider reading measure inside them, centered welcome. */
-  html[data-view="desktop"] .hint { margin-top:12vh; }
-  html[data-view="desktop"] .hint p { max-width:680px; font-size:1.05rem; }
   html[data-view="desktop"] .msg .avatar { width:64px; height:64px; }
 
   /* Mobile: a phone-width column (framed when shown on a wide screen), thumb-sized controls, stacked chips. */
   @media (min-width: 481px) { html[data-view="mobile"] #app { border-left:1px solid var(--line); border-right:1px solid var(--line); box-shadow:0 0 40px rgba(0,0,0,.25); } }
   html[data-view="mobile"] header .tag { display:none; }
   /* two tidy rows: who he is, then the controls spread across the full width */
-  html[data-view="mobile"] header { flex-direction:column; align-items:stretch; gap:8px; padding-top:10px; padding-bottom:10px; }
-  html[data-view="mobile"] header .controls { flex-wrap:wrap; }  /* the owner's five buttons do not fit a small phone */
-  html[data-view="mobile"] header #new { margin-left:auto; }
   html[data-view="mobile"] #kbd { display:none; }  /* phones have no Enter-to-send key hint to show */
   html[data-view="mobile"] #jump { bottom:96px; }
-  html[data-view="mobile"] .hint .hero { width:80px; height:80px; }
   html[data-view="mobile"] form { padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
   html[data-view="mobile"] header button, html[data-view="mobile"] form button { min-height:42px; }
   html[data-view="mobile"] header button { padding:6px 10px; white-space:nowrap; }
   html[data-view="mobile"] header button.whatsnew { min-height:0; padding:3px 11px; }
-  html[data-view="mobile"] header .controls { gap:6px; }
-  html[data-view="mobile"] .viewtoggle button span.lbl { display:none; }  /* icons only: the row has to fit */
   html[data-view="mobile"] textarea { font-size:16px; min-height:46px; }  /* 16px stops iOS zooming into the field */
   html[data-view="mobile"] form button { padding:0 16px; }
   html[data-view="mobile"] .msg { padding:12px 14px; margin-bottom:16px; }
   html[data-view="mobile"] .msg.user { max-width:90%; }
   html[data-view="mobile"] .msg .avatar { width:44px; height:44px; margin-left:10px; }
-  html[data-view="mobile"] .hint { margin-top:5vh; }
+  /* A phone's header is one line: the rest is behind the menu button. */
+  html[data-view="mobile"] header { position:relative; flex-wrap:nowrap; padding-top:8px; padding-bottom:8px; }
+  html[data-view="mobile"] header .ver-commit { display:none; }
+  html[data-view="mobile"] header .wn-word { display:none; }
+  html[data-view="mobile"] #menubtn { display:block; flex:none; margin-left:auto; }
+  html.booting #menubtn { visibility:hidden; }
+  html[data-view="mobile"] header .controls { display:none; position:absolute; top:100%; right:var(--gutter); z-index:30; flex-direction:column; align-items:stretch; gap:6px; padding:8px; min-width:190px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.25); }
+  html[data-view="mobile"] header .controls.open { display:flex; }
+  html[data-view="mobile"] header .viewtoggle { align-self:stretch; }
+  html[data-view="mobile"] header .viewtoggle button { flex:1 1 0; }
+  /* The start screen on a phone: small portrait beside the words, subjects in one line to swipe, finger-sized rows. */
+  html[data-view="mobile"] .hint { display:block; padding-top:14px; }
+  html[data-view="mobile"] .hero-name { display:none; }
+  html[data-view="mobile"] .start-who { gap:12px; align-items:flex-start; }
+  html[data-view="mobile"] .hint .hero { width:52px; height:52px; margin:0; flex:none; }
+  html[data-view="mobile"] .hint p { font-size:.95rem; }
+  html[data-view="mobile"] .topics-box { margin-top:14px; }
+  html[data-view="mobile"] .topics { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; margin-right:calc(var(--gutter) * -1); padding-right:var(--gutter); }
+  html[data-view="mobile"] .topics::-webkit-scrollbar { display:none; }
+  html[data-view="mobile"] .topic { flex:none; min-height:38px; padding:4px 14px; font-size:.92rem; }
+  html[data-view="mobile"] .recent { margin-top:14px; }
+  html[data-view="mobile"] .recent:not(.all) .chip:nth-child(n+4) { display:none; }
+  html[data-view="mobile"] .start-main, html[data-view="mobile"] .lately { max-width:none; }
+  html[data-view="mobile"] .lately { margin-top:16px; }
+  html[data-view="mobile"] .lately-fold summary { padding:8px 0; }
+  html[data-view="mobile"] .lately-main { padding:10px 2px; }
+  html[data-view="mobile"] .lately-parts .chip { padding:6px 12px; font-size:.86rem; }
   html[data-view="mobile"] .chips { flex-direction:column; align-items:stretch; }
-  html[data-view="mobile"] .chip { padding:10px 14px; text-align:left; font-size:.95rem; }
+  html[data-view="mobile"] .chip { padding:9px 14px; text-align:left; font-size:.92rem; border-radius:12px; }
   html[data-view="mobile"] .related .chip { padding:7px 12px; }
   html[data-view="mobile"] .src-row { grid-template-columns:1.9em 1fr; }
 </style>
@@ -389,8 +423,9 @@
 <body>
 <div id="app">
 <header>
-  <div class="brand"><h1 id="pname">&nbsp;</h1><span class="ver" id="pver" hidden></span><button type="button" class="whatsnew" id="whatsnewbtn" aria-haspopup="dialog" aria-controls="whatsnew" title="See what has changed" hidden>✦ What's new</button><span class="tag" id="ptag"></span></div>
-  <div class="controls">
+  <div class="brand"><h1 id="pname">&nbsp;</h1><span class="ver" id="pver" hidden></span><button type="button" class="whatsnew" id="whatsnewbtn" aria-haspopup="dialog" aria-controls="whatsnew" aria-label="What's new" title="See what has changed" hidden>✦<span class="wn-word"> What's new</span></button><span class="tag" id="ptag"></span></div>
+  <button id="menubtn" type="button" aria-expanded="false" aria-controls="controls" aria-label="Menu">☰</button>
+  <div class="controls" id="controls">
   <div class="viewtoggle" role="group" aria-label="Layout">
     <button id="vdesk" type="button" aria-pressed="true" title="Desktop layout">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="lbl">Desktop</span>
@@ -614,6 +649,7 @@ q.addEventListener('input', () => { autosize(); syncSend(); });
 // remembers an explicit choice (a phone-sized screen defaults to mobile, everything else to desktop).
 function setView(v, remember) {
   document.documentElement.dataset.view = v;
+  document.querySelectorAll('.lately-fold').forEach(d => { d.open = v !== 'mobile'; });
   document.getElementById('vdesk').setAttribute('aria-pressed', String(v === 'desktop'));
   document.getElementById('vmob').setAttribute('aria-pressed', String(v === 'mobile'));
   if (remember) { try { localStorage.setItem('epedia.view', v); } catch (e) {} }
@@ -622,6 +658,12 @@ function setView(v, remember) {
 document.getElementById('vdesk').addEventListener('click', () => setView('desktop', true));
 document.getElementById('vmob').addEventListener('click', () => setView('mobile', true));
 setView(document.documentElement.dataset.view || 'desktop', false);
+// A phone's menu: closes after a choice, a click elsewhere, or Escape.
+const menuBtn = document.getElementById('menubtn'), controls = document.getElementById('controls');
+function setMenu(on) { controls.classList.toggle('open', on); menuBtn.setAttribute('aria-expanded', String(on)); }
+menuBtn.addEventListener('click', e => { e.stopPropagation(); setMenu(!controls.classList.contains('open')); });
+document.addEventListener('click', e => { if (!e.target.closest('.viewtoggle')) setMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') setMenu(false); });
 
 // Markdown rendering lives in render.js (renderMarkdown), shared with the node tests.
 
@@ -741,20 +783,29 @@ function hintHtml(text) {
   const wrap = document.createElement('div');
   wrap.className = 'hint'; wrap.id = 'hint';
   const waits = [];  // what must be ready before the start screen first appears
-  if (persona && persona.enabled) {  // his portrait and name above the greeting
+  const main = document.createElement('div'); main.className = 'start-main';
+  const p = document.createElement('p'); p.textContent = text;
+  if (persona && persona.enabled) {  // his portrait and name beside the greeting
+    const who = document.createElement('div'); who.className = 'start-who';
     const hero = document.createElement('img');
     hero.className = 'hero'; hero.src = '/static/fennick.png'; hero.alt = persona.name; hero.width = 96; hero.height = 96;
     hero.title = 'About ' + persona.name; hero.onclick = () => document.getElementById('aboutbtn').click();
+    const words = document.createElement('div'); words.className = 'start-words';
     const nm = document.createElement('div'); nm.className = 'hero-name'; nm.textContent = persona.name;
-    wrap.append(hero, nm);
+    words.append(nm, p);
+    who.append(hero, words);
+    main.append(who);
     waits.push(hero.decode().catch(() => {}));
-  }
-  const p = document.createElement('p'); p.textContent = text; wrap.append(p);
+  } else main.append(p);
+  wrap.append(main);
   if (persona) {
-    // The start screen offers the questions people really asked on the page (anyone's), not canned ones; visitors
-    // through the tunnel see the same list. Only the owner, at this computer, can open or delete those chats.
+    const topics = document.createElement('div'); topics.className = 'topics-box';
+    main.append(topics);
+    waits.push(loadStarters(topics));
+    // The start screen offers the questions people really asked on the page (anyone's); visitors through the tunnel
+    // see the same list. Only the owner, at this computer, can open or delete those chats.
     const recent = document.createElement('div'); recent.className = 'recent'; recent.id = 'recent';
-    wrap.append(recent);
+    main.append(recent);
     waits.push(loadRecent(recent));
     const lately = document.createElement('div'); lately.className = 'lately';
     wrap.append(lately);
@@ -772,8 +823,38 @@ function timeAgo(iso) {  // "2 hours ago"
   const days = Math.round(m / 1440);
   return days === 1 ? 'yesterday' : say(days, 'day');
 }
-const LATELY_OPEN = 6;  // the rest wait behind a button, so a busy day does not push the start screen off the page
-// Pages sync saw appear or change, with a line written ahead of time. Nothing to show means no heading either.
+const startEl = (tag, cls, text) => { const x = document.createElement(tag); x.className = cls; x.textContent = text; return x; };
+// What to ask, by subject: a button shows a few questions under it, so the screen stays short until someone picks one.
+async function loadStarters(box) {
+  let topics = [];
+  try {
+    const r = await fetch('/api/starters');
+    if (r.ok) topics = (await r.json()).topics || [];
+  } catch (e) { /* offline: shown as none */ }
+  box.textContent = '';
+  if (!topics.length) return;
+  const row = startEl('div', 'topics', ''), list = startEl('div', 'chips topic-qs', '');
+  list.hidden = true;
+  topics.forEach(t => {
+    const b = startEl('button', 'topic', t.label); b.type = 'button'; b.setAttribute('aria-expanded', 'false');
+    b.onclick = () => {
+      const opening = b.getAttribute('aria-expanded') !== 'true';
+      [...row.children].forEach(x => x.setAttribute('aria-expanded', 'false'));
+      b.setAttribute('aria-expanded', String(opening));
+      list.textContent = '';
+      list.hidden = !opening;
+      if (opening) t.questions.forEach(q => {
+        const c = startEl('button', 'chip', q); c.type = 'button'; c.title = q; c.onclick = () => ask(q);
+        list.append(c);
+      });
+    };
+    row.append(b);
+  });
+  box.append(startEl('div', 'start-label', 'Ask me about'), row, list);
+}
+const LATELY_OPEN = 8;  // the rest wait behind a button, so a busy day does not push the start screen off the page
+// Pages sync saw appear or change. Each is one line until opened: most people are scanning, and the detail is for the one that caught their eye.
+// Nothing to show means no heading either. A phone starts with it folded, because the questions matter more there.
 async function loadLately(box) {
   let got = { rows: [] };
   try {
@@ -782,38 +863,44 @@ async function loadLately(box) {
   } catch (e) { /* offline: shown as none */ }
   box.textContent = '';
   if (!got.rows.length) return;
-  const el = (tag, cls, text) => { const x = document.createElement(tag); x.className = cls; x.textContent = text; return x; };
   const since = new Date(got.since).toLocaleDateString([], { month: 'short', day: 'numeric' });
-  box.append(el('div', 'lately-label', 'Lately on the wiki'),
-    el('div', 'lately-since', `${got.total} page${got.total === 1 ? '' : 's'} new or changed since ${since}` + (got.checked ? ` · last checked ${timeAgo(got.checked)}` : '')));
+  const fold = startEl('details', 'lately-fold', '');
+  fold.open = document.documentElement.dataset.view !== 'mobile';
+  const summary = startEl('summary', 'lately-label', 'Lately on the wiki');
+  summary.append(startEl('span', 'lately-count', String(got.total)));
+  fold.append(summary, startEl('div', 'lately-since', `${got.total} page${got.total === 1 ? '' : 's'} new or changed since ${since}` + (got.checked ? ` · last checked ${timeAgo(got.checked)}` : '')));
   const rows = got.rows.map((p, i) => {
-    const row = el('div', 'lately-row', ''); row.hidden = i >= LATELY_OPEN;
-    const b = el('button', 'lately-main', ''); b.type = 'button';
-    const head = el('span', 'lately-head', '');
-    const seen = el('span', 'lately-when', timeAgo(p.when)); seen.title = new Date(p.when).toLocaleString();
-    head.append(el('span', 'lately-title', p.label), el('span', 'lately-status', p.status), seen);
-    b.append(head);
-    if (p.note) b.append(el('span', 'lately-note', p.note));
-    b.onclick = () => ask('Tell me about ' + p.title);
-    row.append(b);
-    if (p.members.length) {
-      const parts = el('div', 'lately-parts', '');
-      p.members.forEach(m => {
-        const c = el('button', 'chip', m.label); c.type = 'button';
-        c.onclick = () => ask('Tell me about ' + m.title);
-        parts.append(c);
-      });
-      row.append(parts);
+    const row = startEl('div', 'lately-row', ''); row.hidden = i >= LATELY_OPEN;
+    const b = startEl('button', 'lately-main', ''); b.type = 'button'; b.setAttribute('aria-expanded', 'false');
+    const seen = startEl('span', 'lately-when', timeAgo(p.when)); seen.title = new Date(p.when).toLocaleString();
+    b.append(startEl('span', 'lately-title', p.label), startEl('span', 'lately-status', p.status), seen);
+    const more = startEl('div', 'lately-body', ''); more.hidden = true;
+    if (p.note) more.append(startEl('p', 'lately-note', p.note));
+    const parts = startEl('div', 'lately-parts', '');
+    const own = !p.members.some(m => m.title === p.title);  // a family with no page of its own has only its members to ask about
+    if (own) {
+      const c = startEl('button', 'chip lately-ask', 'Ask about this'); c.type = 'button';
+      c.onclick = () => ask('Tell me about ' + p.title);
+      parts.append(c);
     }
-    box.append(row);
+    p.members.forEach(m => {
+      const c = startEl('button', 'chip', m.label); c.type = 'button';
+      c.onclick = () => ask('Tell me about ' + m.title);
+      parts.append(c);
+    });
+    more.append(parts);
+    b.onclick = () => { more.hidden = !more.hidden; b.setAttribute('aria-expanded', String(!more.hidden)); };
+    row.append(b, more);
+    fold.append(row);
     return row;
   });
   if (rows.length > LATELY_OPEN) {
     // counts pages, as the heading does: a card can hold several, so a count of cards here would not add up to it
-    const more = el('button', 'lately-more', `Show all ${got.total} pages`); more.type = 'button';
-    more.onclick = () => { rows.forEach(r => { r.hidden = false; }); more.remove(); };
-    box.append(more);
+    const all = startEl('button', 'lately-more', `Show all ${got.total} pages`); all.type = 'button';
+    all.onclick = () => { rows.forEach(r => { r.hidden = false; }); all.remove(); };
+    fold.append(all);
   }
+  box.append(fold);
 }
 async function loadRecent(box) {
   box = box || document.getElementById('recent');
@@ -828,12 +915,8 @@ async function loadRecent(box) {
     }
   } catch (e) { /* offline: shown as none */ }
   box.textContent = '';
-  if (!qs.length) {
-    const none = document.createElement('div'); none.className = 'recent-none';
-    none.textContent = 'No questions have been asked yet. Ask one now!';
-    box.append(none);
-    return;
-  }
+  box.classList.remove('all');
+  if (!qs.length) return;  // the subjects above already say what to ask
   const label = document.createElement('div'); label.className = 'recent-label'; label.textContent = 'Others are asking:';
   const chips = document.createElement('div'); chips.className = 'chips';
   qs.forEach(q => {
@@ -848,6 +931,12 @@ async function loadRecent(box) {
     chips.append(b);
   });
   box.append(label, chips);
+  // the stylesheet shows the first 6, or 3 on a phone
+  if (qs.length > (document.documentElement.dataset.view === 'mobile' ? 3 : 6)) {
+    const more = document.createElement('button'); more.className = 'lately-more'; more.type = 'button'; more.textContent = `Show all ${qs.length}`;
+    more.onclick = () => { box.classList.add('all'); more.remove(); };
+    box.append(more);
+  }
 }
 async function loadPersona() {
   try {
@@ -859,7 +948,9 @@ async function loadPersona() {
     const b = persona.build;
     if (b) {  // read from the running server, not baked into the page
       const ver = document.getElementById('pver');
-      ver.textContent = 'v' + b.version + (b.commit ? ' · ' + b.commit : '');
+      ver.textContent = 'v' + b.version;
+      const commit = document.createElement('span'); commit.className = 'ver-commit'; commit.textContent = b.commit ? ' · ' + b.commit : '';
+      ver.append(commit);
       if (b.chat_model) ver.title = ['QQueryElanthia ' + b.version + (b.commit ? ' (commit ' + b.commit + ')' : ''),
         'chat model ' + b.chat_model + ' · embeddings ' + b.embed_model,
         b.pages.toLocaleString() + ' pages · last updated ' + (b.last_sync || 'never'),
