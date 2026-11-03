@@ -261,6 +261,54 @@ def test_the_persons_own_words_beat_a_planner_that_changes_the_item(settings, co
     assert "Riste:** Tier 12" in turn(a, "s2", "and how many ranks to make a riste in glaes?").answer
 
 
+@pytest.mark.parametrize("q", ["how many ranks would it take to make a half-handled riste in glaes?", "How many ranks to mastercraft a riste in glaes?",
+                               "how many ranks for a T11 in glaes?", "how hard is it to forge a riste in glaes?", "can I mastercraft a T12 in glaes?",
+                               "how many ranks to forge the hardest metal?", "how many ranks to craft with the lowest workability metal?",
+                               "What is the workability multiplier for glaes?"])
+def test_the_table_answers_never_take_a_rank_question(settings, conn, q):
+    """Rank questions run first, and a question about ranks that they decline must not come back as a table figure."""
+    before = craft_ranks.passage(conn, q, BASE)
+    done = turn(assistant(settings, conn, q), "ranks", q)
+    if before:
+        assert done.answer.startswith(before[0]["answer"][:40])
+    assert not done.answer.startswith(("Among ", "The lowest", "The highest", "**Glaes** has"))
+
+
+def test_a_rank_conversation_keeps_going_and_a_table_question_in_it_is_answered_as_asked(settings, conn):
+    a = assistant(settings, conn, "how many ranks would it take to make a half-handled riste in glaes?")
+    assert "2,210-2,470" in turn(a, "s3", "how many ranks would it take to make a half-handled riste in glaes?").answer
+    for q, want in (("What material has the least workability?", "lowest workability"), ("What is the workability of glaes?", "**Glaes** has a workability"),
+                    ("What is the hardest metal?", "highest hardness")):
+        a.ollama.standalone = q
+        answer = turn(a, "s3", q).answer
+        assert want in answer and "to mastercraft" not in answer, q
+    a.ollama.standalone = "how many ranks would it take to make a half-handled riste in glaes?"
+    assert "2,210-2,470" in turn(a, "s3", "show me the math, how many ranks?").answer  # and the ranks are still there to go back to
+    a.ollama.standalone = "how hard is it to make a half-handled riste in glaes?"
+    assert "to mastercraft" in turn(a, "s3", "how hard is it to make it?").answer  # "it" is the riste: a real follow-up still carries over
+
+
+def test_what_about_a_material_after_rank_talk_needs_no_help_from_the_planner(settings, conn):
+    """Found in a real run: a few turns in, the planner returned "And what about in tyrium?" and the model wrote a story about it."""
+    a = assistant(settings, conn, "how many ranks would it take to make a half-handled riste in glaes?")
+    assert "2,210-2,470" in turn(a, "s4", "how many ranks would it take to make a half-handled riste in glaes?").answer
+    a.ollama.standalone = "How many ranks are required to craft tyrium?"
+    turn(a, "s4", "how many ranks to craft tyrium?")
+    a.ollama.standalone = "And what about in tyrium?"
+    done = turn(a, "s4", "and what about in tyrium?")
+    assert done.answer.startswith("Half-handled riste in tyrium, to mastercraft") and done.by_code and a.ollama.written == 0
+
+
+@pytest.mark.parametrize("q, earlier", [
+    ("what about tomorrow?", ["how many ranks to make a riste in glaes?"]),  # nothing named: not a rank question at all
+    ("what about glaes?", ["Who is Hodierna?", "Tell me about Shard"]),  # no rank talk just before
+    ("what about glaes?", ["What is the hardest metal?", "What is the workability of damite?", "how many ranks to make a riste in glaes?"]),  # it has moved on
+    ("Tell me about glaes", ["how many ranks to make a riste in glaes?"]),
+])
+def test_what_about_stays_narrow(conn, q, earlier):
+    assert craft_ranks.passage(conn, q, BASE, earlier) is None
+
+
 def test_doctor_watches_the_rules_and_the_tables(conn):
     checks = {c.name: c.ok for c in run_doctor(conn)}
     assert checks["every crafting tier has a rank figure"] is False  # this little chart stops short of twelve tiers

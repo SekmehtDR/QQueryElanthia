@@ -128,6 +128,12 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     for title, needle in craft_ranks_rules():
         found = _one(conn, "SELECT count(*) FROM chunks WHERE title=? AND instr(text, ?)", title, needle)
         add(f"rule still on {title}", found > 0, f'"{needle}"' if found else f'"{needle}" not found: update core/craft_ranks.py')
+    for title, needle in material_stats_rules():
+        found = _one(conn, "SELECT count(*) FROM chunks WHERE title=? AND instr(text, ?)", title, needle)
+        add(f"rule still on {title}", found > 0, f'"{needle}"' if found else f'"{needle}" not found: update core/material_stats.py')
+    # Stat questions are answered from these columns alone: a change to the tables' layout must show here, not in an answer.
+    readable = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='material' AND attribute='workability' AND value_num IS NOT NULL")
+    add("material stats are readable", readable >= 250, f"{readable:,} of {materials:,} materials have a workability")
     prizes = _one(conn, "SELECT count(*) FROM facts WHERE domain='event_prize'")
     raffle_pages = _one(conn, "SELECT count(*) FROM pages WHERE title LIKE '%/Raffles' AND title NOT LIKE 'Talk:%' AND is_redirect=0")
     add("festival prizes are readable", prizes > 0 or not raffle_pages, f"{prizes:,} prizes and lots from the raffle and auction pages")
@@ -138,6 +144,11 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     products = _one(conn, "SELECT count(*) FROM facts WHERE domain='craft_product' AND attribute='tier' AND value_num IS NOT NULL")
     add("crafted products have their tiers", products >= 1000, f"{products:,} products with a tier")
     return out
+
+
+def material_stats_rules() -> tuple[tuple[str, str], ...]:
+    from ..core.material_stats import RULES
+    return RULES
 
 
 def craft_ranks_rules() -> tuple[tuple[str, str], ...]:

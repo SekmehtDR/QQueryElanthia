@@ -30,6 +30,7 @@ from . import (
     grounding,
     hunting,
     layers,
+    material_stats,
     materials,
     memory,
     names,
@@ -479,6 +480,7 @@ class Assistant:
                 k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
         mats = (plan.prebuilt or craft_ranks.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
                 or event_prizes.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+                or material_stats.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
                 or materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url))
         if mats:
             passages = list(mats)  # replaces an items-tool lookup too: the ranking is the whole evidence
@@ -994,6 +996,8 @@ class Assistant:
     def _craft_ranks(self, asked: str, plan: Plan, session_id: str) -> list[dict] | None:
         """The person's own words first (the planner can turn "riste" into the half-handled one), then what it made of them."""
         base = self.s.wiki.base_url
+        if material_stats.stands_alone(asked):  # asked of the table: the item before it in the conversation is not part of this
+            return craft_ranks.passage(self.conn, asked, base) or material_stats.passage(self.conn, asked, base)
         earlier = [plan.standalone_question, *reversed(memory.recent_questions(self.conn, session_id))]
         ready = craft_ranks.passage(self.conn, asked, base, earlier)
         return ready or craft_ranks.passage(self.conn, plan.standalone_question, base, earlier[1:])
@@ -1016,7 +1020,8 @@ class Assistant:
         base = self.s.wiki.base_url
         if prizes := event_prizes.passage(self.conn, question, base):
             return Plan(question, kind="event_news", prebuilt=prizes)
-        ready = craft_ranks.passage(self.conn, question, base) or materials.passage(self.conn, question, base)
+        ready = (craft_ranks.passage(self.conn, question, base) or material_stats.passage(self.conn, question, base)
+                 or materials.passage(self.conn, question, base))
         if not ready and (disc := disciplines.passage(self.conn, question, base)):
             ready = [disc]
         return Plan(question, kind="crafting", prebuilt=ready) if ready else None

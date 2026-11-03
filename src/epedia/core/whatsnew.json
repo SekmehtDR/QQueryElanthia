@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.15.0",
+    "date": "2026-11-02",
+    "fennick": "A player asked me which material was the least workable, and I named the wrong one, then a different wrong one when asked again. I had the crafting materials tables in my satchel the whole time and wasn't looking at them. Now, when you ask about a material's numbers, I read them off the table.",
+    "changes": [
+      "Ask about any stat in the crafting materials tables: workability, hardness, durability, density and the rest.",
+      "Ask for the lowest or highest, overall or for one kind of material, compare two, or list everything above a number.",
+      "Workability answers say which way it runs: higher is easier to work, lower is harder."
+    ]
+  },
+  {
     "version": "1.14.0",
     "date": "2026-11-02",
     "fennick": "I've tidied the front of my satchel, which had got to the point where you had to read my whole introduction before you could ask me anything. Now it's a shorter hello and a row of subjects: pick one and I'll show you a few questions I know I can answer. What's new on the wiki sits alongside, one line each until something catches your eye.",

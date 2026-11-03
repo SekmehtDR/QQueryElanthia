@@ -151,6 +151,16 @@
   expect_pages: ["Category:Crafting materials"]
 - q: "What is the best leather for gloves?"
   expect_pages: ["Category:Crafting materials"]
+- q: "What material has the least workability?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "What crafting material has the least workability?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "Which metal is easiest to work with?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "What is the workability of damite?"
+  expect_pages: ["Category:Crafting materials"]
+- q: "What is the hardest metal?"
+  expect_pages: ["Category:Crafting materials"]
 - q: "What is the weapon density cap when forging?"
   expect_pages: ["Forging guide"]
 - q: "What do you know about Binu?"

@@ -38,6 +38,8 @@ _CRAFT = re.compile(r"\b(craft\w*|make|making|made|forge\w*|forging|shape|shapin
                     r"master ?craft\w*|masterful\w*|workability|template|the math)\b", re.I)
 _OTHER_USE = re.compile(r"\b(wield\w*|use|using|hunt\w*|train\w*|skin\w*|appraise\w*|swing\w*|teach\w*)\b", re.I)
 _TIER = re.compile(r"\b(?:t|tier)\s*(\d{1,2})\b", re.I)
+_WHAT_ABOUT = re.compile(r"^(?:and |so |ok |okay )?(?:what|how) about\b", re.I)
+_RANK_TALK = re.compile(r"\b(?:ranks?|master ?craft\w*|the math)\b", re.I)
 
 # Names the materials table does not use for its steels.
 _ALIASES = {"Steel (HCS)": ("high carbon steel", "hcs"), "Steel (MCS)": ("medium carbon steel", "mcs"),
@@ -414,10 +416,17 @@ def _answer_needs_item(src: _Sources, mat: Material) -> str:
                       f"Here's what {_say(mat.entity)} does to any of them:", "", *_bullets(src, mat)])
 
 
+def _continues(question: str, earlier: list[str] | None) -> bool:
+    """"And what about in damite?" straight after talk of ranks. A few turns in, the planner stops restating the item, so this
+    cannot wait for it to add the word "ranks"."""
+    return bool(_WHAT_ABOUT.search(question.strip()) and any(_RANK_TALK.search(p) for p in (earlier or [])[:2]))
+
+
 def passage(conn: sqlite3.Connection, question: str, base_url: str, earlier: list[str] | None = None) -> list[dict] | None:
     """[a passage carrying the code-written `answer`, the passages it cites], or None when this is not such a question.
     `earlier` (newest first) fills in what a follow-up leaves out: "show me the math, how many ranks?"."""
-    if not _ASK.search(question) or materials.wants(question):
+    asks = bool(_ASK.search(question))
+    if not (asks or _continues(question, earlier)) or materials.wants(question):
         return None
     if _OTHER_USE.search(question) and not _CRAFT.search(question):
         return None
@@ -428,7 +437,7 @@ def passage(conn: sqlite3.Connection, question: str, base_url: str, earlier: lis
     items = _variants({r.name for r in all_rows})
     mats = _variants(set(all_mats), _ALIASES)
     named = _read(question, items, mats)
-    if named.several_materials:
+    if named.several_materials or not (asks or named.material or named.item or named.tier):
         return None
     short = len(norm(question).split()) <= 5
     if earlier and (_CRAFT.search(question) or short):

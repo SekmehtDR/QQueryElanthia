@@ -4,6 +4,16 @@
 #   mode: search|clarify|items|clock|...   cited: true (the answer must cite a passage)
 #   answer_has: [text]   answer_lacks: [text]   (case-insensitive substrings)
 #   refused: true|false  max_unknown: N (names no passage has)   no_fake: true (default: never pretend to look things up)
+- name: a question about a material stat is answered from the table
+  turns:
+    - q: What material has the least workability?
+      cited: true
+      answer_has: [Silversteel, Dragon bone]
+      answer_lacks: [Glaes, Lead]
+    - q: Which metal has the lowest workability?
+      cited: true
+      answer_has: [Silversteel]
+
 - name: follow-up keeps the subject
   turns:
     - q: How do I start forging?

@@ -1,7 +1,19 @@
 # Changes
 
-Latest version: **1.14.0** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.15.0** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.15.0: material stats, straight from the tables (2026-11-02)
+
+- **Any stat on Category:Crafting materials is answered from the table, by code:** workability, hardness, durability, density, resistances, ductility, capacity, stiffness, bow affinities, the alchemy stats and value. A player asked "What material has the least workability?" and got Glaes (10), then Lead (80) when reworded. Search never reached the tables, and the model could not compare rows it could not see.
+- **The kinds of question:** lowest or highest overall with the lowest of each kind ("What material has the least workability?": Dragon bone and Dark dragon-scale hide at 1, Silversteel at 2 among metals); within one kind or rarity; one material's figure, or all its stats; two materials compared; "above 50" and "list metals by workability".
+- **Which way it runs:** "easiest to work" is the highest workability and "hardest to work" the lowest, and every workability answer says so, citing the page. "Hardest metal" alone is the hardness column. Prices are not ranked across kinds, because the table measures each kind its own way.
+- **A table question in the middle of a rank conversation is answered as asked.** "What is the hardest metal?" after a riste question used to repeat the riste's sum. Real follow-ups ("show me the math", "how hard is it to make it?") still carry over. How ranks are worked out did not change.
+- **"And what about in damite?" after talk of ranks is always a rank answer.** A few turns in, the planner stopped restating the item, so the question went to the model, which wrote a story about the metal instead.
+
+Known limits: only what the tables hold, so an answer gives the figure and not the story behind it. Questions that name an item stay with the rankings and rank answers. A stat word with no material ("What has the highest durability?") still goes to search, since it could mean anything.
+
+Internals: `core/material_stats.py` (reads existing `material` facts; no re-index), called after `craft_ranks` and `event_prizes` and before `materials`. `epedia doctor` checks the page still states the workability rule and that workability is readable for at least 250 materials.
 
 ## 1.14.0: a shorter start screen, built for each screen (2026-11-02)
 

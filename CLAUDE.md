@@ -82,7 +82,7 @@ topics rebuild only when `updated_at` moves, and classify does not touch it.
 src/epedia/   wiki/ (client, discover, crawl, smw, sync)   text/ (html2md, chunker, stats)
               index/ (indexer, classify, enrich, topics, doctor, extract/)   retrieval/ (search, titles, resolve)
               llm/ (ollama, prompts)   frontends/web/ (app.py, access.py, static/)   evalx/ (runner, offers, layers)
-              core/ (assistant, layers, offers, names, craft_ranks, event_prizes, memory, turns, feedback, diagnose, replay, lately, rewrite, followups, grounding, verify, attribution, ...)
+              core/ (assistant, layers, offers, names, craft_ranks, material_stats, event_prizes, memory, turns, feedback, diagnose, replay, lately, rewrite, followups, grounding, verify, attribution, ...)
               kinds.py  config.py  db.py  buildinfo.py  progress.py  cli.py
 tests/        pytest suite; tests/fixtures/*.json are saved action=parse outputs
 eval/         questions, conversations, scripts, refusals, offers, layers (.yaml); runs/ is git-ignored
@@ -165,6 +165,8 @@ data/         wiki.db and logs (git-ignored)
   from real play (Binu mastercrafted a glaes half-handled riste at 2,100 with techs and a hobby): chart first, then the Tailoring player guide, never a
   figure from another tier, no estimates. The constants 1,750 and 30% name their pages, and `epedia doctor` checks the wording is still there. Long tables
   are split by the chunker with no header or rule on the later pieces, so read products with `_blocks`, not `tables`.
+- **Material stats** (`core/material_stats.py`): any column of Category:Crafting materials, written by code from `material` facts. It runs after `craft_ranks` and declines anything with a rank or tier word, so rank answers come first and stay
+  untouched; `stands_alone` stops a table question inside a rank conversation from inheriting the item before it. "Hardest metal" is hardness, "hardest to work" is low workability. Value is never ranked across kinds: the table measures each kind differently.
 - **Raffles and auctions** (`core/event_prizes.py`, `index/extract/event_prizes.py`, domain `event_prize`): written by code, grouped by item, each kind from its own pages only.
   `epedia doctor` checks prizes are read. "This year's" is the highest year in a page's title, so a festival's new page must exist on the wiki first. Talk pages never count.
 - **Editing instructions are not knowledge** (`html2md._strip_editing_instructions`): the model answered from them. If a page shows new ones under another heading, `epedia doctor`
@@ -205,4 +207,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.14.0 (2026-11-02)_
+_Last updated: 1.15.0 (2026-11-02)_
