@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.15.1",
+    "date": "2026-11-02",
+    "fennick": "I went back through the crafting materials tables column by column, wood and stone and all, and found a few ways of asking that I still wasn't listening for. If you ask how stiff a wood is, what a bow affinity comes to, or how two materials stack up, I'll read it off the table now.",
+    "changes": [
+      "Ask for a wood's bow affinities without naming the bow, and you get all three.",
+      "Compare two materials and see all their stats side by side.",
+      "Stiffest, weight, cost and fire or lightning resistance are understood too."
+    ]
+  },
+  {
     "version": "1.15.0",
     "date": "2026-11-02",
     "fennick": "A player asked me which material was the least workable, and I named the wrong one, then a different wrong one when asked again. I had the crafting materials tables in my satchel the whole time and wasn't looking at them. Now, when you ask about a material's numbers, I read them off the table.",

@@ -22,38 +22,41 @@ WORKABILITY_RULE = "Lower workability metals require more skill to masterfully c
 RULE_SECTION = "Forging materials > Metal properties"
 RULES = ((CATEGORY, WORKABILITY_RULE),)
 _NAME_ALIASES = {**_ALIASES, "Silversteel": ("silver steel",)}
-KINDS = ("metal", "stone", "bone", "wood", "cloth", "leather")  # the tables' order; a lone plant row is not a kind to compare
+KINDS = ("metal", "stone", "bone", "wood", "cloth", "leather", "plant")  # the tables' order
+AFFINITIES = ("affinity_short", "affinity_long", "affinity_composite")
 SHOWN = 5  # how many rows a ranking of one kind shows, ties kept together
 
+_BOW_ALONE = r"(?:highest|lowest|top|worst|least) {bow}|{bow} of"  # "the highest shortbow": "best shortbow" is asking for a bow
 # attribute -> (what to call it, the words that ask for it). Affinities first: "composite" also names a bow.
 STATS = {
-    "affinity_short": ("shortbow / arbalest affinity", r"(?:short ?bow|arbalest)\w* affinity|affinity for (?:a )?(?:short ?bow|arbalest)\w*"),
-    "affinity_long": ("longbow / heavy crossbow affinity", r"(?:long ?bow|hx|heavy crossbow)\w* affinity|affinity for (?:a )?(?:long ?bow|heavy crossbow)\w*"),
-    "affinity_composite": ("composite bow / light crossbow affinity", r"(?:composite(?: bow)?|lx|light crossbow)\w* affinity|affinity for (?:a )?(?:composite|light crossbow)\w*"),
+    "affinity_short": ("shortbow / arbalest affinity", r"(?:short ?bow|arbalest)\w* affinity|affinity for (?:a )?(?:short ?bow|arbalest)\w*|" + _BOW_ALONE.format(bow=r"short ?bow")),
+    "affinity_long": ("longbow / heavy crossbow affinity", r"(?:long ?bow|hx|heavy crossbow)\w* affinity|affinity for (?:a )?(?:long ?bow|heavy crossbow)\w*|" + _BOW_ALONE.format(bow=r"long ?bow")),
+    "affinity_composite": ("composite bow / light crossbow affinity", r"(?:composite(?: bow)?|lx|light crossbow)\w* affinity|affinity for (?:a )?(?:composite|light crossbow)\w*|" + _BOW_ALONE.format(bow=r"composite(?: bow)?")),
     "workability": ("workability", r"work ?ab\w*"),
     "hardness": ("hardness", r"hardness"),
     "durability": ("durability", r"durabilit\w*|durable"),
-    "density": ("density", r"densit\w*|dense"),
+    "density": ("density", r"densit\w*|dense|weight|weighs?"),
     "physical": ("physical resistance", r"physical(?: resistance)?"),
-    "thermal": ("thermal resistance", r"thermal(?: resistance)?"),
-    "electrical": ("electrical resistance", r"electrical(?: resistance)?"),
+    "thermal": ("thermal resistance", r"thermal(?: resistance)?|(?:fire|cold|heat) resistance"),
+    "electrical": ("electrical resistance", r"electrical(?: resistance)?|lightning resistance"),
     "ductility": ("ductility", r"ductil\w*"),
     "capacity": ("capacity", r"(?:enchant )?capacity"),
-    "stiffness": ("stiffness", r"stiffness"),
-    "potency": ("potency", r"potency"),
+    "stiffness": ("stiffness", r"stiffness|stiff"),
+    "potency": ("potency", r"potency|potent"),
     "efficacy": ("efficacy", r"efficacy"),
-    "solubility": ("solubility", r"solubility"),
-    "toxicity": ("toxicity", r"toxicity"),
-    "value": ("value", r"value|valuable"),
+    "solubility": ("solubility", r"solubility|soluble"),
+    "toxicity": ("toxicity", r"toxicity|toxic"),
+    "value": ("value", r"value|valuable|cost of|price of|how much (?:\w+ ){0,4}(?:cost|costs|worth)"),
 }
 _WORDS = {attr: re.compile(rf"\b(?:{words})\b") for attr, (_label, words) in STATS.items()}
 ORDER = ("hardness", "durability", "workability", "electrical", "thermal", "physical", "ductility", "capacity", "stiffness",
          "affinity_short", "affinity_long", "affinity_composite", "potency", "efficacy", "solubility", "toxicity", "density", "value")
 # One word that is both the stat and which way: "hardest metal".
-_SUPERLATIVE = {"hardest": ("hardness", HIGH), "softest": ("hardness", LOW), "densest": ("density", HIGH), "heaviest": ("density", HIGH),
+_SUPERLATIVE = {"hardest": ("hardness", HIGH), "softest": ("hardness", LOW), "stiffest": ("stiffness", HIGH),
+                "densest": ("density", HIGH), "heaviest": ("density", HIGH),
                 "lightest": ("density", LOW), "cheapest": ("value", LOW), "priciest": ("value", HIGH),
                 "most expensive": ("value", HIGH), "least expensive": ("value", LOW)}
-_COMPARATIVE = {"harder": "hardness", "softer": "hardness", "denser": "density", "heavier": "density", "lighter": "density",
+_COMPARATIVE = {"harder": "hardness", "softer": "hardness", "stiffer": "stiffness", "denser": "density", "heavier": "density", "lighter": "density",
                 "cheaper": "value", "pricier": "value", "more expensive": "value"}
 _HOW = {"hard": "hardness", "soft": "hardness", "heavy": "density", "light": "density", "expensive": "value"}
 _WORKING = r"work|craft|master ?craft|forge|shape|carve|sew|tailor|make"
@@ -68,14 +71,19 @@ _ABOVE = re.compile(r"(above|over|more than|greater than|higher than|at least|>=
 _BELOW = re.compile(r"(below|under|less than|lower than|at most|<=?)\s*(\d+(?:\.\d+)?)", re.I)
 _OR_MORE = re.compile(r"(\d+(?:\.\d+)?) or (more|higher|above|less|lower|below)\b", re.I)
 _BY = re.compile(r"\b(?:list|rank|sort|order|show)\b.*\bby\b")
-_ALL_STATS = re.compile(r"\b(?:stats?|statistics|properties|numbers)\b")
+_ALL_STATS = re.compile(r"\b(?:stats?|statistics|properties|numbers|compare|compared|comparing|vs|versus|difference between)\b")
+_AFFINITY = re.compile(r"\baffinit(?:y|ies)\b")
+_CATALYST = re.compile(r"\bcatalysts?\b")
 # Ranks and tiers are `craft_ranks`' to answer or to decline: a table figure would look like an answer to a different question.
 _NOT_THE_TABLE = re.compile(r"\b(?:buy|sell|sells|shop|store|merchant|where|why|explain|mean|means|affect|affects|obtain|acquire|to find|to get|come by|"
                             r"ranks?|tiers?|t\d{1,2}|multiplier)\b")
 # What may follow a material's name when the question is about the material. Anything else is an item: "silversteel rasp".
 _AFTER_NAME = {"", "or", "and", "vs", "versus", "than", "has", "have", "is", "are", "compare", "compared", "to", "with", "at", "on",
                "in", "for", "got", "metal", "metals", "wood", "woods", "stone", "bone", "cloth", "leather", "s", "stats", "properties", "work",
-               "easier", "harder", "softer", "tougher", "denser", "heavier", "lighter", "cheaper", "pricier", "more", "less"}
+               "easier", "harder", "softer", "tougher", "stiffer", "denser", "heavier", "lighter", "cheaper", "pricier", "more", "less", "better",
+               "worse", "cost", "costs", "worth", "weigh", "weighs", "hardness", "durability", "workability", "density", "stiffness", "capacity",
+               "ductility", "value", "thermal", "electrical", "physical", "potency", "efficacy", "solubility", "toxicity", "affinity", "affinities",
+               "shortbow", "longbow", "composite"}
 _NOT_A_NAME = {"it", "this", "that", "these", "those", "them", "metal", "metals", "material", "materials", "wood", "woods", "stone", "stones",
                "bone", "bones", "cloth", "leather", "steel"}
 
@@ -132,6 +140,8 @@ def read(question: str) -> Ask | None:
     for attr, rx in _WORDS.items():
         if rx.search(q):
             return Ask(attr, way, limit, bool(_BY.search(q)))
+    if _AFFINITY.search(q):  # no bow named: all three
+        return Ask("affinity", way, limit, bool(_BY.search(q)))
     for word, (attr, side) in _SUPERLATIVE.items():
         if f" {word} " in f" {q} ":
             return None if re.search(rf"\b{word}\b{_OTHER_TASK}", q) else Ask(attr, side, limit)
@@ -152,7 +162,7 @@ def stands_alone(question: str) -> bool:
     q = norm(question)
     if ask is None or ask.attr is None or _NOT_THE_TABLE.search(q) or re.search(r"\b(?:it|this|that|one|them)\b", q):
         return False
-    return bool(ask.way or ask.limit or ask.listed or _WORDS[ask.attr].search(q))
+    return bool(ask.way or ask.limit or ask.listed or ask.attr not in _WORDS or _WORDS[ask.attr].search(q))
 
 
 def _load(conn: sqlite3.Connection) -> dict[str, Mat]:
@@ -339,6 +349,17 @@ def _all_stats(src: _Sources, mat: Mat) -> str:
     return f"**{mat.name}** ({rarity}): {shown} {_cite(src, mat, cited)}."
 
 
+def _one_column(src: _Sources, ask: Ask, attr: str, pool: list[Mat], kinds: list[str], what: str, chosen: list[Mat], mats: dict[str, Mat]) -> str | None:
+    one = Ask(attr, ask.way, ask.limit, ask.listed)
+    if ask.limit or ask.listed:
+        return _listing(src, one, pool, kinds, what)
+    if len(chosen) >= 2:
+        return _compare(src, attr, chosen)
+    if ask.way:
+        return _extreme(src, one, pool, kinds or list(KINDS), what)
+    return _lookup(src, attr, chosen[0], mats) if chosen else None
+
+
 def passage(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict] | None:
     """[passages, the first carrying the code-written `answer`] when this asks about a column of the materials tables."""
     ask = read(question)
@@ -355,12 +376,17 @@ def passage(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict
     if not alone:
         return None
     words = rest.split()
-    kinds = [k for k in KINDS if any(_MATTER_WORDS.get(w) == k for w in words)]
+    kinds = [k for k in KINDS if any(_MATTER_WORDS.get(w, w.removesuffix("s")) == k for w in words)]
+    if _CATALYST.search(q):
+        kinds = ["metal", "plant"]  # the page's alchemy tables: "Catalysts used in Alchemy"
+    affinity = (ask.attr or "").startswith("affinity")
+    if affinity and not kinds:
+        kinds = ["wood"]  # only wood has a bow affinity
     scoped = bool(found or kinds or any(w in ("material", "materials") for w in words) or ask.attr == "workability")
     if not scoped:
         return None  # "what has the highest durability?" could be anything
     src = _Sources(conn, base_url)
-    pool = [m for m in mats.values() if (not kinds or m.matter in kinds) and (m.matter in KINDS)]
+    pool = [m for m in mats.values() if not kinds or m.matter in kinds]
     rarity = next((w for w in ("common", "rare", "special") if w in q.split()), None)
     if rarity == "common":
         pool = [m for m in pool if m.rarity == "Common"]
@@ -368,24 +394,19 @@ def passage(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict
         pool = [m for m in pool if m.rarity != "Common"]
     elif rarity == "special":
         pool = [m for m in pool if m.rarity == "Special"]
-    what = " and ".join(PLURAL[k] for k in kinds) or "materials"
+    what = " and ".join(_say_kind(k) for k in kinds) or "materials"
     if rarity:
         what = f"{rarity} {what}"
     chosen = [mats[e] for e in found]
     if ask.attr is None:
-        if len(chosen) != 1:
+        if not chosen:
             return None
-        answer = _all_stats(src, chosen[0])
-    elif ask.limit or ask.listed:
-        answer = _listing(src, ask, pool, kinds, what)
-    elif len(chosen) >= 2:
-        answer = _compare(src, ask.attr, chosen)
-    elif ask.way:
-        answer = _extreme(src, ask, pool, kinds or list(KINDS), what)
-    elif chosen:
-        answer = _lookup(src, ask.attr, chosen[0], mats)
+        answer = "\n".join(_all_stats(src, m) for m in chosen)
+    elif parts := [p for a in (AFFINITIES if ask.attr == "affinity" else (ask.attr,))
+                   if (p := _one_column(src, ask, a, pool, kinds, what, chosen, mats))]:
+        answer = "\n\n".join(parts)
     else:
-        m = re.search(rf"\b{STATS[ask.attr][0]} of (?:an? |the )?([a-z][a-z ]*)$", q) if ask.attr == "workability" else None
+        m = re.search(r"\bworkability of (?:an? |the )?([a-z][a-z ]*)$", q) if ask.attr == "workability" else None
         if not m or m[1].split()[0] in _NOT_A_NAME:
             return None
         answer = f"I don't have \"{m[1]}\" in the crafting materials tables, so I can't give you a workability for it."

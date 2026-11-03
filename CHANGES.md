@@ -1,7 +1,15 @@
 # Changes
 
-Latest version: **1.15.0** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.15.1** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.15.1: every column of the materials tables, however it is asked (2026-11-02)
+
+- **All of a wood's bow affinities** when no bow is named ("What is the affinity of oak?", "What wood has the highest affinity?"), and a bow word alone ("the highest shortbow", "the longbow of ash").
+- **Comparing materials with no stat named** ("Compare oak and ash") shows all their stats, and "oak vs ash stiffness" reads the one asked for.
+- **More words for the same columns:** stiff and stiffest, potent, toxic, soluble, weight and how much something weighs, cost and worth, fire, cold, heat and lightning resistance, and "catalyst" for the alchemy tables. The one plant row in those tables now counts as a kind, so it is no longer left out of a ranking.
+
+Checked by asking 2,419 questions, one for each stat of each material, and each stat high and low for each kind, against the page's cells read separately: all 312 rows agreed with the stored figures. The only columns not read are Volume and Bleach timer, on the Small, Average and Large bone size table, which are not materials.
 
 ## 1.15.0: material stats, straight from the tables (2026-11-02)
 

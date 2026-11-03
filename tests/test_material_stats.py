@@ -219,6 +219,49 @@ def test_through_the_real_answer_path_the_model_writes_none_of_it(settings, conn
     assert "**Damite** has a workability of **10**" in done.answer and a.ollama.written == 0
 
 
+@pytest.mark.parametrize("q", ["What is the affinity of Smokewood?", "What are the bow affinities of Smokewood?"])
+def test_no_bow_named_gives_all_three_affinities(conn, q):
+    answer = ask(conn, q)
+    assert "shortbow / arbalest affinity of **96**" in answer and "longbow / heavy crossbow affinity of **60**" in answer
+    assert "composite bow / light crossbow affinity of **60**" in answer
+
+
+def test_the_highest_affinity_is_each_bows_and_only_wood_has_one(conn):
+    answer = ask(conn, "What wood has the highest affinity?")
+    assert "shortbow / arbalest affinity is **96**: Smokewood" in answer and "longbow / heavy crossbow affinity" in answer
+    assert ask(conn, "What material has the best longbow affinity?").startswith("Among woods,")
+    assert "don't give a shortbow / arbalest affinity for metals" in ask(conn, "Which metal has the highest shortbow affinity?")
+
+
+@pytest.mark.parametrize("q,start", [
+    ("Which wood has the highest shortbow?", "Among woods, the highest shortbow / arbalest affinity is **96**"),
+    ("What is the longbow of Smokewood?", "**Smokewood** has a longbow / heavy crossbow affinity of **60**"),
+    ("Whats the stiffest wood?", "Among woods, the highest stiffness is **50**"),
+    ("least stiff wood", "Among woods, the lowest stiffness is **50**"),
+    ("What is the weight of Glaes?", "**Glaes** has a density of **4**"),
+    ("How much does Silversteel cost?", "**Silversteel** has a value of **27,500 Kronars**"),
+    ("How much is Bloodwood worth?", "**Bloodwood** has a value of **900 Kronars**"),
+    ("Which metal has the best fire resistance?", "Among metals, the highest thermal resistance is **80**"),
+    ("Which metal has the best lightning resistance?", "Among metals, the highest electrical resistance is **60**"),
+    ("What is the most potent catalyst?", "The highest potency in the crafting materials tables is **40**: Silversteel"),
+])
+def test_the_other_ways_of_saying_a_column(conn, q, start):
+    assert ask(conn, q).startswith(start)
+
+
+def test_comparing_with_no_stat_shows_them_all_and_a_named_stat_shows_that(conn):
+    answer = ask(conn, "Compare Bloodwood and Smokewood")
+    assert answer.count("stiffness 50") == 2 and "**Bloodwood** (rare wood)" in answer and "**Smokewood** (rare wood)" in answer
+    assert ask(conn, "Bloodwood vs Smokewood hardness").startswith("Hardness in the crafting materials tables")
+    assert "**Smokewood:** 96" in ask(conn, "Is Bloodwood or Smokewood better for shortbow affinity?")
+
+
+@pytest.mark.parametrize("q", ["What is the best shortbow?", "What is the best longbow for a hunter?", "Is iron worth using?", "What is the weight of a broadsword?",
+                               "How much does a broadsword cost?", "What is the cost of living in Shard?", "Compare a sword and an axe", "What is the affinity of a Moon Mage?"])
+def test_those_words_do_not_catch_other_questions(conn, q):
+    assert ask(conn, q) == ""
+
+
 def test_doctor_watches_the_rule_and_the_column(conn):
     checks = {c.name: c.ok for c in run_doctor(conn)}
     assert checks["rule still on Category:Crafting materials"] is not None
