@@ -203,9 +203,44 @@ def test_a_question_is_hot_when_different_people_asked_it_lately(tmp_path):
     c.close()
     with TestClient(create_app(s), base_url="https://testserver") as cl:
         cl.post("/login", json={"code": CODE}, headers=TUNNEL)
-        for headers in ({}, TUNNEL):  # the owner and a visitor see the same fire; neither sees who asked or how many
+        for headers in ({}, TUNNEL):  # the owner and a visitor see the same fire and counts; neither sees who asked
             got = cl.get("/api/recent-questions", headers=headers).json()
-            assert set(got) == {"questions", "hot"} and got["hot"] == ["who are the DRAGON priests"]
+            assert set(got) == {"questions", "hot", "counts"} and got["hot"] == ["who are the DRAGON priests"]
+            assert got["counts"]["who are the DRAGON priests"] == 2 and got["counts"]["What metals are yellow?"] == 2  # askings, not people
+
+
+def test_the_start_screen_leads_with_what_most_people_asked_then_the_newest(tmp_path):
+    s = make(tmp_path)
+    c = connect(s)
+
+    def asked(who, question):
+        sid = memory.new_session(c, "web", owner=who)
+        memory.note_plan(c, memory.add_message(c, sid, "user", question), question, "search", "general")
+
+    for who in ("ann", "bob"):
+        asked(who, "Asked by two, earlier?")
+    for who in ("ann", "bob", "cid"):
+        asked(who, "Asked by three, earliest of all?")
+    for who in ("ann", "bob"):
+        asked(who, "Asked by two, later?")
+    asked("ann", "Asked once, older?")
+    asked("ann", "Asked often by one?")
+    asked("ann", "Asked often by one?")
+    asked("bob", "Asked once, newest?")
+    questions, hot = memory.questions_now(c)
+    assert hot == ["Asked by three, earliest of all?", "Asked by two, later?", "Asked by two, earlier?"]
+    assert questions == [*hot, "Asked once, newest?", "Asked often by one?", "Asked once, older?"]
+    assert memory.questions_now(c, limit=2) == (hot[:2], hot[:2])
+
+    for i in range(25):  # plenty of newer questions from one person
+        asked("dee", f"Newer question {i}?")
+    questions, hot = memory.questions_now(c, limit=20)
+    assert questions[0] == "Asked by three, earliest of all?" and len(questions) == 20  # still there, still first
+    assert questions[3] == "Newer question 24?"
+    c.close()
+    with TestClient(create_app(s), base_url="https://testserver") as cl:
+        got = cl.get("/api/recent-questions").json()
+        assert got["hot"][0] == "Asked by three, earliest of all?" and got["questions"][:3] == got["hot"] and got["counts"]["Asked by three, earliest of all?"] == 3
 
 
 def test_a_deleted_or_foreign_chat_id_in_a_message_starts_a_fresh_conversation(tmp_path, monkeypatch):

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import shutil
 import struct
 import subprocess
@@ -84,8 +85,10 @@ def test_the_pages_sending_function_really_runs_as_far_as_the_send():
 def test_the_start_screen_puts_a_fire_on_hot_questions_only():
     script = Path(__file__).parent / "js" / "run_recent.js"
     out = subprocess.run(["node", str(script), str(STATIC / "index.html")], capture_output=True, encoding="utf-8", timeout=30)
-    assert json.loads(out.stdout) == [{"q": "Who are the dragon priests?", "fire": "\U0001F525"},
-                                      {"q": "What metals are yellow?", "fire": None}], out.stdout + out.stderr
+    assert json.loads(out.stdout) == [  # each further asking is 1px larger, up to 10; the count keeps going, and the fire stays in front
+        {"q": "Who are the dragon priests?", "fire": "\U0001F525", "times": "x4", "more": 3, "first": "hot"},
+        {"q": "What metals are yellow?", "fire": None, "times": "x25", "more": 10, "first": "times"},
+        {"q": "Where is Shard?", "fire": None, "times": "x1", "more": 0, "first": "times"}], out.stdout + out.stderr
 
 
 # ------------------------------------------------------------------------------------------- hunting ranks
@@ -282,3 +285,9 @@ def test_chats_list_finds_older_chats_of_one_owner_and_keeps_the_limit(many_chat
     assert "mine2" in out and "1 shown" in out
     out = run.invoke(cli.app, ["chats", "list", "--frontend", "all", "--limit", "2"]).output
     assert "typed" in out and "2 shown" in out
+
+
+def test_a_suggestion_waits_in_the_box_and_only_replies_send_at_once():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert sorted(re.findall(r"onclick = \(\) => (?:\{[^}]*?)?ask\(([^)]*)", html)) == ["'I meant ' + c.text, c.page_id", "question"]  # "I meant..." and try again
+    assert len(re.findall(r"onclick = \(\) => prefill\(", html)) == 6

@@ -1,7 +1,17 @@
 # Changes
 
-Latest version: **1.15.1** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.15.2** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.15.2: Others are asking leads with what most people asked; suggestions wait in the box (2026-11-02)
+
+- **A suggested question goes in the box instead of being sent,** so a player can change it first: the subjects' questions, Others are asking, Lately on the wiki, and the follow-ups and "tell me about" suggestions under an answer. It replaces anything already typed. "Try again" after a failure and "I meant..." when Fennick asks which one still send at once, since they are replies rather than suggestions.
+
+- **The order on the start screen:** questions with a fire come first, the most people first and the newest of a tie, then the rest newest first. The fire still means two or more people in the last two days, and who asked is never shown.
+- **How many times each was asked:** a small x1, x2, x3 badge in front of the words, and the question is written 1px larger for each further asking, up to 10px larger (x11). The badge keeps counting past that. Every asking counts, one person's repeats too, over all kept chats, so deleting a chat lowers it.
+- **A question with a fire stays on the list** however many newer ones are asked, because it is looked up on its own.
+
+Internals: `memory.questions_now`, `memory.asked_counts`; `GET /api/recent-questions` returns the two lists in the new order, plus `counts`.
 
 ## 1.15.1: every column of the materials tables, however it is asked (2026-11-02)
 

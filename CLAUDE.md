@@ -207,4 +207,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.15.1 (2026-11-02)_
+_Last updated: 1.15.2 (2026-11-02)_

@@ -20,6 +20,7 @@ function element(tag) {
   el.remove = () => { el.removed = true; };
   el.decode = () => Promise.resolve();
   el.classList = { add() {}, remove() {} };
+  el.style = { setProperty(k, v) { el.attrs[k] = v; } };
   return el;
 }
 const asked = [];
@@ -36,7 +37,7 @@ const answers = {
 const fetchFake = async url => ({ ok: true, json: async () => answers[url] });
 const documentFake = { createElement: element, getElementById: () => element('div'), documentElement: { dataset: { view: 'desktop' } } };
 const persona = { enabled: true, name: 'Fennick' };
-const build = new Function('document', 'fetch', 'ask', 'persona', src + ';return hintHtml;');
+const build = new Function('document', 'fetch', 'prefill', 'persona', src + ';return hintHtml;');
 const check = (name, ok) => console.log((ok ? 'ok ' : 'BAD ') + name);
 const deep = (el, cls) => (el.className || '').split(' ').includes(cls) ? [el, ...el.children.flatMap(k => deep(k, cls))] : el.children.flatMap(k => deep(k, cls));
 
@@ -57,7 +58,7 @@ async function run(view) {
   topics[1].onclick();
   check('one subject at a time', list.children.length === 1 && topics[0].attrs['aria-expanded'] === 'false');
   list.children[0].onclick();
-  check('a question asks it', asked.pop() === 'Who is Kssarh?');
+  check('a question goes in the box', asked.pop() === 'Who is Kssarh?');
   topics[1].onclick();
   check('a second click folds it', list.hidden);
 
@@ -71,7 +72,7 @@ async function run(view) {
   check('a click opens it', !body.hidden && main.attrs['aria-expanded'] === 'true');
   const parts = deep(rows[0], 'chip');
   parts[0].onclick();
-  check('a page of its own can be asked about', asked.pop() === 'Tell me about Moot 458' && parts[0].textContent === 'Ask about this');
+  check('a page of its own goes in the box', asked.pop() === 'Tell me about Moot 458' && parts[0].textContent === 'Ask about this');
   parts[1].onclick();
   check('so can its subpage', asked.pop() === 'Tell me about Moot 458/Shops');
   check('a family without one offers only its members', deep(rows[1], 'lately-ask').length === 0 && deep(rows[1], 'chip').length === 2);

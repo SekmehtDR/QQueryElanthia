@@ -240,17 +240,44 @@ def answered_questions(conn: sqlite3.Connection, kinds: tuple[str, ...], limit: 
     return out
 
 
-def hot_questions(conn: sqlite3.Connection, questions: list[str], frontend: str = "web") -> list[str]:
-    """Those of `questions` that different people asked in the last HOT_HOURS. People, not askings: one person asking
-    five times is not a topic that is hot."""
+def _asked_lately(conn: sqlite3.Connection, frontend: str) -> dict[str, tuple[str, set[str]]]:
+    """{question key: (as last worded, who asked)} over the last HOT_HOURS, newest first. People, not askings: one person
+    asking five times is not a topic that is hot."""
     since = (datetime.now(UTC) - timedelta(hours=HOT_HOURS)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    people: dict[str, set[str]] = {}
+    asked: dict[str, tuple[str, set[str]]] = {}
     for r in conn.execute(
-        f"SELECT m.standalone_q, coalesce(s.owner, 'local') AS who FROM {_PAGE_QUESTIONS} AND m.created_at >= ?",
+        f"SELECT m.standalone_q, coalesce(s.owner, 'local') AS who FROM {_PAGE_QUESTIONS} AND m.created_at >= ? ORDER BY m.msg_id DESC",
         (frontend, since),
     ):
-        people.setdefault(question_key(r["standalone_q"]), set()).add(r["who"])
-    return [q for q in questions if len(people.get(question_key(q), ())) >= HOT_PEOPLE]
+        q = re.sub(r"\s+", " ", r["standalone_q"]).strip()
+        asked.setdefault(question_key(q), (q, set()))[1].add(r["who"])
+    return asked
+
+
+def hot_questions(conn: sqlite3.Connection, questions: list[str], frontend: str = "web") -> list[str]:
+    """Those of `questions` that different people asked in the last HOT_HOURS."""
+    asked = _asked_lately(conn, frontend)
+    return [q for q in questions if len(asked.get(question_key(q), ("", ()))[1]) >= HOT_PEOPLE]
+
+
+def asked_counts(conn: sqlite3.Connection, questions: list[str], frontend: str = "web") -> dict[str, int]:
+    """{question: how many times it has been asked on the page}, as the start screen shows it. Every asking counts, one person's
+    too (the fire is what counts people), and a deleted chat's questions are gone from this as they are from the list."""
+    times: dict[str, int] = {}
+    for r in conn.execute(f"SELECT m.standalone_q FROM {_PAGE_QUESTIONS}", (frontend,)):
+        key = question_key(r["standalone_q"])
+        times[key] = times.get(key, 0) + 1
+    return {q: times.get(question_key(q), 1) for q in questions}
+
+
+def questions_now(conn: sqlite3.Connection, limit: int = 20, frontend: str = "web") -> tuple[list[str], list[str]]:
+    """(the start screen's questions, which of them are hot). Hot ones lead, most people first and the newest of a tie, then
+    the rest newest first. A hot one is looked up by itself, so newer questions cannot push it out of the list."""
+    lately = [(q, len(who)) for q, who in _asked_lately(conn, frontend).values() if len(who) >= HOT_PEOPLE and len(q) <= RECENT_QUESTION_CHARS]
+    hot = [q for q, _n in sorted(lately, key=lambda t: -t[1])]  # a stable sort: a tie stays newest first
+    keys = {question_key(q) for q in hot}
+    rest = [q for q in recent_user_questions(conn, limit=limit, frontend=frontend) if question_key(q) not in keys]
+    return (hot + rest)[:limit], hot[:limit]
 
 
 def last_pasted(conn: sqlite3.Connection, session_id: str) -> str:

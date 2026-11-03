@@ -171,6 +171,8 @@
   .followups .chip { padding:3px 10px; font-size:.82rem; text-align:left; }
   .actions .said-rewrite { color:var(--muted); font-size:.82rem; }
   .chip .hot { margin-right:4px; }
+  .recent .chip { font-size:calc(.84rem + var(--asked-more, 0) * 1px); text-align:left; }
+  .chip .times { display:inline-block; margin-right:5px; padding:0 5px; border-radius:999px; background:var(--line); color:var(--muted); font-size:.72em; font-weight:600; vertical-align:middle; }
   .related { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:.85rem; color:var(--muted); }
   .related .chip { padding:3px 10px; font-size:.82rem; }
   .msg .avatar { float:right; width:56px; height:56px; margin:-2px 0 8px 14px; border-radius:50%; box-shadow:0 2px 8px rgba(0,0,0,.35); }
@@ -403,6 +405,7 @@
   html[data-view="mobile"] .chips { flex-direction:column; align-items:stretch; }
   html[data-view="mobile"] .chip { padding:9px 14px; text-align:left; font-size:.92rem; border-radius:12px; }
   html[data-view="mobile"] .related .chip { padding:7px 12px; }
+  html[data-view="mobile"] .recent .chip { font-size:calc(.92rem + var(--asked-more, 0) * 1px); }
   html[data-view="mobile"] .src-row { grid-template-columns:1.9em 1fr; }
 </style>
 <script>
@@ -643,6 +646,14 @@ jump.addEventListener('click', () => { toEnd(true); q.focus(); });
 // The input: grows with the text, and Ask is only enabled when there is something to send and nothing in flight.
 function syncSend() { send.disabled = busy || !q.value.trim(); }
 function autosize() { q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 160) + 'px'; }
+// A suggested question goes in the box, not to Fennick: the person may want to change it first.
+function prefill(text) {
+  q.value = text;
+  autosize();
+  syncSend();
+  q.focus();
+  q.setSelectionRange(text.length, text.length);
+}
 q.addEventListener('input', () => { autosize(); syncSend(); });
 
 // Desktop / Mobile layout switch. The head script has already set data-view; this keeps the buttons in step and
@@ -772,7 +783,7 @@ function showSources(d, sources, cited, related, finalText) {
     related.forEach(t => {
       const b = document.createElement('button');
       b.className = 'chip'; b.type = 'button'; b.textContent = t.replace(/^[A-Za-z]+:/, '');
-      b.title = t; b.onclick = () => ask('Tell me about ' + t.replace(/^[A-Za-z]+:/, ''));
+      b.title = t; b.onclick = () => prefill('Tell me about ' + t.replace(/^[A-Za-z]+:/, ''));
       r.append(b);
     });
     el.append(r);
@@ -844,7 +855,7 @@ async function loadStarters(box) {
       list.textContent = '';
       list.hidden = !opening;
       if (opening) t.questions.forEach(q => {
-        const c = startEl('button', 'chip', q); c.type = 'button'; c.title = q; c.onclick = () => ask(q);
+        const c = startEl('button', 'chip', q); c.type = 'button'; c.title = q; c.onclick = () => prefill(q);
         list.append(c);
       });
     };
@@ -880,12 +891,12 @@ async function loadLately(box) {
     const own = !p.members.some(m => m.title === p.title);  // a family with no page of its own has only its members to ask about
     if (own) {
       const c = startEl('button', 'chip lately-ask', 'Ask about this'); c.type = 'button';
-      c.onclick = () => ask('Tell me about ' + p.title);
+      c.onclick = () => prefill('Tell me about ' + p.title);
       parts.append(c);
     }
     p.members.forEach(m => {
       const c = startEl('button', 'chip', m.label); c.type = 'button';
-      c.onclick = () => ask('Tell me about ' + m.title);
+      c.onclick = () => prefill('Tell me about ' + m.title);
       parts.append(c);
     });
     more.append(parts);
@@ -902,16 +913,18 @@ async function loadLately(box) {
   }
   box.append(fold);
 }
+const ASKED_MORE_MAX = 10;
 async function loadRecent(box) {
   box = box || document.getElementById('recent');
   if (!box) return;  // a conversation is on screen: nothing to refresh
-  let qs = [], hot = new Set();
+  let qs = [], hot = new Set(), counts = {};
   try {
     const r = await fetch('/api/recent-questions');
     if (r.ok) {
       const data = await r.json();
       qs = data.questions || [];
       hot = new Set(data.hot || []);
+      counts = data.counts || {};
     }
   } catch (e) { /* offline: shown as none */ }
   box.textContent = '';
@@ -921,7 +934,12 @@ async function loadRecent(box) {
   const chips = document.createElement('div'); chips.className = 'chips';
   qs.forEach(q => {
     const b = document.createElement('button');
-    b.className = 'chip'; b.type = 'button'; b.textContent = q; b.title = q; b.onclick = () => ask(q);
+    b.className = 'chip'; b.type = 'button'; b.textContent = q; b.title = q; b.onclick = () => prefill(q);
+    const asked = counts[q] || 1;
+    const times = document.createElement('span');
+    times.className = 'times'; times.textContent = 'x' + asked; times.setAttribute('aria-label', `Asked ${asked} ${asked === 1 ? 'time' : 'times'}:`);
+    b.prepend(times);
+    b.style.setProperty('--asked-more', Math.min(asked - 1, ASKED_MORE_MAX));  // each further asking is 1px larger, up to a point
     if (hot.has(q)) {  // before the words, because a long question is cut off at the end of its chip
       const fire = document.createElement('span');
       fire.className = 'hot'; fire.textContent = '🔥'; fire.setAttribute('aria-label', 'Hot right now:');
@@ -1037,7 +1055,7 @@ async function addFollowups(msg, turnId) {
   const box = document.createElement('div'); box.className = 'followups'; box.textContent = 'You could ask:';
   const chips = document.createElement('div'); chips.className = 'chips';
   qs.forEach(q => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = q; b.onclick = () => ask(q);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = q; b.onclick = () => prefill(q);
     chips.append(b);
   });
   box.append(chips);

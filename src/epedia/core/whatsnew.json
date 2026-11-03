@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.15.2",
+    "date": "2026-11-02",
+    "fennick": "I've rearranged the questions people are asking. The ones with a fire, that several folk have asked lately, now come first, with the most-asked at the top, and the rest follow newest first. Each shows how many times it's been asked, and the more it has, the bigger it's written. And when you pick a suggested question, it now waits in the box so you can change it before you ask.",
+    "changes": [
+      "Others are asking now leads with the questions the most people asked lately, then the newest.",
+      "A small x2, x3 badge shows how many times each has been asked, and more-asked questions are written larger.",
+      "Clicking a suggested question puts it in the box instead of sending it, so you can change it first. Press Enter or Ask when it's right."
+    ]
+  },
+  {
     "version": "1.15.1",
     "date": "2026-11-02",
     "fennick": "I went back through the crafting materials tables column by column, wood and stone and all, and found a few ways of asking that I still wasn't listening for. If you ask how stiff a wood is, what a bow affinity comes to, or how two materials stack up, I'll read it off the table now.",
