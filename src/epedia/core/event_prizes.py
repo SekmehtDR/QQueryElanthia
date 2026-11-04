@@ -35,7 +35,7 @@ _TRAILING = re.compile(r"\s+(?:at|in|from|during|on)\s+.*$|\s+this year.*$|\s+la
 _FOLLOW_UP = re.compile(r"\bwho (?:won|bought|got)\b|\bwinners?\b|\bbuyers?\b", re.I)
 
 # What players call a festival, beyond its name. Upper case is exact: "he" is usually only a pronoun.
-_CALLED = {"Hollow Eve Festival": ("hollow eve",), "Guildfest": ("guild fest",), "Drathrok's Duskruin": ("duskruin",),
+_CALLED = {"Hollow Eve Festival": ("hollow eve", "hollows eve", "hollow's eve", "hollow’s eve"), "Guildfest": ("guild fest",), "Drathrok's Duskruin": ("duskruin",),
            "Estate Holder Mini-Fest": ("estate holder", "mini-fest", "minifest", "mini fest"), "Taisidon Safari": ("taisidon", "safari"),
            "Bacon Man's Birthday Bash": ("bacon man",), "Romancing the Seas": ("romancing",)}
 _CALLED_EXACT = {"Hollow Eve Festival": ("HE",), "Guildfest": ("GF",), "Drathrok's Duskruin": ("DF",), "Estate Holder Mini-Fest": ("EH",)}

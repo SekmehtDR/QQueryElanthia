@@ -1,6 +1,7 @@
 """Crafting materials from the tables of Category:Crafting materials: every metal, stone, bone, wood, cloth and
 leather with its stats (hardness, density, workability, bow affinities...). The tables are the wiki's own lookup;
-the individual material pages repeat them."""
+the individual material pages repeat them. Each material page's "at a Glance" box (colours, rarity) is read too, for
+every material page, crafting or not: gems and alteration metals are only ever described there."""
 
 from __future__ import annotations
 
@@ -63,11 +64,16 @@ def extract(chunks: list[tuple[str, str]]) -> list[Fact]:
 GLANCE = {"material type": "type", "colors": "colors", "rarity": "rarity", "cultural relevance": "culture",
           "innate qualities": "innate", "required for alterations": "alterations"}
 _GLANCE_ROW = re.compile(r"^(?:\|\s*\|\s*)?(" + "|".join(GLANCE) + r")(?:\s*[|:]\s*|\s+)(.*?)[\s|]*$", re.I)
-_TYPE = {"metals": "metal", "woods": "wood", "leather": "leather", "bone": "bone", "stone": "stone", "fabric": "cloth"}
+_TYPE = {"metals": "metal", "woods": "wood", "leather": "leather", "bone": "bone", "stone": "stone", "fabric": "cloth",
+         "gems": "gem", "shells": "shell", "flora": "plant"}
 
 
 def _material_pages(conn) -> list[str]:
-    return [r[0] for r in conn.execute("SELECT DISTINCT entity FROM facts WHERE domain='material' ORDER BY entity")]
+    """Every material's own page: those the tables list, and the material pages they leave out (gems, fabrics, loveglass and
+    other alteration metals), for which the box is all the wiki gives."""
+    return [r[0] for r in conn.execute(
+        "SELECT entity FROM facts WHERE domain='material' UNION "
+        "SELECT title FROM pages WHERE ns=0 AND page_kind='material' AND is_redirect=0 ORDER BY 1")]
 
 
 @register_pages("material_page", _material_pages)

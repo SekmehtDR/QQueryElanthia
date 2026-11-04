@@ -107,3 +107,24 @@
       max_unknown: 0
     - q: Tell me more about him
       max_unknown: 0
+
+- name: a colour carries over to cloth and to looks, never a ranking by protection (thumbs-down, 2026-11-03)
+  turns:
+    - q: I'm working on alteration for a bag for my Rakash empath and her theme is red and hearts. Are there any rare metals or gems you recommend I use for it?
+      answer_has: [Loveglass, "Gems:"]
+    - q: Do you have any recommendations for cloth?
+      answer_has: [Firesilk, listed as red]
+      answer_lacks: [physical resistance]
+    - q: I don't need resistance this is just aesthetics
+      answer_has: [Firesilk]
+
+- name: an alteration schedule gives every instance (thumbs-down, 2026-11-03)
+  turns:
+    - q: What alteration sessions are available during the Hollow Eve Festival 458?
+      answer_has: ["**Prime**", "**Platinum**", "The Fallen"]
+
+- name: forging tasks at this year's Hollow Eve find Poltu (2026-11-03)
+  turns:
+    - q: Tell me about Hollow Eve Festival 458/Aiding the Merelew
+    - q: available forging tasks at hollows eve
+      answer_has: [Poltu]

@@ -109,7 +109,7 @@ def check_citations(answer: str, ev: Evidence, allowed_numbers: set[str] = froze
         if len(words) < MIN_CONTENT_TOKENS:
             continue  # "Here's what I found [1]": nothing to check
         valid = [n for n in nums if 1 <= n <= ev.n]
-        bag: set[str] = set().union(*(ev.bags[n - 1] for n in valid)) if valid else set()
+        bag = ev.page_bag(valid)
         numbers_ok = ev.numbers_ok(words, bag, allowed_numbers)
         rare = sum(1 for w in words & bag if ev.df.get(w, 0) <= max(1, ev.n // 4))
         supported = bool(valid) and numbers_ok and (ev.coverage(words, bag) >= SUPPORT_COVERAGE or rare >= RARE_SHARED)
@@ -283,7 +283,8 @@ def run(answer: str, passages: list[dict], question: str = "", message: str = ""
     """All checks at once. `passages` are the numbered passages (dicts with title and text), in prompt order;
     `context` is what the user said earlier in the conversation."""
     # A page's title and section are part of what it says: "Rakash Moot 442" may well say 442 nowhere in the text itself.
-    ev = Evidence([f"{p.get('title', '')}\n{p.get('section', '')}\n{p['text']}" for p in passages])
+    ev = Evidence([f"{p.get('title', '')}\n{p.get('section', '')}\n{p['text']}" for p in passages],
+                  [p.get("title") or str(i) for i, p in enumerate(passages)])
     allowed_numbers = {w for w in _bag(f"{question} {message} {context}") if any(c.isdigit() for c in w)}
     text, unsupported, numbers_bad = check_citations(answer, ev, allowed_numbers)
     factual = cited = uncited = 0

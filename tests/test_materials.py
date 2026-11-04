@@ -48,7 +48,15 @@ GLANCES = {
                    "|  | Colors | Unknown |\n|  | Rarity | Common |\n",
     "Oak": "| Oak at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Woods |\n|  | Colors | Blue |\n"
            "|  | Rarity | Common |\n",
+    # Not in the crafting tables at all: an alteration metal, a gem and a fabric are only described by their own box.
+    "Loveglass": "| Loveglass at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Metals |\n|  | Colors | Red, Pink |\n"
+                 "|  | Rarity | Rare |\n|  | Required for Alterations | Yes |\n",
+    "Blood ruby": "Blood ruby at a Glance\nMaterial Type Gems, Rubies\nColors: Red\nRarity: Rare\n\nA deep red gem.",
+    "Firesilk": "| Firesilk at a Glance |  |  |\n|---|---|---|\n|  | Material Type | Fabric, Silks |\n|  | Colors | Red, Orange |\n"
+                "|  | Rarity | Rare |\n",
 }
+BAG = ("I'm working on alteration for a bag for my Rakash empath and her theme is red and hearts. Are there any rare metals "
+       "or gems you recommend I use for it?")
 
 
 @pytest.fixture
@@ -213,6 +221,73 @@ def test_no_material_of_that_colour_is_said_plainly(conn):
     answer = materials.passage(conn, "are there any orange metals?", "https://x")[0]["answer"]
     assert answer.startswith("None of the metals in my notes is listed as orange.")
     assert "blue" in answer.split("come in:")[1]
+
+
+def test_a_material_the_tables_leave_out_is_read_from_its_own_page(conn):
+    rows = {(e, g): v for e, g, v in conn.execute(
+        "SELECT entity, grp, value_text FROM facts WHERE domain='material_page' AND attribute='colors'")}
+    assert rows[("Loveglass", "metal")] == "Red, Pink"
+    assert rows[("Blood ruby", "gem")] == "Red" and rows[("Firesilk", "cloth")] == "Red, Orange"
+
+
+def test_metals_and_gems_are_listed_kind_by_kind_in_the_order_asked(conn):
+    assert materials.wants_colour(BAG).matters == {"metal", "gem"}
+    out = materials.passage(conn, BAG, "https://x")
+    answer = out[0]["answer"]
+    assert "these rare metals and gems are listed as red" in answer
+    assert answer.index("Metals:") < answer.index("**Loveglass**") < answer.index("Gems:") < answer.index("**Blood ruby**")
+    assert "Firesilk" not in answer and "Haralun" not in answer  # a fabric, and a blue metal
+    assert {p["title"] for p in out} == {"Loveglass", "Blood ruby"}
+
+
+def test_a_long_list_says_how_many_more_there_are(conn, monkeypatch):
+    monkeypatch.setattr(materials, "SHOWN_PER_KIND", 1)
+    answer = materials.passage(conn, "Which materials are red?", "https://x")[0]["answer"]
+    assert answer.count("- **") == 3  # one of each kind
+    monkeypatch.setattr(materials, "SHOWN_PER_KIND", 0)
+    answer = materials.passage(conn, "Which gems are red?", "https://x")[0]["answer"]
+    assert "...and 1 more gems listed as red." in answer
+
+
+def test_a_follow_up_keeps_the_colour_asked_before_it(conn):
+    """The red bag: a cloth question after red metals and gems is about red cloth, not the cloth with the best protection,
+    and "just the looks" after that keeps both."""
+    cloth = materials.passage(conn, "Do you have any recommendations for cloth?", "https://x", [BAG])[0]["answer"]
+    assert "these cloths are listed as red" in cloth and "**Firesilk**" in cloth and "physical" not in cloth
+    looks = materials.passage(conn, "I don't need resistance this is just aesthetics", "https://x",
+                              ["Do you have any recommendations for cloth?", BAG])[0]["answer"]
+    assert "**Firesilk**" in looks
+    assert materials.follow_colour("Who is Hodierna?", [BAG]) is None  # a new subject
+    assert materials.follow_colour("Is there a red sword?", [BAG]) is None  # an item, not a list of materials
+    assert materials.follow_colour("Do you have any recommendations for cloth?", ["What is the hardest metal?"]) is None
+
+
+def test_protection_is_still_ranked_and_looks_are_never_ranked_by_it(conn):
+    ranked = materials.passage(conn, "Which leather gives the best protection?", "https://x", [BAG])[0]["answer"]
+    assert "physical resistance" in ranked  # asked about protection: the red before it does not matter
+    assert materials.passage(conn, "best leather for an alteration", "https://x") is None  # cosmetic: not a protection ranking
+
+
+def test_the_assistant_answers_a_colour_follow_up_in_code(conn, monkeypatch):
+    from epedia.core import assistant as am
+
+    a = am.Assistant.__new__(am.Assistant)
+    a.conn, a.s = conn, Settings()
+    asked = "Do you have any recommendations for cloth?"
+    monkeypatch.setattr(am.memory, "recent_questions", lambda c, s: [BAG, asked])  # oldest first, this question last
+    out = a._material_colours(asked, am.Plan(asked), "s1")
+    assert out and "**Firesilk**" in out[0]["answer"]
+    monkeypatch.setattr(am.memory, "recent_questions", lambda c, s: [asked])  # nothing before it: not a follow-up
+    assert a._material_colours(asked, am.Plan(asked), "s1") is None
+    monkeypatch.setattr(am.memory, "recent_questions", lambda c, s: [BAG, "What is the workability of firesilk?"])
+    assert a._material_colours("What is the workability of firesilk?", am.Plan("x"), "s1") is None  # the table's stats
+
+
+def test_doctor_checks_material_colours_are_read(conn):
+    from epedia.index.doctor import run
+
+    check = {c.name: c for c in run(conn)}["material colours are readable"]
+    assert check.ok and "1 of them gems" in check.detail
 
 
 def test_a_colour_question_skips_the_planner(conn):

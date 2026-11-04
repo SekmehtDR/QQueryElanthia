@@ -194,3 +194,22 @@
 - q: "What sold at the Guildfest 453 auction?"
   kind: event_news
   expect_pages: ["Guildfest 453/Auction"]
+# Colours of every material page, gems and alteration metals included (core/materials.py), from a real thumbs-down on 2026-11-03.
+- q: "I'm working on alteration for a bag for my Rakash empath and her theme is red and hearts. Are there any rare metals or gems you recommend I use for it?"
+  expect_pages: ["Loveglass", "Blood ruby", "Orichalcum"]
+# (The colour carrying over to "any recommendations for cloth?" needs a real conversation: it is in eval/scripts.yaml.)
+# Alteration schedules: answered in code (core/sessions.py), from a real thumbs-down on 2026-11-03.
+- q: "What alteration sessions are available during the Hollow Eve Festival 458?"
+  kind: event_news
+  expect_pages: ["Hollow Eve Festival 458/Alteration sessions"]
+# A right answer the number check once marked wrong (2026-11-03).
+- q: "when is the pvp tournament at Hollow eve, and who won?"
+  kind: event_news
+  expect_pages: ["Hollow Eve Tournament", "Hollow Eve Tournament 458"]
+# "Hollow Eve" with no year is this year's, and Poltu is the forging task giver (2026-11-03).
+- q: "available forging tasks at hollows eve"
+  kind: crafting
+  expect_pages: ["Poltu", "Hollow Eve Festival 458"]
+  history:
+  - "Tell me about Hollow Eve Festival 458/Aiding the Merelew"
+  - "forging tasks?"

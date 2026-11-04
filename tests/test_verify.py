@@ -43,6 +43,28 @@ def test_numbers_written_differently_still_match():
     assert verify.run("Drakes need about 1,500 ranks of combat [1].", [big]).numbers_bad == 0
 
 
+TOURNEY = {"title": "Hollow Eve Tournament", "section": "", "text": "The first Hollow Eve Tournament will be held in 454. "
+           "When: Monday nights throughout the month of November (11/3, 11/10, 11/17, 11/24). The bouts will start at "
+           "9:00PM Eastern on these evenings."}
+PRIZES = {"title": "Hollow Eve Tournament", "section": "What are the prizes?", "text": "| Place | Plat Prize | Winner |\n"
+          "| First Place | 200,000 | Casari |"}
+
+
+def test_ordinals_and_times_are_the_numbers_they_say():
+    """A right answer once had every line marked: "the 3rd" against "11/3", "9:00 PM" against "9:00PM"."""
+    v = verify.run("The bouts are on Monday nights in November, the 3rd, 10th, 17th and 24th, starting at 9:00 PM "
+                   "Eastern [1].", [TOURNEY])
+    assert v.numbers_bad == 0 and v.unsupported == []
+
+
+def test_a_line_may_take_a_number_from_another_section_of_the_page_it_cites():
+    v = verify.run("The first tournament, in 454, was won by Casari, who took home 200,000 platinum [2].", [TOURNEY, PRIZES])
+    assert v.numbers_bad == 0 and v.unsupported == []
+    other = {"title": "Hollow Eve Festival 436", "section": "", "text": "Tasks were offered in 436."}
+    v = verify.run("Casari won 200,000 platinum at the 436 festival [2].", [other, PRIZES])
+    assert v.numbers_bad == 1  # a number from a different page still does not count
+
+
 def test_list_numbers_and_numbers_the_user_gave_are_not_claims():
     v = verify.run("1. Musk hogs live in the Crossing hog pens [1].", [HOG])
     assert v.numbers_bad == 0

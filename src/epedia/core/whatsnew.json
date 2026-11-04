@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.16.0",
+    "date": "2026-11-03",
+    "fennick": "Someone asked me for red metals and gems for a bag alteration, and I only knew the colours of crafting materials, so I offered one metal and then made up the rest. I've now read the colour box on every material page: gems, fabrics, loveglass and all. I also gave half an alteration schedule as if it were all of it, so now I read the festival's schedule page itself, every instance under its own heading.",
+    "changes": [
+      "Ask which metals, gems, cloths or other materials come in a colour, and get every one whose page lists it, gems and alteration materials included.",
+      "Ask about cloth or looks after a colour question and the colour carries over, instead of a list ranked by protection.",
+      "Ask when alteration sessions are and see Prime, Platinum and The Fallen each under its own heading, sessions still to come first.",
+      "Ask about Hollow Eve without a year and you get this year's festival. Asking about forging tasks now finds Poltu.",
+      "Correct dates and times are no longer marked as doubtful when written differently from the page."
+    ]
+  },
+  {
     "version": "1.15.2",
     "date": "2026-11-02",
     "fennick": "I've rearranged the questions people are asking. The ones with a fire, that several folk have asked lately, now come first, with the most-asked at the top, and the rest follow newest first. Each shows how many times it's been asked, and the more it has, the bigger it's written. And when you pick a suggested question, it now waits in the box so you can change it before you ask.",

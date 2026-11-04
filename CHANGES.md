@@ -1,7 +1,25 @@
 # Changes
 
-Latest version: **1.15.2** (2026-11-02). The version lives in `src/epedia/__init__.py`; add each release here,
+Latest version: **1.16.0** (2026-11-03). The version lives in `src/epedia/__init__.py`; add each release here,
 newest first. Format: what a user would notice first, then fixes, then internals.
+
+## 1.16.0: colours of every material, whole alteration schedules, this year's festival (2026-11-03)
+
+From two thumbs-downs and three chats the owner exported.
+
+- **Colour questions read every material page, not just the crafting ones.** A player asked for red rare metals or gems for a bag alteration and got Orichalcum alone. Loveglass (red, pink, rare), Kuwinite and Asini were never read, because colours came only from pages in Category:Crafting materials, and the 372 gem pages were not read at all. The model then made up the rest: xibarite as red (its page says blue and white), "crimson loveglass" as a separate material, bloodstone. Now every material page's "at a Glance" box is read, 1,173 of 1,211, so the same question lists six red metals and 55 rare red gems.
+- **Several kinds at once are listed kind by kind**, in the order asked ("metals or gems": metals first), a dozen of each with how many more there are. A kind with no match says so instead of being dropped.
+- **A colour carries over, and looks are never ranked by protection.** "Do you have any recommendations for cloth?" after the red question listed cloths by physical resistance, and "I don't need resistance, this is just aesthetics" then got invented fabrics. Now a follow-up naming a kind of material, or a word about looks (aesthetics, theme, alteration, appearance), keeps the colour asked within the last three questions. A question about protection still gets the ranking. A cloth asked for an alteration with no colour is no longer ranked by protection.
+- **Alteration schedules are written by code from the festival's own page.** "What alteration sessions are available during the Hollow Eve Festival 458?" got the Platinum table alone, because the search sent five copies of the same "Where" text from other years' pages instead of Prime. Now each instance (Prime, Platinum, The Fallen) has its own heading, sessions still to come first and the last few held after, and an instance with nothing announced says "none listed yet". "Hollow Eve" with no year is this year's, a year picks that festival, and Guildfest and the Mini-Fest work too. All 20 schedule pages read, the older layouts included.
+- **A festival's subpage named in plain words is read whole.** "Alteration sessions … Hollow Eve Festival 458" or "the raffles at Hollow Eve Festival 458" reads that subpage as if it were linked.
+- **The same text copied onto another year's page is left out**, keeping the newer year's copy, so it no longer fills the slots another page needed.
+- **A festival named without a year is this year's** in search too: of one festival series only the newest year found stays, and the next-best passages take the room. A year in the question, or asking about the past, keeps them all. "Available forging tasks at hollows eve" once mixed festivals 403, 436, 439 and 443.
+- **A passage that names the page holding the answer brings it in.** The festival's Tasks section names five task givers but not what they ask for; when a passage lacks the question's key word ("forging") and names a linked page whose opening has it, that opening follows it. That finds Poltu, who gives the Forging-system tasks. At most two such pages, each replacing the lowest-ranked passage.
+- **Correct numbers are no longer marked wrong.** The tournament answer was right (Casari won 454, 458's winners not yet known) but every line got a "?" and a caution not to trust it. "The 2nd" now matches "11/2", "9:00 PM" matches "9:00PM", and a line may take a number from any section of the page it cites, as the caution itself says. A number from a different page is still caught.
+
+Checked on a copy of the index: the 67 earlier eval questions score the same as before (hit@5 0.952, hit@10 0.984, MRR 0.881 to 0.882), and the four new ones all hit. The two follow-ups need a real conversation, so they are end-to-end scripts in `eval/scripts.yaml`: all six of their turns pass with the model answering. `epedia doctor` is clean. Known limit: the forging answer names Poltu but, following the planner, places him at the Aiding the Merelew event rather than the lower island.
+
+Internals: `index/extract/materials._material_pages` adds every `page_kind='material'` page; box types gem, shell and plant (flora). `materials.follow_colour`, `LOOKS`, `SHOWN_PER_KIND`; `Assistant._material_colours` passes the questions before. New `core/sessions.py`; `resolve.subpages_in_words`; `assistant._shape`/`_same_shape`/`_newer` for copies, `_this_years` and `Assistant._follow_names` (`FOLLOW_FROM`, `FOLLOW_MAX`). `attribution.Evidence(pages=...)` and `page_bag`. `event_prizes` also knows "hollows eve". `epedia doctor` checks material colours (most material pages, gems among them) and that the newest schedule page reads. After updating, run `epedia enrich` once: about 900 pages gain their box, with no wiki requests.
 
 ## 1.15.2: Others are asking leads with what most people asked; suggestions wait in the box (2026-11-02)
 

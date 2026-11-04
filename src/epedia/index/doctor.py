@@ -134,6 +134,16 @@ def run(conn: sqlite3.Connection) -> list[Check]:
     # Stat questions are answered from these columns alone: a change to the tables' layout must show here, not in an answer.
     readable = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='material' AND attribute='workability' AND value_num IS NOT NULL")
     add("material stats are readable", readable >= 250, f"{readable:,} of {materials:,} materials have a workability")
+    # Colour questions read every material page's box, crafting or not (gems, alteration metals): most pages must give one.
+    pages = _one(conn, "SELECT count(*) FROM pages WHERE ns=0 AND page_kind='material' AND is_redirect=0")
+    boxes = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='material_page' AND attribute='colors'")
+    gems = _one(conn, "SELECT count(DISTINCT entity) FROM facts WHERE domain='material_page' AND attribute='colors' AND grp='gem'")
+    add("material colours are readable", boxes >= pages * 0.8 and (gems > 0 or pages < 100),
+        f"{boxes:,} of {pages:,} material pages give their colours, {gems:,} of them gems")
+    from ..core import sessions
+
+    ok, detail = sessions.readable(conn)
+    add("alteration sessions are readable", ok, detail if ok else f"{detail}: check core/sessions.py against the page's layout")
     prizes = _one(conn, "SELECT count(*) FROM facts WHERE domain='event_prize'")
     raffle_pages = _one(conn, "SELECT count(*) FROM pages WHERE title LIKE '%/Raffles' AND title NOT LIKE 'Talk:%' AND is_redirect=0")
     add("festival prizes are readable", prizes > 0 or not raffle_pages, f"{prizes:,} prizes and lots from the raffle and auction pages")

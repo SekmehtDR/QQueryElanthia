@@ -81,7 +81,12 @@ Beyond text chunks the index carries derived layers, all rebuilt by the pipeline
   (materials table), multiplier (the Crafting page's formula), tier (`craft_product`, every products page's Difficulty column) and rank
   figure (`craft_tier`, the Crafting chart, then the Tailoring player guide). `core/material_stats.py` answers any question about a column of the materials
   tables (lowest, highest, one figure, a comparison, a threshold) and runs after it, declining anything about ranks. `core/event_prizes.py` answers what was raffled or auctioned and who
-  won it, from each festival's own table (`event_prize`).
+  won it, from each festival's own table (`event_prize`). `core/sessions.py` answers when alteration merchants are on, from the festival's `/Alteration sessions` page read at
+  answer time: each instance under its own heading, still to come first. Colour questions (`materials.colour_passage`) read the "at a Glance" box of every material page
+  (`material_page` facts: gems, fabrics and alteration metals as well as the crafting tables' materials), and a colour asked in the last three questions carries over to a follow-up.
+- **Shaping the passages after the search** (`Assistant.retrieve_with_extras`): the same section copied onto another year's page is dropped, the newer year kept (`_same_shape`,
+  `_newer`); a festival named without a year keeps only the newest year of each series of event pages (`_this_years`); and a passage that lacks a key word of the question but
+  names a linked page whose opening has it brings that opening in next to it (`_follow_names`, at most two). The verifier checks a cited line against the whole cited page.
 - **What names mean** (`index/extract/names.py`, domain `name_meaning`): 172 stated meanings, read only from fixed phrasings
   that name a language (`X (Rakash for "...")`, `X means "..." in Rakash`). A sentence that does not say what it is naming
   gives nothing. `core/names.py` answers a pure "what does X mean?" in code and supplies the meaning to layered answers.
@@ -466,7 +471,8 @@ done in code. `persona.enabled = false` restores plain answers.
  │           memory (conversations, summary, anchor) · turns (the record of each turn) · feedback (votes, review, eval export) ·
  │           grounding (decline what the wiki never mentions) · verify (check the answer) · attribution (tag uncited lines) ·
  │           capabilities · dates (past/upcoming) · userinput (pasted text) · items_tool (SMW ask + local fallback) ·
- │           hunting (ladder) · materials (rankings, colours) · material_stats (table columns) · disciplines · craft_ranks (ranks to mastercraft) · event_prizes (raffles, auctions)
+ │           hunting (ladder) · materials (rankings, colours) · material_stats (table columns) · disciplines · craft_ranks (ranks to mastercraft) · event_prizes (raffles, auctions) ·
+ │           sessions (alteration schedules)
  ├─ frontends/web/  app.py (FastAPI) · access (owner or visitor) · static/ (index.html, render.js, fennick.png, fennick_talk.png)
  └─ evalx/   runner (hit@k, MRR, kind/mode accuracy, scripts, refusals) · faithfulness · offers (replay) · layers (which pages each part reads)
  tests/  pytest suite + saved action=parse fixtures
@@ -487,4 +493,4 @@ done in code. `persona.enabled = false` restores plain answers.
 - **Code over model for anything exact.** One small model; the guarantees are code paths with tests, not prompt wording.
 - **No model-written memory.** Conversation summaries come from stored rows, so they cannot drift.
 
-_Last updated: 1.15.2 (2026-11-02)_
+_Last updated: 1.16.0 (2026-11-03)_

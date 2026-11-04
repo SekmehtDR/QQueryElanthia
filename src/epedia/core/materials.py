@@ -129,12 +129,18 @@ def _unknown_named(question: str, known: set[str]) -> str | None:
     return None
 
 
-def passage(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict] | None:
+def passage(conn: sqlite3.Connection, question: str, base_url: str, earlier: list[str] | None = None) -> list[dict] | None:
     """[ranking passage with a code-written `answer`, rule passages it cites], or None when this is not such a
-    question or the tables are not indexed. 'Which metals are blue?' is answered here too (`colour_passage`)."""
+    question or the tables are not indexed. 'Which metals are blue?' is answered here too (`colour_passage`), and comes
+    first: a colour, or a colour asked just before (`earlier`, newest first), is about looks, not protection."""
+    colour = wants_colour(question) or follow_colour(question, earlier or [])
+    if colour:
+        return colour_passage(conn, question, base_url, colour)
     ask = wants(question)
     if ask is None:
-        return colour_passage(conn, question, base_url)
+        return None
+    if ask.kind == "other" and LOOKS.search(question):
+        return None  # "cloth for an alteration": the ranking by protection would answer something else
     if ask.matter:
         matter, craft = OTHER_MATTER[ask.matter]
     else:
@@ -283,18 +289,27 @@ for _fam, _words in SHADES.items():
 # A metal's own name is a colour only when the question says so: "silver metals" may mean silver itself.
 _METAL_NAMES = {"silver", "gold", "copper", "bronze", "platinum"}
 _SAYS_COLOUR = re.compile(r"\b(colou?r(?:ed|s)?|hue|hued|tint|shade|looks?)\b", re.I)
-_LISTING = re.compile(r"\b(which|what|list|all|any|every|give me|show me|name|are there|is there|options?)\b", re.I)
+_LISTING = re.compile(r"\b(which|what|list|all|any|every|give me|show me|name|are there|is there|options?|"
+                      r"recommend\w*|suggest\w*|ideas?)\b", re.I)
 _MATTER_WORDS = {"metal": "metal", "metals": "metal", "alloy": "metal", "alloys": "metal", "wood": "wood",
                  "woods": "wood", "leather": "leather", "leathers": "leather", "hide": "leather", "hides": "leather",
                  "pelt": "leather", "pelts": "leather", "cloth": "cloth", "cloths": "cloth", "fabric": "cloth",
                  "fabrics": "cloth", "silk": "cloth", "silks": "cloth", "stone": "stone", "stones": "stone",
-                 "bone": "bone", "bones": "bone", "material": "", "materials": ""}
+                 "bone": "bone", "bones": "bone", "gem": "gem", "gems": "gem", "gemstone": "gem", "gemstones": "gem",
+                 "jewel": "gem", "jewels": "gem", "shell": "shell", "shells": "shell", "flora": "plant",
+                 "flower": "plant", "flowers": "plant", "material": "", "materials": ""}
 # A blue sword, where to buy blue metal, what a thing is made of: about one item, not a list of materials.
 _NOT_A_LIST = re.compile(rf"\b(buy|sell|sells|shop|store|merchant|price|cost|where|made (?:of|from|out of)|"
                          rf"{WEAPONS}|{ARMOR}|{BOWS})\b", re.I)
 PLURAL = {"metal": "metals", "wood": "woods", "leather": "leathers", "cloth": "cloths", "stone": "stones",
-          "bone": "bones"}
+          "bone": "bones", "gem": "gems", "shell": "shells", "plant": "flora"}
 UNSURE = ("various", "unknown")
+SHOWN_PER_KIND = 12  # a colour can match a hundred gems: the first dozen of each kind, and how many more there are
+# Asking how a thing looks, not how it performs: an alteration is cosmetic, so the protection ranking is the wrong answer.
+LOOKS = re.compile(r"\b(aesthetic\w*|looks?|appearance|cosmetic\w*|colou?r\w*|themed?|alter(?:ation|ations|ing|ed)?|"
+                   r"pretty|decorat\w*|fashion\w*)\b", re.I)
+_PERFORMANCE = re.compile(r"\b(protect\w*|resist\w*|durab\w*|strong\w*|tough\w*|damage|defen[cs]e|absorb\w*)\b", re.I)
+EARLIER_TURNS = 3  # how far back a colour carries over to a follow-up
 
 
 @dataclass
@@ -304,23 +319,61 @@ class ColourAsk:
     rarity: str | None = None  # Common | Rare | Quest-Only when the question narrows it
 
 
-def wants_colour(question: str) -> ColourAsk | None:
-    """'Give me all metals that are blue or partially blue' -> ColourAsk(['blue'], {'metal'})."""
-    words = re.findall(r"[a-z]+", question.lower())
-    matters = {_MATTER_WORDS[w] for w in words if w in _MATTER_WORDS}
-    if not matters or not _LISTING.search(question) or _NOT_A_LIST.search(question):
-        return None
+def _matters(question: str) -> set[str]:
+    """The kinds of material a question names; '' for "material" itself (every kind)."""
+    return {_MATTER_WORDS[w] for w in re.findall(r"[a-z]+", question.lower()) if w in _MATTER_WORDS}
+
+
+def _colours(question: str) -> list[str]:
     says = bool(_SAYS_COLOUR.search(question))
     colours: list[str] = []
-    for w in words:
+    for w in re.findall(r"[a-z]+", question.lower()):
         if w in _METAL_NAMES and not says:
             continue
         colours += [f for f in sorted(_FAMILY.get(w, ())) if f not in colours]
-    if not colours:
+    return colours
+
+
+def _rarity(question: str) -> str | None:
+    return next((r for r, rx in (("Common", r"\bcommon\b"), ("Rare", r"\brare\b"), ("Quest-Only", r"\bquest"))
+                 if re.search(rx, question, re.I)), None)
+
+
+def _in_order(question: str, matters: set[str]) -> list[str]:
+    """The kinds in the order the question names them ("metals or gems": metals first); the rest after, alphabetically."""
+    first = {}
+    for i, w in enumerate(re.findall(r"[a-z]+", question.lower())):
+        if _MATTER_WORDS.get(w) in matters:
+            first.setdefault(_MATTER_WORDS[w], i)
+    return sorted(matters, key=lambda m: (first.get(m, len(first) + 999), m))
+
+
+def wants_colour(question: str) -> ColourAsk | None:
+    """'Give me all metals that are blue or partially blue' -> ColourAsk(['blue'], {'metal'})."""
+    matters = _matters(question)
+    if not matters or not _LISTING.search(question) or _NOT_A_LIST.search(question):
         return None
-    rarity = next((r for r, rx in (("Common", r"\bcommon\b"), ("Rare", r"\brare\b"), ("Quest-Only", r"\bquest"))
-                   if re.search(rx, question, re.I)), None)
-    return ColourAsk(colours, matters - {""}, rarity)
+    colours = _colours(question)
+    return ColourAsk(colours, matters - {""}, _rarity(question)) if colours else None
+
+
+def follow_colour(question: str, earlier: list[str]) -> ColourAsk | None:
+    """A follow-up keeps the colour asked before it: "any recommendations for cloth?" after red metals and gems, or "I
+    don't need resistance, just the looks" after a cloth ranking. `earlier` is the questions before it, newest first.
+    It needs a kind of material or a word about looks of its own, and no item (a red sword is about the sword); asking
+    after protection, with nothing about looks, is a ranking question however red the conversation was."""
+    if not earlier or _NOT_A_LIST.search(question):
+        return None
+    looks = bool(LOOKS.search(question))
+    matters = _matters(question) - {""}
+    if not (matters or looks) or (_PERFORMANCE.search(question) and not looks):
+        return None
+    colours = _colours(question) or next((c for q in earlier[:EARLIER_TURNS] if (c := _colours(q))), [])
+    if not matters:
+        matters = next((m for q in earlier[:EARLIER_TURNS] if (m := _matters(q) - {""})), set())
+    if not (colours and matters):
+        return None
+    return ColourAsk(colours, matters, _rarity(question))
 
 
 def _families(colours: str, wanted: set[str]) -> tuple[set[str], bool, bool]:
@@ -332,24 +385,28 @@ def _families(colours: str, wanted: set[str]) -> tuple[set[str], bool, bool]:
     return fams, only, any(w in UNSURE for w in re.findall(r"[a-z]+", colours.lower()))
 
 
-def colour_passage(conn: sqlite3.Connection, question: str, base_url: str) -> list[dict] | None:
+def colour_passage(conn: sqlite3.Connection, question: str, base_url: str,
+                   ask: ColourAsk | None = None) -> list[dict] | None:
     """[one passage per matching material page, the first carrying a code-written `answer`], or None when this is
-    not such a question or the boxes have not been read yet."""
-    ask = wants_colour(question)
+    not such a question or the boxes have not been read yet. Several kinds asked at once ("metals or gems") are listed
+    kind by kind, so one kind cannot crowd out another."""
+    ask = ask or wants_colour(question)
     if ask is None:
         return None
     boxes: dict[str, dict[str, str]] = {}
     page_of: dict[str, int] = {}  # each box was read from the material's own page
-    for r in conn.execute("SELECT page_id, entity, attribute, value_text FROM facts WHERE domain='material_page'"):
-        boxes.setdefault(r[1], {})[r[2]] = r[3]
+    matter_of: dict[str, str] = {}  # what the box itself says it is ("Gems, Rubies" is a gem)
+    for r in conn.execute("SELECT page_id, entity, grp, attribute, value_text FROM facts WHERE domain='material_page'"):
+        boxes.setdefault(r[1], {})[r[3]] = r[4]
         page_of[r[1]] = r[0]
+        if r[2]:
+            matter_of[r[1]] = r[2]
     if not boxes:
         return None
-    matter_of = {r[0]: r[1].split("|")[0] for r in conn.execute(
-        "SELECT entity, min(grp) FROM facts WHERE domain='material' GROUP BY entity")}
+    for r in conn.execute("SELECT entity, min(grp) FROM facts WHERE domain='material' GROUP BY entity"):
+        matter_of.setdefault(r[0], r[1].split("|")[0])
     wanted = set(ask.colours)
-    only: list[str] = []
-    mixed: list[str] = []
+    found: dict[str, tuple[list[str], list[str]]] = {}  # kind -> (only the colour asked, among others)
     unsure: list[str] = []
     seen: set[str] = set()  # the colours this kind of material does come in, for a "none" answer
     for name in sorted(boxes, key=lambda n: _name(n).lower()):
@@ -361,17 +418,19 @@ def colour_passage(conn: sqlite3.Connection, question: str, base_url: str) -> li
         fams, solely, vague = _families(box.get("colors", ""), wanted)
         seen |= fams
         if fams & wanted:
+            only, mixed = found.setdefault(matter_of.get(name, ""), ([], []))
             (only if solely and not vague else mixed).append(name)
         elif not fams:
             unsure.append(name)
 
-    what = " and ".join(PLURAL[m] for m in sorted(ask.matters)) or "materials"
+    asked = _in_order(question, ask.matters)
+    what = " and ".join(PLURAL[m] for m in asked) or "materials"
     if ask.rarity:
         what = f"{ask.rarity.lower()} {what}"
     colour = " or ".join(ask.colours)
     out: list[dict] = []
 
-    def line(name: str) -> str:
+    def line(name: str, say_kind: bool = False) -> str:
         box = boxes[name]
         r = conn.execute("SELECT chunk_id FROM chunks WHERE page_id=? ORDER BY ord LIMIT 1", (page_of[name],)).fetchone()
         out.append({"title": name, "section": "at a Glance",
@@ -379,11 +438,14 @@ def colour_passage(conn: sqlite3.Connection, question: str, base_url: str) -> li
                     "text": f"{_name(name)}: colors {box.get('colors', '?')}; rarity {box.get('rarity', '?')}",
                     "chunk_id": r[0] if r else None})
         kind = f"{box['rarity'].lower()}, " if box.get("rarity") else ""
-        if len(ask.matters) != 1 and matter_of.get(name):
+        if say_kind and matter_of.get(name):
             kind += f"{matter_of[name]}, "
         return f"- **{_name(name)}** ({kind.rstrip(', ')}): {box.get('colors', '?').lower()} [{len(out)}]"
 
-    if not only and not mixed:
+    def more(n: int, kind: str) -> list[str]:
+        return [f"- ...and {n} more {PLURAL.get(kind, 'materials')} listed as {colour}."] if n > 0 else []
+
+    if not found:
         answer = f"None of the {what} in my notes is listed as {colour}."
         if seen:
             answer += f" The colours they do come in: {', '.join(sorted(seen))}."
@@ -391,15 +453,34 @@ def colour_passage(conn: sqlite3.Connection, question: str, base_url: str) -> li
                     "text": answer, "chunk_id": None})
     else:
         body = [f"Going by the \"at a Glance\" box on each material's own page, these {what} are listed as {colour}:"]
-        if only:
-            body += ["", f"Only {colour}:" if mixed else f"{colour.capitalize()}:", *[line(n) for n in only]]
-        if mixed:
-            body += ["", f"{colour.capitalize()} with other colours:" if only else f"{colour.capitalize()} among other colours:",
-                     *[line(n) for n in mixed]]
+        if len(found) == 1 and len(ask.matters) <= 1:
+            kind, (only, mixed) = next(iter(found.items()))
+            shown_only = only[:SHOWN_PER_KIND]
+            shown_mixed = mixed[:SHOWN_PER_KIND - len(shown_only)]
+            if shown_only:
+                body += ["", f"Only {colour}:" if mixed else f"{colour.capitalize()}:",
+                         *[line(n, not ask.matters) for n in shown_only]]
+            if shown_mixed:
+                body += ["", f"{colour.capitalize()} with other colours:" if only else f"{colour.capitalize()} among other colours:",
+                         *[line(n, not ask.matters) for n in shown_mixed]]
+            body += more(len(only) + len(mixed) - len(shown_only) - len(shown_mixed), kind)
+        else:
+            order = [m for m in asked if m in found] or sorted(found, key=lambda k: (k == "", k))
+            for kind in order:
+                only, mixed = found[kind]
+                names = (only + mixed)[:SHOWN_PER_KIND]  # those only that colour lead
+                body += ["", f"{PLURAL.get(kind, 'Other materials').capitalize()}:", *[line(n) for n in names]]
+                body += more(len(only) + len(mixed) - len(names), kind)
+            missing = [m for m in asked if m not in found]
+            if missing:
+                body += ["", f"None of the {' or '.join(PLURAL[m] for m in missing)} in my notes is listed as {colour}."]
         answer = "\n".join(body)
     if unsure:
         names = ", ".join(_name(n) for n in unsure) if len(unsure) <= 12 else f"{len(unsure)} of them"
         answer += (f"\n\n(OOC) Some {what} are listed only as \"various\" or \"unknown\" colours, so they could be "
                    f"{colour} too: {names}.")
+    if not out:  # every match was over the limit: the answer still needs a passage to stand on
+        out.append({"title": CATEGORY, "section": "", "url": base_url.rstrip("/") + "/Category:Crafting_materials",
+                    "text": answer, "chunk_id": None})
     out[0]["answer"] = answer
     return out

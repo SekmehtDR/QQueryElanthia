@@ -82,7 +82,7 @@ topics rebuild only when `updated_at` moves, and classify does not touch it.
 src/epedia/   wiki/ (client, discover, crawl, smw, sync)   text/ (html2md, chunker, stats)
               index/ (indexer, classify, enrich, topics, doctor, extract/)   retrieval/ (search, titles, resolve)
               llm/ (ollama, prompts)   frontends/web/ (app.py, access.py, static/)   evalx/ (runner, offers, layers)
-              core/ (assistant, layers, offers, names, craft_ranks, material_stats, event_prizes, memory, turns, feedback, diagnose, replay, lately, rewrite, followups, grounding, verify, attribution, ...)
+              core/ (assistant, layers, offers, names, craft_ranks, material_stats, materials, event_prizes, sessions, memory, turns, feedback, diagnose, replay, lately, rewrite, followups, grounding, verify, attribution, ...)
               kinds.py  config.py  db.py  buildinfo.py  progress.py  cli.py
 tests/        pytest suite; tests/fixtures/*.json are saved action=parse outputs
 eval/         questions, conversations, scripts, refusals, offers, layers (.yaml); runs/ is git-ignored
@@ -169,6 +169,15 @@ data/         wiki.db and logs (git-ignored)
   untouched; `stands_alone` stops a table question inside a rank conversation from inheriting the item before it. "Hardest metal" is hardness, "hardest to work" is low workability. Value is never ranked across kinds: the table measures each kind differently.
 - **Raffles and auctions** (`core/event_prizes.py`, `index/extract/event_prizes.py`, domain `event_prize`): written by code, grouped by item, each kind from its own pages only.
   `epedia doctor` checks prizes are read. "This year's" is the highest year in a page's title, so a festival's new page must exist on the wiki first. Talk pages never count.
+- **Material colours** (`core/materials.py`, `index/extract/materials.glance`): the "at a Glance" box of every `page_kind='material'` page, not only those in the crafting tables:
+  gems and alteration metals (loveglass) are described nowhere else. A colour, or a colour asked in the last three questions, is answered by colour before any protection ranking;
+  a looks word (aesthetics, theme, alteration) never gets the protection ranking. A new material type in the box needs a word in `_TYPE` and `_MATTER_WORDS`.
+- **Alteration schedules** (`core/sessions.py`): read from the festival's `/Alteration sessions` page at answer time, by the header's column names, because the layout changed over the years
+  (no Day column before 436, "Plat", tables split with no header, a small section folded into the one above leaving only its heading line). `epedia doctor` checks the newest page reads.
+- **A festival without a year is this year's** (`assistant._this_years`, event pages with years 400-499 only) and **copies of one section on other years' pages are dropped** (`_same_shape`,
+  newer year kept). **A passage naming the page that holds the answer** brings that page's opening (`Assistant._follow_names`): only linked pages named in the passage's text, only when the
+  passage lacks a key word of the question that the opening has, at most two.
+- **The number check compares against the whole cited page** (`attribution.Evidence.page_bag`), titles included, with "2nd" as 2 and "9:00PM" as 9:00. A number from another page still fails.
 - **Editing instructions are not knowledge** (`html2md._strip_editing_instructions`): the model answered from them. If a page shows new ones under another heading, `epedia doctor`
   only notices the exact words. After changing conversion for a few pages, set their `indexed_revid` to NULL and run `index` rather than re-embedding everything.
 - **A page typed out is read** (`resolve.explicit_pages`): a slash, underscores or quotes. Plain words stay ordinary questions on purpose, because pinning those would crowd the search out.
@@ -207,4 +216,4 @@ data/         wiki.db and logs (git-ignored)
 Tests pass, lint is clean, new behaviour has a test, the UI change was actually loaded or its script
 syntax-checked, and `CHANGES.md` has an entry. Then ask before committing.
 
-_Last updated: 1.15.2 (2026-11-02)_
+_Last updated: 1.16.0 (2026-11-03)_

@@ -191,12 +191,41 @@ def named_pages(conn: sqlite3.Connection, text: str) -> list[str]:
 
 def explicit_pages(conn: sqlite3.Connection, text: str) -> list[str]:
     """Pages a message points at on purpose: a subpage's slash, a title typed with underscores, or one in quotes. Saying "the crossing"
-    in a sentence is an ordinary question, and the search and the names step already handle it."""
+    in a sentence is an ordinary question, and the search and the names step already handle it. A page named outright with
+    every word of one of its subpages ("alteration sessions during the Hollow Eve Festival 458") points at that subpage."""
     low = (text or "").casefold()
     out = []
-    for title in named_pages(conn, text):
+    named = named_pages(conn, text)
+    for title in named:
         t = title.casefold()
         if "/" in t or t.replace(" ", "_") in low and " " in t or f'"{t}"' in low:
             if conn.execute("SELECT 1 FROM pages WHERE title=? AND is_redirect=0", (title,)).fetchone():
+                out.append(title)
+    for title in subpages_in_words(conn, text, [t for t in named if " " in t and "/" not in t]):
+        if title not in out:
+            out.append(title)
+    return out
+
+
+_SUB_STOP = {"the", "a", "an", "of", "and", "for", "in", "at", "on", "to"}
+
+
+def _fold(word: str) -> str:
+    w = word.casefold().strip("'’")
+    return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+
+def subpages_in_words(conn: sqlite3.Connection, text: str, parents: list[str]) -> list[str]:
+    """Subpages `Parent/Tail` of the named parents whose tail's words all appear in `text`, in any order and plural or not:
+    "the raffles at Hollow Eve Festival 458" is Hollow Eve Festival 458/Raffles."""
+    words = {_fold(w) for w in _WORD.findall(text or "")}
+    out = []
+    for parent in parents:
+        rows = conn.execute("SELECT title FROM pages WHERE ns=0 AND is_redirect=0 AND substr(title, 1, ?)=?",
+                            (len(parent) + 1, parent + "/")).fetchall()
+        for (title,) in rows:
+            tail = title[len(parent) + 1:]
+            need = {_fold(w) for w in _WORD.findall(tail)} - _SUB_STOP
+            if "/" not in tail and need and need <= words:
                 out.append(title)
     return out

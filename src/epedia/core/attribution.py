@@ -49,11 +49,13 @@ _LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 
 
 _NUM_JOIN = re.compile(r"(?<=\d)[-–—/:](?=\d)")  # "130-230", "2027-01-02", "12/18": each number counts on its own
+_NUM_SUFFIX = re.compile(r"^(\d+)(?:st|nd|rd|th|am|pm)$")  # "the 2nd" is the 2 in "11/2", "9:00PM" the 00 in "9:00 PM"
 
 
 def _content_tokens(text: str) -> list[str]:
     text = _NUM_JOIN.sub(" ", _THOUSANDS.sub("", text.lower()))
     toks = [re.sub(r"['’]s$", "", t.strip("-'’")) for t in _WORD.findall(text)]
+    toks = [m.group(1) if (m := _NUM_SUFFIX.match(t)) else t for t in toks]
     toks = [str(int(t)) if t.isdigit() else t for t in toks]  # "02" in a date is the 2 in "January 2"
     return [t for t in toks if t and t not in STOP and (len(t) > 2 or t.isdigit())]
 
@@ -123,13 +125,20 @@ class Evidence:
     """The numbered passages as bags of content words, with weights that favour rare words and numbers. Shared by
     attribution (tagging uncited lines) and verification (checking the lines the model did cite)."""
 
-    def __init__(self, passage_texts: list[str]):
+    def __init__(self, passage_texts: list[str], pages: list[str] | None = None):
         self.bags = [_bag(clean_passage_text(t)) for t in passage_texts]
         self.n = len(self.bags)
+        self.pages = pages if pages and len(pages) == self.n else [str(i) for i in range(self.n)]  # unnamed: each its own
         self.df: dict[str, int] = {}
         for b in self.bags:
             for w in b:
                 self.df[w] = self.df.get(w, 0) + 1
+
+    def page_bag(self, cited: list[int]) -> set[str]:
+        """What the pages behind citations [n] say, all of each page that was sent: a line citing one section of a page
+        may take its date from another section of the same page, and the reader is told to check "the page it cites"."""
+        pages = {self.pages[n - 1] for n in cited if 1 <= n <= self.n}
+        return set().union(*(b for b, p in zip(self.bags, self.pages, strict=True) if p in pages))
 
     def weight(self, w: str) -> float:
         base = math.log(1 + self.n / self.df.get(w, 0.5))  # unseen words get the highest weight but can never match

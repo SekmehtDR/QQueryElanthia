@@ -36,6 +36,7 @@ from . import (
     names,
     offers,
     rewrite,
+    sessions,
     turns,
     verify,
 )
@@ -164,6 +165,85 @@ def soften_refusal(answer: str) -> str:
         if line in answer and len(answer.replace(line, "").strip()) >= 80:
             return answer.replace(line, PARTIAL_NOTE)
     return answer
+
+
+SAME_SHAPE = 0.85  # share of words two passages from different pages share before one is a copy of the other
+SAME_SHAPE_MIN_WORDS = 12  # a few words in common ("Tasks / Shops") prove nothing
+
+
+def _shape(text: str) -> set[str]:
+    """A passage's words without numbers: the same section copied onto each year's festival page differs only in its years."""
+    return set(re.findall(r"[a-z]{3,}", text.casefold()))
+
+
+def _same_shape(a: set[str], b: set[str]) -> bool:
+    if min(len(a), len(b)) < SAME_SHAPE_MIN_WORDS:
+        return False
+    return len(a & b) / len(a | b) >= SAME_SHAPE
+
+
+FOLLOW_FROM = 6  # how many of the best search passages may lead to a page they name
+FOLLOW_MAX = 2  # ...and how many such pages may join, each taking the place of the lowest-ranked passage
+# Words that say nothing about the subject: a passage lacking them is not missing anything.
+_GENERIC = frozenset("""
+available about tell know info information there any some get find list give show thing things stuff option options kind
+kinds type types one ones good best need want like current currently now today year years what which where when who how
+does do can could would should will is are was were the and for with from this that these those have has there their
+""".split())
+_STEM_WORD = re.compile(r"[a-z][a-z'’]{2,}")
+# Asking about earlier festivals: then every year's pages are wanted, not just the newest.
+_PAST = re.compile(r"\b(past|previous|history|historical|first|ever|every|all|old|older|earlier|before|used to|back in|since|"
+                   r"last year|over the years)\b", re.I)
+_SERIES = re.compile(r"^([^:/]*?\D)\s*(\d{3})(?=/|$)")
+
+
+def _stem_one(word: str) -> str:
+    w = word.strip("'’").removesuffix("'s").removesuffix("’s")
+    for suffix in ("ing", "ed", "es", "s", "e"):
+        if len(w) > len(suffix) + 3 and w.endswith(suffix):
+            return w[: -len(suffix)]
+    return w
+
+
+def _stems(text: str) -> set[str]:
+    return {_stem_one(w) for w in _STEM_WORD.findall((text or "").casefold())}
+
+
+def _key_stems(question: str) -> set[str]:
+    """The words of a question that say what it is about ("forging", "tasks"), stemmed: not its framing ("available")."""
+    return {_stem_one(w) for w in _STEM_WORD.findall(question.casefold()) if w not in _GENERIC and len(w) > 3}
+
+
+def _this_years(question: str, passages: list[dict], extras: list[dict], fixed: int) -> list[dict]:
+    """A festival named without a year is this year's: "forging tasks at Hollow Eve" once mixed in festivals 403, 436, 439
+    and 443. Of one numbered series ("Hollow Eve Festival 458", "...436/Aiding the Merelew") only the newest year found stays,
+    and runners-up fill the room; a year in the question, or asking about the past, keeps them all."""
+    if re.search(r"\b\d{3,4}\b", question) or _PAST.search(question):
+        return passages
+
+    def series(p: dict) -> tuple[str, int] | None:  # festival years only: "Barbarian Circle 150" is not newer than 100
+        m = _SERIES.match(p.get("title") or "")
+        if not m or p.get("page_kind") != "event" or not 400 <= int(m.group(2)) <= 499:
+            return None
+        return m.group(1).strip(), int(m.group(2))
+    newest: dict[str, int] = {}
+    for p in [*passages, *extras]:
+        if s := series(p):
+            newest[s[0]] = max(newest.get(s[0], 0), s[1])
+
+    def keep(p: dict) -> bool:
+        s = series(p)
+        return s is None or s[1] >= newest[s[0]]
+    out = passages[:fixed] + [p for p in passages[fixed:] if keep(p)]
+    room = len(passages) - len(out)
+    return out + [p for p in extras if keep(p)][:room]
+
+
+def _newer(title: str, than: str) -> bool:
+    """'Hollow Eve Festival 458/Tasks' is newer than '...454/Tasks': the same title but for a higher number in it."""
+    if re.sub(r"\d+", "#", title) != re.sub(r"\d+", "#", than):
+        return False
+    return [int(n) for n in re.findall(r"\d+", title)] > [int(n) for n in re.findall(r"\d+", than)]
 
 
 def _signals(hits: list[Hit], question: str) -> dict:
@@ -480,6 +560,7 @@ class Assistant:
                 k = 0  # the table is the whole evidence; other pages only tempt the model to improvise
         mats = (plan.prebuilt or craft_ranks.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
                 or event_prizes.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
+                or sessions.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
                 or material_stats.passage(self.conn, plan.standalone_question, self.s.wiki.base_url)
                 or materials.passage(self.conn, plan.standalone_question, self.s.wiki.base_url))
         if mats:
@@ -521,16 +602,30 @@ class Assistant:
         plan.signals.update(_signals(hits, plan.standalone_question))
         extras: list[dict] = []
         taken = 0
+        fixed = len(passages)  # the pages asked for and the ones before: never swapped for a copy
+        shapes = [(p["title"], _shape(p["text"])) for p in passages]
         for h in hits:
             if h.chunk_id in have:
                 continue
             item = {"title": h.title, "section": h.section_path, "url": h.url, "text": h.text,
                     "chunk_id": h.chunk_id, "page_kind": h.page_kind}
+            shape = _shape(h.text)
+            copy = next((i for i, (title, s) in enumerate(shapes) if title != h.title and _same_shape(shape, s)), None)
+            if copy is not None:
+                # The same boilerplate on another year's page says nothing new and takes a page's slot. Of two years'
+                # copies the newer one is kept ("Hollow Eve Festival 458" over 454), unless the older was asked for.
+                if fixed <= copy < len(passages) and _newer(h.title, shapes[copy][0]):
+                    passages[copy], shapes[copy] = item, (h.title, shape)
+                continue
             if taken < k:
                 passages.append(item)
+                shapes.append((h.title, shape))  # one per passage, so an index into one is an index into the other
                 taken += 1
             else:
                 extras.append(item)
+        if k:
+            passages = _this_years(plan.standalone_question, passages, extras, fixed)
+            passages = self._follow_names(plan.standalone_question, passages, fixed)
         if k and WHO_KNOWS.search(plan.standalone_question):
             # "Which player knows the most about X?": the wiki's answer is in signed talk-page posts and players' own
             # pages, which rank below articles; a few of the best go in near the top so they survive the budget.
@@ -548,6 +643,46 @@ class Assistant:
         if not (passages and passages[0].get("answer")):
             passages.extend(self._history_passages(passages, plan.standalone_question))
         return passages, extras
+
+    def _follow_names(self, question: str, passages: list[dict], fixed: int) -> list[dict]:
+        """A passage about the subject that lacks the question's key word, but names a page that has it, brings that page's
+        opening right after it. "Forging tasks at Hollow Eve": the festival's Tasks section names Poltu, Bradyn and others
+        as giving crafting tasks, and only Poltu's own page says his use the Forging system."""
+        seen = {p["title"] for p in passages}
+        added: list[tuple[int, dict]] = []
+        for i, p in enumerate(passages[fixed:fixed + FOLLOW_FROM], start=fixed):
+            if len(added) >= FOLLOW_MAX or p.get("answer"):
+                break
+            missing = _key_stems(question) - _stems(p["title"]) - _stems(p["text"])
+            if not missing:
+                continue
+            low = p["text"].casefold()
+            for r in self.conn.execute(
+                    "SELECT t.page_id, t.title FROM page_links l JOIN pages f ON f.page_id=l.from_page_id "
+                    "JOIN pages t ON t.page_id=l.to_page_id WHERE f.title=? AND t.ns=0 AND t.is_redirect=0", (p["title"],)):
+                if r["title"] in seen or not re.search(rf"\b{re.escape(r['title'].casefold())}\b", low):
+                    continue
+                lead = self.conn.execute("SELECT chunk_id, title, section_path, anchor, text FROM chunks WHERE page_id=? "
+                                         "ORDER BY ord LIMIT 1", (r["page_id"],)).fetchone()
+                if lead and missing & _stems(lead["text"]):
+                    seen.add(r["title"])
+                    added.append((i, {"title": lead["title"], "section": lead["section_path"], "text": lead["text"],
+                                      "url": page_url(self.s.wiki.base_url, lead["title"], lead["anchor"]),
+                                      "chunk_id": lead["chunk_id"]}))
+                    if len(added) >= FOLLOW_MAX:
+                        break
+        if not added:
+            return passages
+        out = list(passages)
+        for i, item in reversed(added):
+            out.insert(i + 1, item)
+        new = {id(item) for _i, item in added}
+        while len(out) > len(passages):  # the budget stays: the lowest-ranked passages make room, never one just added
+            drop = next((j for j in range(len(out) - 1, fixed - 1, -1) if id(out[j]) not in new), None)
+            if drop is None:
+                break
+            out.pop(drop)
+        return out
 
     def _layered_passages(self, plan: Plan) -> list[dict]:
         """"Tell me about svidaw sis": each part of the answer read from its own sort of page, decided from the person's
@@ -667,7 +802,9 @@ class Assistant:
             yield Done(answer, [], [], [], memory.get_topic(self.conn, session_id), by_code=True)
             return
         if plan.kind != "meta" and plan.mode in ("search", "items") and not plan.prebuilt:
-            plan.prebuilt = self._craft_ranks(asked, plan, session_id) or self._event_prizes(asked, plan, session_id)
+            plan.prebuilt = (self._craft_ranks(asked, plan, session_id) or self._event_prizes(asked, plan, session_id)
+                             or sessions.passage(self.conn, asked, self.s.wiki.base_url)
+                             or self._material_colours(asked, plan, session_id))
         gate = grounding.Gate()
         if plan.kind != "meta" and plan.mode == "search" and not plan.prebuilt and not plan.pinned:
             # Something the wiki never mentions cannot be answered from it: say so in code, without the model, so it
@@ -1009,6 +1146,18 @@ class Assistant:
         return (event_prizes.passage(self.conn, asked, base, earlier)
                 or event_prizes.passage(self.conn, plan.standalone_question, base, earlier))
 
+    def _material_colours(self, asked: str, plan: Plan, session_id: str) -> list[dict] | None:
+        """A colour asked earlier carries over: "any for cloth?" after red metals, or "just the looks" after a ranking by
+        protection. Only for a follow-up that is about colour; a question of the table's stats goes to material_stats."""
+        earlier = list(reversed(memory.recent_questions(self.conn, session_id)))[1:]  # the newest is this question
+        if not earlier or material_stats.read(asked) is not None:
+            return None
+        base = self.s.wiki.base_url
+        for question in (asked, plan.standalone_question):
+            if materials.wants_colour(question) or materials.follow_colour(question, earlier):
+                return materials.passage(self.conn, question, base, earlier)
+        return None
+
     def _early_plan(self, asked: str, pasted: str, hist: list[dict[str, str]]) -> Plan | None:
         """A plan made by code, without the planner model, for messages code answers on its own: what time it is,
         and (with no conversation to resolve and nothing pasted) the crafting tables. Saves the planner call."""
@@ -1018,7 +1167,7 @@ class Assistant:
             return None
         question = strip_game_name(asked.strip()) or asked
         base = self.s.wiki.base_url
-        if prizes := event_prizes.passage(self.conn, question, base):
+        if prizes := event_prizes.passage(self.conn, question, base) or sessions.passage(self.conn, question, base):
             return Plan(question, kind="event_news", prebuilt=prizes)
         ready = (craft_ranks.passage(self.conn, question, base) or material_stats.passage(self.conn, question, base)
                  or materials.passage(self.conn, question, base))
